@@ -19,3 +19,8 @@ Thumbs.db
 # Test
 coverage.out
 *.test
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.env*
