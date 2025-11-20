@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ServiceConfig 单个服务监控配置
@@ -14,11 +16,30 @@ type ServiceConfig struct {
 	Method   string            `yaml:"method" json:"method"`
 	Headers  map[string]string `yaml:"headers" json:"headers"`
 	Body     string            `yaml:"body" json:"body"`
-	APIKey   string            `yaml:"api_key" json:"-"` // 不返回给前端
+
+	// SuccessContains 可选：响应体需包含的关键字，用于判定请求语义是否成功
+	SuccessContains string `yaml:"success_contains" json:"success_contains"`
+
+	// 解析后的“慢请求”阈值（来自全局配置），用于黄灯判定
+	SlowLatencyDuration time.Duration `yaml:"-" json:"-"`
+
+	APIKey string `yaml:"api_key" json:"-"` // 不返回给前端
 }
 
 // AppConfig 应用配置
 type AppConfig struct {
+	// 巡检间隔（支持 Go duration 格式，例如 "30s"、"1m", "5m"）
+	Interval string `yaml:"interval" json:"interval"`
+
+	// 解析后的巡检间隔（内部使用，不序列化）
+	IntervalDuration time.Duration `yaml:"-" json:"-"`
+
+	// 慢请求阈值（超过则从绿降为黄），支持 Go duration 格式，例如 "5s"、"3s"
+	SlowLatency string `yaml:"slow_latency" json:"slow_latency"`
+
+	// 解析后的慢请求阈值（内部使用，不序列化）
+	SlowLatencyDuration time.Duration `yaml:"-" json:"-"`
+
 	Monitors []ServiceConfig `yaml:"monitors"`
 }
 
@@ -62,6 +83,46 @@ func (c *AppConfig) Validate() error {
 	return nil
 }
 
+// Normalize 规范化配置（填充默认值等）
+func (c *AppConfig) Normalize() error {
+	// 巡检间隔
+	if c.Interval == "" {
+		c.IntervalDuration = time.Minute
+	} else {
+		d, err := time.ParseDuration(c.Interval)
+		if err != nil {
+			return fmt.Errorf("解析 interval 失败: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("interval 必须大于 0")
+		}
+		c.IntervalDuration = d
+	}
+
+	// 慢请求阈值
+	if c.SlowLatency == "" {
+		c.SlowLatencyDuration = 5 * time.Second
+	} else {
+		d, err := time.ParseDuration(c.SlowLatency)
+		if err != nil {
+			return fmt.Errorf("解析 slow_latency 失败: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("slow_latency 必须大于 0")
+		}
+		c.SlowLatencyDuration = d
+	}
+
+	// 将全局慢请求阈值下发到每个监控项
+	for i := range c.Monitors {
+		if c.Monitors[i].SlowLatencyDuration == 0 {
+			c.Monitors[i].SlowLatencyDuration = c.SlowLatencyDuration
+		}
+	}
+
+	return nil
+}
+
 // ApplyEnvOverrides 应用环境变量覆盖
 // 格式：MONITOR_<PROVIDER>_<SERVICE>_API_KEY
 func (c *AppConfig) ApplyEnvOverrides() {
@@ -86,6 +147,52 @@ func (m *ServiceConfig) ProcessPlaceholders() {
 
 	// Body 中替换
 	m.Body = strings.ReplaceAll(m.Body, "{{API_KEY}}", m.APIKey)
+}
+
+// ResolveBodyIncludes 允许 body 字段引用 data/ 目录下的 JSON 文件
+func (c *AppConfig) ResolveBodyIncludes(configDir string) error {
+	for i := range c.Monitors {
+		if err := c.Monitors[i].resolveBodyInclude(configDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *ServiceConfig) resolveBodyInclude(configDir string) error {
+	const includePrefix = "!include "
+	trimmed := strings.TrimSpace(m.Body)
+	if trimmed == "" || !strings.HasPrefix(trimmed, includePrefix) {
+		return nil
+	}
+
+	relativePath := strings.TrimSpace(trimmed[len(includePrefix):])
+	if relativePath == "" {
+		return fmt.Errorf("monitor provider=%s service=%s: body include 路径不能为空", m.Provider, m.Service)
+	}
+
+	if filepath.IsAbs(relativePath) {
+		return fmt.Errorf("monitor provider=%s service=%s: body include 必须使用相对路径", m.Provider, m.Service)
+	}
+
+	cleanPath := filepath.Clean(relativePath)
+	targetPath := filepath.Join(configDir, cleanPath)
+
+	dataDir := filepath.Clean(filepath.Join(configDir, "data"))
+	targetPath = filepath.Clean(targetPath)
+
+	// 确保引用的文件位于 data/ 目录内
+	if targetPath != dataDir && !strings.HasPrefix(targetPath, dataDir+string(os.PathSeparator)) {
+		return fmt.Errorf("monitor provider=%s service=%s: body include 路径必须位于 data/ 目录", m.Provider, m.Service)
+	}
+
+	content, err := os.ReadFile(targetPath)
+	if err != nil {
+		return fmt.Errorf("monitor provider=%s service=%s: 读取 body include 文件失败: %w", m.Provider, m.Service, err)
+	}
+
+	m.Body = string(content)
+	return nil
 }
 
 // Clone 深拷贝配置（用于热更新回滚）

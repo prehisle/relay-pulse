@@ -61,13 +61,29 @@ monitors:
       }
 ```
 
-### 3. 运行服务
+如果请求体较大，可将 JSON 放在 `data/` 目录并在 `body` 中引用：
+
+```yaml
+body: "!include data/cx_base.json"  # 路径必须位于 data/ 下
+```
+
+### 3. 配置巡检间隔
+
+可以在根级配置巡检频率（默认 1 分钟一次）：
+
+```yaml
+interval: "1m"  # 支持 Go duration 格式，例如 "30s"、"1m"、"5m"
+```
+
+修改保存后，调度器会在下一轮自动使用新的间隔。
+
+### 4. 运行服务
 
 ```bash
 go run cmd/server/main.go
 ```
 
-### 4. 测试 API
+### 5. 测试 API
 
 ```bash
 # 获取所有监控状态（24小时）

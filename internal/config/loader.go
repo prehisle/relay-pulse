@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -31,6 +32,12 @@ func (l *Loader) Load(filename string) (*AppConfig, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
+	absPath, err := filepath.Abs(filename)
+	if err != nil {
+		return nil, fmt.Errorf("解析配置文件路径失败: %w", err)
+	}
+	configDir := filepath.Dir(absPath)
+
 	// 验证配置
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("配置验证失败: %w", err)
@@ -38,6 +45,16 @@ func (l *Loader) Load(filename string) (*AppConfig, error) {
 
 	// 应用环境变量覆盖
 	cfg.ApplyEnvOverrides()
+
+	// 解析 body include
+	if err := cfg.ResolveBodyIncludes(configDir); err != nil {
+		return nil, err
+	}
+
+	// 规范化配置（填充默认值等）
+	if err := cfg.Normalize(); err != nil {
+		return nil, fmt.Errorf("配置规范化失败: %w", err)
+	}
 
 	// 处理占位符
 	for i := range cfg.Monitors {

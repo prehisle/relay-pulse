@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"monitor/internal/config"
@@ -17,8 +18,8 @@ import (
 type ProbeResult struct {
 	Provider  string
 	Service   string
-	Status    int   // 1=绿, 0=红, 2=黄
-	Latency   int   // ms
+	Status    int // 1=绿, 0=红, 2=黄
+	Latency   int // ms
 	Timestamp int64
 	Error     error
 }
@@ -76,11 +77,21 @@ func (p *Prober) Probe(ctx context.Context, cfg *config.ServiceConfig) *ProbeRes
 	}
 	defer resp.Body.Close()
 
-	// 完整读取响应体（避免连接泄漏）
-	_, _ = io.Copy(io.Discard, resp.Body)
+	// 完整读取响应体（避免连接泄漏），在需要内容匹配时保留文本
+	var bodyBytes []byte
+	if cfg.SuccessContains != "" {
+		if data, readErr := io.ReadAll(resp.Body); readErr == nil {
+			bodyBytes = data
+		} else {
+			log.Printf("[Probe] 读取响应体失败 %s-%s: %v", cfg.Provider, cfg.Service, readErr)
+		}
+	} else {
+		_, _ = io.Copy(io.Discard, resp.Body)
+	}
 
-	// 判定状态
-	result.Status = p.determineStatus(resp.StatusCode, latency)
+	// 判定状态（先按 HTTP/延迟，再根据响应内容做二次判断）
+	result.Status = p.determineStatus(resp.StatusCode, latency, cfg.SlowLatencyDuration)
+	result.Status = evaluateStatus(result.Status, bodyBytes, cfg.SuccessContains)
 
 	// 日志（不打印敏感信息）
 	log.Printf("[Probe] %s-%s | Code: %d | Latency: %dms | Status: %d",
@@ -89,12 +100,35 @@ func (p *Prober) Probe(ctx context.Context, cfg *config.ServiceConfig) *ProbeRes
 	return result
 }
 
+// evaluateStatus 在基础状态上叠加响应内容匹配规则
+func evaluateStatus(baseStatus int, body []byte, successContains string) int {
+	if successContains == "" {
+		return baseStatus
+	}
+	if baseStatus != 1 {
+		// 只有在 HTTP 判定为“绿”时才用内容做二次校验
+		return baseStatus
+	}
+
+	if len(body) == 0 {
+		// 没有响应内容，降级为红
+		return 0
+	}
+
+	if !strings.Contains(string(body), successContains) {
+		// 未包含预期内容，认为请求语义失败
+		return 0
+	}
+
+	return baseStatus
+}
+
 // determineStatus 根据HTTP状态码和延迟判定监控状态
-func (p *Prober) determineStatus(statusCode, latency int) int {
+func (p *Prober) determineStatus(statusCode, latency int, slowLatency time.Duration) int {
 	// 2xx = 绿色
 	if statusCode >= 200 && statusCode < 300 {
-		// 但如果延迟超过5秒，降级为黄色
-		if latency > 5000 {
+		// 如果延迟超过 slowLatency，降级为黄色
+		if slowLatency > 0 && latency > int(slowLatency/time.Millisecond) {
 			return 2
 		}
 		return 1

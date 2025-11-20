@@ -49,8 +49,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 创建调度器
-	sched := scheduler.NewScheduler(store, 1*time.Minute)
+	// 创建调度器（支持通过 config.yaml 配置 interval）
+	interval := cfg.IntervalDuration
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	sched := scheduler.NewScheduler(store, interval)
 	sched.Start(ctx, cfg)
 
 	// 创建API服务器

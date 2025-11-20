@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -42,6 +43,9 @@ func (w *Watcher) Start(ctx context.Context) error {
 		return err
 	}
 
+	// data 目录（用于 body include JSON）
+	dataDir := filepath.Clean(filepath.Join(dir, "data"))
+
 	log.Printf("[Config] 开始监听配置文件: %s (监听目录: %s)", w.filename, dir)
 
 	go func() {
@@ -58,8 +62,10 @@ func (w *Watcher) Start(ctx context.Context) error {
 					return
 				}
 
-				// 只关心目标文件的写入和创建事件
-				if event.Name != w.filename {
+				// 只关心目标配置文件和 data/ 目录下 JSON 的写入和创建事件
+				isConfigFile := event.Name == w.filename
+				isDataFile := strings.HasPrefix(filepath.Clean(event.Name), dataDir+string(filepath.Separator))
+				if !isConfigFile && !isDataFile {
 					continue
 				}
 

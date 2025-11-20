@@ -1,3 +1,6 @@
+interval: "1m"       # 巡检间隔，可写成 "30s"、"1m"、"5m" 等
+slow_latency: "5s"   # 慢请求阈值，超过则从绿降为黄
+
 monitors:
   # --- 88code ---
   - provider: "88code"
@@ -29,6 +32,8 @@ monitors:
         "messages": [{"role": "user", "content": "hi"}],
         "max_tokens": 1
       }
+    # 可选：要求响应体包含该关键字才视为成功（语义校验）
+    success_contains: "hi"
 
   # --- DuckCoding (演示不同的 Header 格式) ---
   - provider: "duckcoding"
@@ -46,3 +51,14 @@ monitors:
         "max_tokens": 1,
         "messages": [{"role": "user", "content": "hi"}]
       }
+
+  # --- 引用 data/ 目录下 JSON 的示例 ---
+  - provider: "demo"
+    service: "codex"
+    url: "https://88code.org/openai/v1/responses"
+    method: "POST"
+    api_key: "sk-demo"
+    headers:
+      Authorization: "Bearer {{API_KEY}}"
+      Content-Type: "application/json"
+    body: "!include data/cx_base.json"

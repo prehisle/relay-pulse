@@ -1,48 +1,87 @@
+interval: "5m"       # 巡检间隔，可写成 "30s"、"1m"、"5m" 等
+slow_latency: "5s"   # 慢请求阈值，超过则从绿降为黄
+
 monitors:
-  # --- 88code (测试修复后的热更新) ---
-  - provider: "88code"
-    service: "cc"
-    url: "https://api.88code.com/v1/chat/completions"
+  # # --- 88code (测试修复后的热更新) ---
+  # - provider: "88code"
+  #   service: "cc"
+  #   url: "https://api.88code.com/v1/chat/completions"
+  #   method: "POST"
+  #   api_key: "sk-xxxxxxxx"  # 可通过环境变量 MONITOR_88CODE_CC_API_KEY 覆盖
+  #   headers:
+  #     Authorization: "Bearer {{API_KEY}}"
+  #     Content-Type: "application/json"
+  #   body: |
+  #     {
+  #       "model": "claude-3-opus",
+  #       "messages": [{"role": "user", "content": "hi"}],
+  #       "max_tokens": 1
+  #     }
+
+  # - provider: "88code"
+  #   service: "cx"
+  #   url: "https://api.88code.com/v1/chat/completions"
+  #   method: "POST"
+  #   api_key: "sk-xxxxxxxx"
+  #   headers:
+  #     Authorization: "Bearer {{API_KEY}}"
+  #     Content-Type: "application/json"
+  #   body: |
+  #     {
+  #       "model": "gpt-4",
+  #       "messages": [{"role": "user", "content": "hi"}],
+  #       "max_tokens": 1
+  #     }
+
+  # # --- DuckCoding (演示不同的 Header 格式) ---
+  # - provider: "duckcoding"
+  #   service: "cc"
+  #   url: "https://api.duckcoding.com/v1/messages"
+  #   method: "POST"
+  #   api_key: "sk-duck-xxxx"
+  #   headers:
+  #     x-api-key: "{{API_KEY}}"
+  #     anthropic-version: "2023-06-01"
+  #     content-type: "application/json"
+  #   body: |
+  #     {
+  #       "model": "claude-3-sonnet",
+  #       "max_tokens": 1,
+  #       "messages": [{"role": "user", "content": "hi"}]
+  #     }
+
+  # --- piapi (内网服务) ---
+  - provider: "piapi"
+    service: "claude_code"
+    url: "http://192.168.1.31:9200/piapi/claude_code/api/v1/messages"
     method: "POST"
-    api_key: "sk-xxxxxxxx"  # 可通过环境变量 MONITOR_88CODE_CC_API_KEY 覆盖
+    api_key: "piapi_key_438291e64fa036f74fcedbbfbdc40535"
     headers:
       Authorization: "Bearer {{API_KEY}}"
       Content-Type: "application/json"
-    body: |
-      {
-        "model": "claude-3-opus",
-        "messages": [{"role": "user", "content": "hi"}],
-        "max_tokens": 1
-      }
+    body: "!include data/cc_base.json"
+    success_contains: "isNewTopic"
 
-  - provider: "88code"
-    service: "cx"
-    url: "https://api.88code.com/v1/chat/completions"
+
+  - provider: "piapi"
+    service: "codex"
+    url: "http://192.168.1.31:9200/piapi/codex/openai/v1/responses"
     method: "POST"
-    api_key: "sk-xxxxxxxx"
+    api_key: "piapi_key_438291e64fa036f74fcedbbfbdc40535"
     headers:
       Authorization: "Bearer {{API_KEY}}"
+      openai-beta: "responses=experimental"
       Content-Type: "application/json"
-    body: |
-      {
-        "model": "gpt-4",
-        "messages": [{"role": "user", "content": "hi"}],
-        "max_tokens": 1
-      }
-
-  # --- DuckCoding (演示不同的 Header 格式) ---
-  - provider: "duckcoding"
-    service: "cc"
-    url: "https://api.duckcoding.com/v1/messages"
-    method: "POST"
-    api_key: "sk-duck-xxxx"
-    headers:
-      x-api-key: "{{API_KEY}}"
-      anthropic-version: "2023-06-01"
-      content-type: "application/json"
-    body: |
-      {
-        "model": "claude-3-sonnet",
-        "max_tokens": 1,
-        "messages": [{"role": "user", "content": "hi"}]
-      }
+    body: "!include data/cx_base.json"
+    success_contains: "pong"
+  # --- 88codex (Responses API) ---
+  # - provider: "88codex"
+  #   service: "codex"
+  #   url: "https://88code.org/openai/v1/responses"
+  #   method: "POST"
+  #   api_key: "88_fa71feb2c892e983c6bcbabee3e2587006ab4b3228853f685efb9696e2cae3b6"
+  #   headers:
+  #     Authorization: "Bearer {{API_KEY}}"
+  #     openai-beta: "responses=experimental"
+  #     Content-Type: "application/json"
+  #   body: "!include data/cx_base.json"

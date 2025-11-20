@@ -146,6 +146,20 @@ func (s *Scheduler) UpdateConfig(cfg *config.AppConfig) {
 	s.cfgMu.Lock()
 	s.cfg = cfg
 	s.cfgMu.Unlock()
+
+	// 如果配置中带有新的巡检间隔，动态调整 ticker
+	if cfg.IntervalDuration > 0 {
+		s.mu.Lock()
+		if s.interval != cfg.IntervalDuration {
+			s.interval = cfg.IntervalDuration
+			if s.ticker != nil {
+				s.ticker.Reset(s.interval)
+				log.Printf("[Scheduler] 巡检间隔已更新为: %v", s.interval)
+			}
+		}
+		s.mu.Unlock()
+	}
+
 	log.Printf("[Scheduler] 配置已更新，下次巡检将使用新配置")
 }
 
