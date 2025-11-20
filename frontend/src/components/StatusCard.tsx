@@ -4,10 +4,12 @@ import { HeatmapBlock } from './HeatmapBlock';
 import { STATUS } from '../constants';
 import type { ProcessedMonitorData } from '../types';
 
+type HistoryPoint = ProcessedMonitorData['history'][number];
+
 interface StatusCardProps {
   item: ProcessedMonitorData;
   timeRange: string;
-  onBlockHover: (e: React.MouseEvent<HTMLDivElement>, point: any) => void;
+  onBlockHover: (e: React.MouseEvent<HTMLDivElement>, point: HistoryPoint) => void;
   onBlockLeave: () => void;
 }
 
@@ -45,13 +47,21 @@ export function StatusCard({ item, timeRange, onBlockHover, onBlockLeave }: Stat
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
+        <div className="flex flex-col items-end gap-1.5">
           <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 border border-slate-700">
             <StatusDot status={item.currentStatus} />
             <span className={`text-xs font-bold ${STATUS[item.currentStatus].text}`}>
               {STATUS[item.currentStatus].label}
             </span>
           </div>
+          {item.lastCheckTimestamp && (
+            <div className="text-[10px] text-slate-500 font-mono flex flex-col items-end gap-0.5">
+              <span>{new Date(item.lastCheckTimestamp * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+              {item.lastCheckLatency !== undefined && (
+                <span className="text-slate-600">{item.lastCheckLatency}ms</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

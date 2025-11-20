@@ -1,12 +1,8 @@
 import { STATUS } from '../constants';
-import type { StatusKey } from '../types';
+import type { ProcessedMonitorData } from '../types';
 
-interface HeatmapPoint {
-  index: number;
-  status: StatusKey;
-  timestamp: string;
-  latency: number;
-}
+// 直接使用 ProcessedMonitorData 中的 history 类型，确保字段完整性
+type HeatmapPoint = ProcessedMonitorData['history'][number];
 
 interface HeatmapBlockProps {
   point: HeatmapPoint;

@@ -14,9 +14,10 @@ type ProbeRecord struct {
 
 // TimePoint 时间轴数据点（用于前端展示）
 type TimePoint struct {
-	Time    string `json:"time"`
-	Status  int    `json:"status"`
-	Latency int    `json:"latency"`
+	Time      string `json:"time"`      // 格式化时间标签（如 "15:04" 或 "2006-01-02"）
+	Timestamp int64  `json:"timestamp"` // Unix 时间戳（秒），用于前端精确时间计算
+	Status    int    `json:"status"`    // 状态码：1=绿，0=红，2=黄，-1=缺失
+	Latency   int    `json:"latency"`   // 延迟（毫秒）
 }
 
 // Storage 存储接口
