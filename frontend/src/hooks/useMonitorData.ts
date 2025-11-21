@@ -60,6 +60,9 @@ export function useMonitorData({
       setLoading(true);
       setError(null);
 
+      // 记录开始时间（在 try 外面，确保网络错误也能追踪性能）
+      const startTime = USE_MOCK_DATA ? 0 : performance.now();
+
       try {
         let processed: ProcessedMonitorData[];
 
@@ -69,19 +72,20 @@ export function useMonitorData({
         } else {
           // 使用真实 API
           const url = `${API_BASE_URL}/api/status?period=${timeRange}`;
-          const startTime = performance.now();
 
           const response = await fetch(url);
           const duration = Math.round(performance.now() - startTime);
 
           if (!response.ok) {
-            trackAPIError('/api/status', `HTTP ${response.status}`, response.statusText);
+            // 追踪 HTTP 错误（失败的性能和错误事件）
+            trackAPIPerformance('/api/status', duration, false);
+            trackAPIError('/api/status', `HTTP_${response.status}`, 'HTTP Error');
             throw new Error(`HTTP error! status: ${response.status}`);
           }
 
           const json: ApiResponse = await response.json();
 
-          // 追踪 API 性能
+          // 追踪成功的 API 性能
           trackAPIPerformance('/api/status', duration, true);
 
           // 转换为前端数据格式
@@ -136,9 +140,13 @@ export function useMonitorData({
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         setError(errorMessage);
 
-        // 追踪网络错误
-        if (!USE_MOCK_DATA) {
-          trackAPIError('/api/status', 'Network Error', errorMessage);
+        // 只追踪真正的网络错误（fetch 失败、连接超时等）
+        // HTTP 错误已经在上面追踪过了，避免重复
+        if (!USE_MOCK_DATA && !errorMessage.startsWith('HTTP error!')) {
+          const duration = Math.round(performance.now() - startTime);
+          // 追踪网络错误的性能和错误事件
+          trackAPIPerformance('/api/status', duration, false);
+          trackAPIError('/api/status', 'NETWORK_ERROR', 'Network failure');
         }
       } finally {
         if (isMounted) {

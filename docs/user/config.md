@@ -265,6 +265,67 @@ MONITOR_POSTGRES_SSLMODE=require
 MONITOR_CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
 
+### 前端环境变量
+
+前端支持以下环境变量（需在构建时设置）：
+
+#### API 配置
+
+```bash
+# API 基础 URL（可选，默认为相对路径）
+VITE_API_BASE_URL=http://localhost:8080
+
+# 是否使用 Mock 数据（开发调试用）
+VITE_USE_MOCK_DATA=false
+```
+
+#### Google Analytics（可选）
+
+```bash
+# GA4 Measurement ID（格式: G-XXXXXXXXXX）
+VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX
+```
+
+**获取 GA4 Measurement ID**：
+1. 访问 [Google Analytics](https://analytics.google.com/)
+2. 创建或选择属性
+3. 在"管理" > "数据流" > "网站"中查看 Measurement ID
+
+**使用方式**：
+
+```bash
+# 开发环境：在 frontend/.env.development 中设置
+VITE_GA_MEASUREMENT_ID=
+
+# 生产环境：在 frontend/.env.production 中设置
+VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX
+
+# 或在构建时通过环境变量传入
+export VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX
+cd frontend && npm run build
+```
+
+**追踪事件**：
+
+GA4 会自动追踪以下事件：
+- **页面浏览**（自动） - 用户访问仪表板
+- **用户筛选**：
+  - `change_time_range` - 切换时间范围（24h/7d/30d）
+  - `filter_service` - 筛选服务提供商或服务类型
+  - `filter_channel` - 筛选业务通道
+  - `filter_category` - 筛选分类（commercial/public）
+- **用户交互**：
+  - `change_view_mode` - 切换视图模式（table/grid）
+  - `manual_refresh` - 点击刷新按钮
+  - `click_external_link` - 点击外部链接（查看提供商/赞助商）
+- **性能监控**：
+  - `api_request` - API 请求性能（包含延迟、成功/失败状态）
+  - `api_error` - API 错误（包含错误类型：HTTP_XXX、NETWORK_ERROR）
+
+**注意**：
+- 开发环境建议留空 `VITE_GA_MEASUREMENT_ID`，避免污染生产数据
+- 如果未设置 Measurement ID，GA4 脚本不会加载
+
 ## 配置验证
 
 服务启动时会自动验证配置：

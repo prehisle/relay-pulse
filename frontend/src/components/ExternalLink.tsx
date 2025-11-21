@@ -23,12 +23,12 @@ export function ExternalLink({ href, children, className = '', trackLabel }: Ext
   const isHttp = href.startsWith('http://');
 
   const handleClick = () => {
-    if (trackLabel) {
-      trackEvent('click_external_link', {
-        label: trackLabel,
-        url: href,
-      });
-    }
+    // 自动生成 label：优先使用 trackLabel，否则使用 children（如果是字符串）
+    const label = trackLabel || (typeof children === 'string' ? children : href);
+    trackEvent('click_external_link', {
+      label,
+      url: href,
+    });
   };
 
   return (

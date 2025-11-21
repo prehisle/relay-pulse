@@ -6,7 +6,7 @@ import { StatusTable } from './components/StatusTable';
 import { StatusCard } from './components/StatusCard';
 import { Tooltip } from './components/Tooltip';
 import { useMonitorData } from './hooks/useMonitorData';
-import { trackPeriodChange, trackServiceFilter, trackViewServiceDetail } from './utils/analytics';
+import { trackPeriodChange, trackServiceFilter, trackEvent } from './utils/analytics';
 import type { ViewMode, SortConfig, TooltipState, ProcessedMonitorData } from './types';
 
 function App() {
@@ -46,6 +46,25 @@ function App() {
     );
   }, [filterProvider, filterService]);
 
+  // 追踪通道筛选变化
+  useEffect(() => {
+    if (filterChannel !== 'all') {
+      trackEvent('filter_channel', { channel: filterChannel });
+    }
+  }, [filterChannel]);
+
+  // 追踪分类筛选变化
+  useEffect(() => {
+    if (filterCategory !== 'all') {
+      trackEvent('filter_category', { category: filterCategory });
+    }
+  }, [filterCategory]);
+
+  // 追踪视图模式切换
+  useEffect(() => {
+    trackEvent('change_view_mode', { mode: viewMode });
+  }, [viewMode]);
+
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'desc';
     if (sortConfig.key === key && sortConfig.direction === 'desc') {
@@ -69,6 +88,11 @@ function App() {
 
   const handleBlockLeave = () => {
     setTooltip((prev) => ({ ...prev, show: false }));
+  };
+
+  const handleRefresh = () => {
+    trackEvent('manual_refresh');
+    refetch();
   };
 
   return (
@@ -102,7 +126,7 @@ function App() {
           onCategoryChange={setFilterCategory}
           onTimeRangeChange={setTimeRange}
           onViewModeChange={setViewMode}
-          onRefresh={refetch}
+          onRefresh={handleRefresh}
         />
 
         {/* 内容区域 */}
