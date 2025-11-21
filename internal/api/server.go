@@ -167,13 +167,23 @@ func setupStaticFiles(router *gin.Engine) {
 
 	// SPA 路由回退 - 所有未匹配的路由返回 index.html
 	router.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+
 		// API 路径返回 404
-		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+		if strings.HasPrefix(path, "/api/") {
 			c.JSON(http.StatusNotFound, gin.H{"error": "API endpoint not found"})
 			return
 		}
 
-		// 其他路径返回前端 index.html
+		// 静态资源缺失直接返回 404，避免 SPA 回退导致 MIME 类型错误
+		// 当 /assets/ 下的文件不存在时，StaticFS 不处理，请求会落入 NoRoute
+		// 如果回退到 index.html，浏览器会因为 MIME 类型是 text/html 而报错
+		if strings.HasPrefix(path, "/assets/") {
+			c.Status(http.StatusNotFound)
+			return
+		}
+
+		// 其他路径返回前端 index.html（SPA 路由）
 		data, err := fs.ReadFile(distFS, "index.html")
 		if err != nil {
 			c.String(http.StatusInternalServerError, "Failed to load frontend")

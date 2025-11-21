@@ -11,6 +11,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VERSION: ${MONITOR_VERSION:-dev}
+        GIT_COMMIT: ${MONITOR_GIT_COMMIT:-unknown}
+        BUILD_TIME: ${MONITOR_BUILD_TIME:-unknown}
 
     container_name: relaypulse-monitor
 
