@@ -31,15 +31,40 @@ monitor/
 └── Dockerfile                  # 多阶段构建
 ```
 
-## 快速开始
+## 快速部署
 
-### 1. 安装依赖
+### 🚀 Docker 一键启动（推荐）
+
+```bash
+# 1. 下载配置
+curl -O https://raw.githubusercontent.com/prehisle/relay-pulse/main/docker-compose.yaml
+curl -O https://raw.githubusercontent.com/prehisle/relay-pulse/main/config.yaml.example
+
+# 2. 准备配置
+cp config.yaml.example config.yaml
+vim config.yaml  # 填入你的 API Key
+
+# 3. 一键启动
+docker compose up -d
+
+# 4. 访问服务
+open http://localhost:8080
+```
+
+**详细教程**: 📖 [QUICKSTART.md](QUICKSTART.md)
+
+---
+
+### 📦 本地开发
+
+#### 1. 安装依赖
 
 ```bash
 go mod tidy
+cd frontend && npm install
 ```
 
-### 2. 配置服务
+#### 2. 配置服务
 
 复制示例配置：
 

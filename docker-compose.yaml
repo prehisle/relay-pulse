@@ -5,14 +5,13 @@ services:
   # 方式一：使用 SQLite (默认，单机部署)
   # ============================================
   monitor:
-    # 本地构建（开发环境推荐）
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: relay-pulse:latest
+    # 使用预构建镜像（生产环境推荐）
+    image: ghcr.io/prehisle/relay-pulse:latest
 
-    # 生产环境可使用预构建镜像（取消注释）:
-    # image: ghcr.io/prehisle/relay-pulse:latest
+    # 本地构建（开发环境，取消注释）:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
 
     container_name: relaypulse-monitor
 
