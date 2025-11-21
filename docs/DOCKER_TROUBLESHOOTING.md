@@ -66,8 +66,8 @@ docker run -d \
   --name relaypulse-monitor \
   --network relay-pulse-network \
   -p 8080:8080 \
-  -v $(pwd)/config.yaml:/app/config.yaml:ro \
-  -v relay-pulse-data:/app \
+  -v $(pwd)/config.yaml:/config/config.yaml:ro \
+  -v relay-pulse-data:/data \
   -e TZ=Asia/Shanghai \
   --restart unless-stopped \
   ghcr.io/prehisle/relay-pulse:latest
@@ -78,6 +78,8 @@ docker logs -f relaypulse-monitor
 # 停止容器
 docker stop relaypulse-monitor && docker rm relaypulse-monitor
 ```
+
+> ⚠️ 仅挂载 `/data`（而不是整个 `/app`）可避免覆盖镜像内的最新二进制与静态资源，确保升级后容器立即获得新版本。
 
 ---
 

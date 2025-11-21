@@ -68,6 +68,30 @@ SELECT COUNT(*) FROM probe_history;
 SELECT * FROM probe_history ORDER BY timestamp DESC LIMIT 10;
 ```
 
+## 数据保留策略
+
+Relay Pulse 每 24 小时自动执行一次 `CleanOldRecords(30)`，删除 `probe_history` 中超过 30 天的样本数据（适用于 SQLite 与 PostgreSQL）。
+
+**查看执行情况**
+
+```bash
+docker compose logs monitor | grep "已清理"
+```
+
+**SQLite 手动清理**
+
+```bash
+docker compose exec monitor sqlite3 /data/monitor.db "DELETE FROM probe_history WHERE timestamp < strftime('%s','now','-30 day'); VACUUM;"
+```
+
+**PostgreSQL 手动清理**
+
+```bash
+docker compose exec postgres psql -U monitor -d llm_monitor -c "DELETE FROM probe_history WHERE timestamp < EXTRACT(EPOCH FROM NOW() - INTERVAL '30 days'); VACUUM;"
+```
+
+- 保留窗口目前固定为 30 天，如需不同策略请在 Issue 中反馈或在自定义构建中调整。
+
 ## 日志管理
 
 ### 查看日志
@@ -379,7 +403,7 @@ environment:
 **症状**：
 ```
 Access to fetch at 'http://localhost:8080/api/status' from origin
-'http://101.43.99.185:8080' has been blocked by CORS policy
+'http://example.com:8080' has been blocked by CORS policy
 ```
 
 **原因**：前端硬编码了 API 基础URL
@@ -497,7 +521,9 @@ touch config.yaml
 
 ## 监控告警
 
-### Prometheus 集成
+### Prometheus 集成（🔮 未来功能）
+
+> 此功能仍在规划阶段，以下端口暴露示例仅供提前预留资源。
 
 暴露 Prometheus metrics（可选，未来功能）：
 

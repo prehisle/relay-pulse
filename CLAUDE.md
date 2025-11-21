@@ -352,5 +352,5 @@ export MONITOR_DUCKCODING_CC_API_KEY="sk-duck-key"
 ## 相关文档
 
 - 完整开发指南：`CONTRIBUTING.md`
-- API 设计细节：`docs/prds.md`
+- API 设计细节：`archive/prds.md`（历史参考）
 - 实现笔记：`docs/IMPLEMENTATION.md`

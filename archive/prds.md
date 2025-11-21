@@ -1,6 +1,8 @@
 
 # LLM Service Monitor Backend (With Hot Reload)
 
+> **状态**: 历史参考（已迁移至 `archive/`），内容不再更新，仅供回溯早期 PRD。
+
 ## 1. 项目说明
 
 这是一个基于 Go 的后端服务，用于监控多个 LLM 渠道的可用性。

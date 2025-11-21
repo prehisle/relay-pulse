@@ -34,18 +34,39 @@ pre-commit install
 ```bash
 # 1. 克隆项目
 git clone <repo-url>
-cd ysh
+cd relay-pulse
 
-# 2. 安装依赖
+# 2. 安装 Go 依赖
 go mod download
 
-# 3. 复制配置
+# 3. 构建前端（首次或 dist 目录缺失时执行）
+cd frontend
+npm install
+npm run build
+cd ..
+
+# 4. 复制配置
 cp config.yaml.example config.yaml
 
-# 4. 编译运行
+# 5. 编译运行
 go build -o monitor ./cmd/server
 ./monitor
 ```
+
+> 💡 `./scripts/setup-dev.sh` 会自动执行前端构建与复制、检查 `config.yaml` 是否存在，并支持 `--rebuild-frontend` 强制重新打包。更新前端或拉取最新 main 后运行该脚本，可确保 `internal/api/frontend` 与 UI 保持一致。
+
+### 前端构建与调试
+
+```bash
+cd frontend
+npm install           # 安装依赖
+npm run dev           # 启动 Vite 开发服务器 (http://localhost:5173)
+npm run build         # 生成 dist，用于后端 embed
+npm run preview       # 预览生产构建
+```
+
+- `npm run dev` 访问后端 API（跨域需求可在 `.env.development` 中设置 `VITE_API_BASE_URL`）。
+- 本地修改前端后，需要 `npm run build` 并执行 `./scripts/setup-dev.sh --rebuild-frontend`，以同步嵌入的静态文件。
 
 ---
 

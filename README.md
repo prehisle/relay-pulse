@@ -58,19 +58,32 @@ go run cmd/server/main.go
 
 ## 📖 文档导航
 
+### 快速索引
+
+| 我要... | 看这个 |
+|---------|--------|
+| 🚀 快速部署 | [Docker 安装](docs/user/install.md#docker-部署推荐) |
+| 💻 本地开发 | [快速回忆清单](docs/developer/quick-recall.md#-3分钟重新上手) |
+| ⚙️ 配置监控项 | [配置手册](docs/user/config.md#监控项配置) |
+| 🔧 排查问题 | [运维手册 - 故障排查](docs/user/operations.md#故障排查) |
+| 🏗️ 了解架构 | [架构概览](docs/developer/overview.md) |
+| 🔄 3个月后回来 | [快速回忆清单](docs/developer/quick-recall.md) |
+
+---
+
 ### 用户文档
 - [安装指南](docs/user/install.md) - Docker/K8s/二进制部署
 - [配置手册](docs/user/config.md) - YAML 配置、环境变量、安全实践
 - [运维手册](docs/user/operations.md) - 健康检查、备份恢复、故障排查
 
 ### 开发者文档
+- [快速回忆清单](docs/developer/quick-recall.md) - ⭐ 3个月后快速重新上手
 - [架构概览](docs/developer/overview.md) - 系统设计、模块说明
-- [开发工作流](docs/developer/workflow.md) - 本地开发、测试、发布流程
 - [贡献指南](CONTRIBUTING.md) - 代码规范、提交规范
+- [部署手册](docs/deployment.md) - 多环境部署、CI/CD 建议
 
 ### 参考文档
-- [API 规范](docs/reference/api.md) - REST API 端点和响应格式
-- [发布流程](docs/reference/release.md) - 版本管理、构建打包
+- API 规范与发布流程文档正在整理，欢迎在 Issue 中提出需求或直接贡献 PR。
 
 ## 🔧 配置示例
 
@@ -130,7 +143,7 @@ curl http://localhost:8080/health
 curl http://localhost:8080/api/version
 ```
 
-**完整 API 文档**：[docs/reference/api.md](docs/reference/api.md)
+> 🔧 API 参考章节正在整理，以上端点示例即当前权威来源。
 
 ## 🛠️ 技术栈
 
