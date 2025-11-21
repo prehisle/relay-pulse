@@ -122,8 +122,27 @@ func setupStaticFiles(router *gin.Engine) {
 		return
 	}
 
+	// 获取 assets 子目录文件系统
+	// StaticFS("/assets", ...) 会将 /assets/file.js 映射到文件系统根目录的 file.js
+	// 所以需要创建一个子文件系统指向 assets 目录
+	assetsFS, err := fs.Sub(distFS, "assets")
+	if err != nil {
+		log.Printf("[API] 警告: 无法加载 assets 文件系统: %v", err)
+		return
+	}
+
 	// 静态资源路径（CSS、JS等）
-	router.StaticFS("/assets", http.FS(distFS))
+	router.StaticFS("/assets", http.FS(assetsFS))
+
+	// vite.svg 等根目录静态文件
+	router.GET("/vite.svg", func(c *gin.Context) {
+		data, err := fs.ReadFile(distFS, "vite.svg")
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Data(http.StatusOK, "image/svg+xml", data)
+	})
 
 	// SPA 路由回退 - 所有未匹配的路由返回 index.html
 	router.NoRoute(func(c *gin.Context) {
