@@ -5,6 +5,14 @@ export interface TimePoint {
   status: number;       // 1=可用, 0=不可用, 2=波动, -1=缺失（bucket内最后一条）
   latency: number;      // 平均延迟(ms)
   availability: number; // 可用率百分比(0-100)，缺失时为 -1
+  status_counts?: StatusCounts; // 各状态计数（可选，向后兼容）
+}
+
+export interface StatusCounts {
+  available: number;   // 绿色（可用）次数
+  degraded: number;    // 黄色（波动/降级）次数
+  unavailable: number; // 红色（不可用）次数
+  missing: number;     // 灰色（无数据/未配置）次数
 }
 
 export interface CurrentStatus {
@@ -69,6 +77,7 @@ export interface ProcessedMonitorData {
     timestampNum: number;     // Unix 时间戳（秒）
     latency: number;
     availability: number;     // 可用率百分比(0-100)，缺失时为 -1
+    statusCounts: StatusCounts; // 各状态计数
   }>;
   currentStatus: StatusKey;
   uptime: number;             // 可用率百分比
@@ -109,6 +118,7 @@ export interface TooltipState {
     timestampNum: number;  // Unix 时间戳（秒）
     latency: number;
     availability: number;  // 可用率百分比(0-100)，缺失时为 -1
+    statusCounts: StatusCounts; // 各状态计数
   } | null;
 }
 

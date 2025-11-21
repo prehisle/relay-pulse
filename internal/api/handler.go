@@ -164,6 +164,7 @@ type bucketStats struct {
 	weightedSuccess float64              // 累积成功权重（绿=1.0, 黄=degraded_weight, 红=0.0）
 	latencySum      int64                // 延迟总和
 	last            *storage.ProbeRecord // 最新一条记录
+	statusCounts    storage.StatusCounts // 各状态计数
 }
 
 // buildTimeline 构建固定长度的时间轴，计算每个 bucket 的可用率和平均延迟
@@ -213,6 +214,7 @@ func (h *Handler) buildTimeline(records []*storage.ProbeRecord, period string, d
 		stat.total++
 		stat.weightedSuccess += availabilityWeight(record.Status, degradedWeight)
 		stat.latencySum += int64(record.Latency)
+		incrementStatusCount(&stat.statusCounts, record.Status)
 
 		// 保留最新记录
 		if stat.last == nil || record.Timestamp > stat.last.Timestamp {
@@ -223,6 +225,7 @@ func (h *Handler) buildTimeline(records []*storage.ProbeRecord, period string, d
 	// 根据聚合结果计算可用率和平均延迟
 	for i := 0; i < bucketCount; i++ {
 		stat := &stats[i]
+		buckets[i].StatusCounts = stat.statusCounts
 		if stat.total == 0 {
 			continue
 		}
@@ -275,5 +278,19 @@ func availabilityWeight(status int, degradedWeight float64) float64 {
 		return degradedWeight
 	default: // 红色（不可用）或灰色（未配置）
 		return 0.0
+	}
+}
+
+// incrementStatusCount 统计每种状态出现次数
+func incrementStatusCount(counts *storage.StatusCounts, status int) {
+	switch status {
+	case 1: // 绿色
+		counts.Available++
+	case 2: // 黄色
+		counts.Degraded++
+	case 0: // 红色
+		counts.Unavailable++
+	default: // 灰色（3）或其他
+		counts.Missing++
 	}
 }

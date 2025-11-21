@@ -1,5 +1,5 @@
 import { PROVIDERS, TIME_RANGES } from '../constants';
-import type { ProcessedMonitorData, StatusKey } from '../types';
+import type { ProcessedMonitorData, StatusKey, StatusCounts } from '../types';
 
 /**
  * 模拟数据生成器 - 完全复刻 docs/front.jsx 的逻辑
@@ -48,6 +48,14 @@ export function fetchMockMonitorData(timeRangeId: string): Promise<ProcessedMoni
 
             const timestampMs = Date.now() - (count - index) * (rangeConfig.unit === 'hour' ? 3600000 : 86400000);
 
+            // 模拟状态计数（单次探测，所以只有一个状态为 1）
+            const statusCounts: StatusCounts = {
+              available: statusKey === 'AVAILABLE' ? 1 : 0,
+              degraded: statusKey === 'DEGRADED' ? 1 : 0,
+              unavailable: statusKey === 'UNAVAILABLE' ? 1 : 0,
+              missing: statusKey === 'MISSING' ? 1 : 0,
+            };
+
             return {
               index,
               status: statusKey,
@@ -55,6 +63,7 @@ export function fetchMockMonitorData(timeRangeId: string): Promise<ProcessedMoni
               timestampNum: Math.floor(timestampMs / 1000),  // Unix 时间戳（秒）
               latency,
               availability,
+              statusCounts,
             };
           });
 

@@ -4,6 +4,7 @@ import type {
   ProcessedMonitorData,
   SortConfig,
   StatusKey,
+  StatusCounts,
 } from '../types';
 import { API_BASE_URL, STATUS, USE_MOCK_DATA } from '../constants';
 import { fetchMockMonitorData } from '../utils/mockMonitor';
@@ -29,6 +30,14 @@ const statusMap: Record<number, StatusKey> = {
   3: 'MISSING',  // 未配置/认证失败
   '-1': 'MISSING',  // 缺失数据
 };
+
+// 映射状态计数，提供默认值以向后兼容
+const mapStatusCounts = (counts?: StatusCounts): StatusCounts => ({
+  available: counts?.available ?? 0,
+  degraded: counts?.degraded ?? 0,
+  unavailable: counts?.unavailable ?? 0,
+  missing: counts?.missing ?? 0,
+});
 
 interface UseMonitorDataOptions {
   timeRange: string;
@@ -97,6 +106,7 @@ export function useMonitorData({
               timestampNum: point.timestamp,  // Unix 时间戳（秒）
               latency: point.latency,
               availability: point.availability,  // 可用率百分比
+              statusCounts: mapStatusCounts(point.status_counts), // 映射状态计数
             }));
 
             const currentStatus = item.current_status
