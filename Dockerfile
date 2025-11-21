@@ -1,5 +1,22 @@
 # ============================================
-# Stage 1: Backend Builder (Go)
+# Stage 1: Frontend Builder (Node.js)
+# ============================================
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /build
+
+# 复制 package.json 和 lock 文件,利用缓存
+COPY frontend/package*.json ./
+RUN npm ci
+
+# 复制前端源代码
+COPY frontend/ ./
+
+# 构建生产版本
+RUN npm run build
+
+# ============================================
+# Stage 2: Backend Builder (Go)
 # ============================================
 FROM golang:1.24-alpine AS backend-builder
 ARG TARGETOS=linux
@@ -21,26 +38,12 @@ RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 
-# 编译静态二进制文件 (无 CGO 依赖,支持多架构)
+# 从前端构建阶段复制构建产物到 Go embed 目录
+COPY --from=frontend-builder /build/dist ./internal/api/frontend/dist
+
+# 编译静态二进制文件 (前端文件已嵌入)
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-amd64} \
     go build -ldflags="-s -w" -o /build/monitor ./cmd/server
-
-# ============================================
-# Stage 2: Frontend Builder (Node.js)
-# ============================================
-FROM node:20-alpine AS frontend-builder
-
-WORKDIR /build
-
-# 复制 package.json 和 lock 文件,利用缓存
-COPY frontend/package*.json ./
-RUN npm ci
-
-# 复制前端源代码
-COPY frontend/ ./
-
-# 构建生产版本
-RUN npm run build
 
 # ============================================
 # Stage 3: Runtime (Minimal Image)
@@ -52,11 +55,8 @@ WORKDIR /app
 # 安装必要的运行时依赖
 RUN apk add --no-cache ca-certificates tzdata bash wget
 
-# 从后端 builder 复制二进制文件
+# 从后端 builder 复制二进制文件（前端已嵌入）
 COPY --from=backend-builder /build/monitor /app/monitor
-
-# 从前端 builder 复制构建产物
-COPY --from=frontend-builder /build/dist /app/frontend/dist
 
 # 复制默认配置文件作为模板
 COPY config.yaml.example /app/config.yaml.default

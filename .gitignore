@@ -33,6 +33,9 @@ frontend/dist/
 frontend/.env*
 !frontend/.env.production  # 允许提交生产环境配置模板
 
+# Embedded frontend (symlink for development)
+internal/api/frontend/
+
 # Config files
 config.yaml
 config.local.yaml

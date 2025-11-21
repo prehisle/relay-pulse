@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +17,9 @@ import (
 	"monitor/internal/config"
 	"monitor/internal/storage"
 )
+
+//go:embed frontend/dist
+var frontendFS embed.FS
 
 // Server HTTP服务器
 type Server struct {
@@ -52,13 +57,16 @@ func NewServer(store storage.Storage, cfg *config.AppConfig, port string) *Serve
 	// 创建处理器
 	handler := NewHandler(store, cfg)
 
-	// 注册路由
+	// 注册 API 路由
 	router.GET("/api/status", handler.GetStatus)
 
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	// 静态文件服务（前端）
+	setupStaticFiles(router)
 
 	return &Server{
 		handler: handler,
@@ -78,6 +86,7 @@ func (s *Server) Start() error {
 	}
 
 	log.Printf("\n🚀 监控服务已启动")
+	log.Printf("👉 Web 界面: http://localhost:%s", s.port)
 	log.Printf("👉 API 地址: http://localhost:%s/api/status", s.port)
 	log.Printf("👉 健康检查: http://localhost:%s/health\n", s.port)
 
@@ -102,4 +111,34 @@ func (s *Server) Stop(ctx context.Context) error {
 // UpdateConfig 更新配置（热更新时调用）
 func (s *Server) UpdateConfig(cfg *config.AppConfig) {
 	s.handler.UpdateConfig(cfg)
+}
+
+// setupStaticFiles 设置静态文件服务（前端）
+func setupStaticFiles(router *gin.Engine) {
+	// 获取嵌入的前端文件系统
+	distFS, err := fs.Sub(frontendFS, "frontend/dist")
+	if err != nil {
+		log.Printf("[API] 警告: 无法加载前端文件系统: %v", err)
+		return
+	}
+
+	// 静态资源路径（CSS、JS等）
+	router.StaticFS("/assets", http.FS(distFS))
+
+	// SPA 路由回退 - 所有未匹配的路由返回 index.html
+	router.NoRoute(func(c *gin.Context) {
+		// API 路径返回 404
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "API endpoint not found"})
+			return
+		}
+
+		// 其他路径返回前端 index.html
+		data, err := fs.ReadFile(distFS, "index.html")
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Failed to load frontend")
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+	})
 }
