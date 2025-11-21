@@ -103,7 +103,10 @@ export function StatusTable({
         </thead>
         <tbody className="divide-y divide-slate-800/50 text-sm">
           {data.map((item) => (
-            <tr key={item.id} className="group hover:bg-slate-800/40 transition-colors">
+            <tr
+              key={item.id}
+              className="group hover:bg-slate-800/40 transition-[background-color,color]"
+            >
               <td className="p-4 font-medium text-slate-200">
                 <div className="flex items-center gap-2">
                   <ExternalLink href={item.providerUrl}>{item.providerName}</ExternalLink>
