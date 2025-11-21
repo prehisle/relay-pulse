@@ -39,12 +39,14 @@ func NewWatcher(loader *Loader, filename string, onReload func(*AppConfig)) (*Wa
 func (w *Watcher) Start(ctx context.Context) error {
 	// 监听父目录而非文件本身，避免编辑器 rename 导致监听失效
 	dir := filepath.Dir(w.filename)
+	targetFile := filepath.Clean(w.filename) // 归一化配置文件路径
 	if err := w.watcher.Add(dir); err != nil {
 		return err
 	}
 
 	// data 目录（用于 body include JSON）
 	dataDir := filepath.Clean(filepath.Join(dir, "data"))
+	dataDirPrefix := dataDir + string(filepath.Separator) // 预计算前缀
 
 	log.Printf("[Config] 开始监听配置文件: %s (监听目录: %s)", w.filename, dir)
 
@@ -62,15 +64,16 @@ func (w *Watcher) Start(ctx context.Context) error {
 					return
 				}
 
-				// 只关心目标配置文件和 data/ 目录下 JSON 的写入和创建事件
-				isConfigFile := event.Name == w.filename
-				isDataFile := strings.HasPrefix(filepath.Clean(event.Name), dataDir+string(filepath.Separator))
+				// 只关心目标配置文件和 data/ 目录下 JSON 的写入/创建/重命名事件
+				eventPath := filepath.Clean(event.Name) // 归一化事件路径
+				isConfigFile := eventPath == targetFile
+				isDataFile := strings.HasPrefix(eventPath, dataDirPrefix)
 				if !isConfigFile && !isDataFile {
 					continue
 				}
 
-				if event.Op&fsnotify.Write == fsnotify.Write ||
-					event.Op&fsnotify.Create == fsnotify.Create {
+				// 监听 Write/Create/Rename 事件（vim/nano 等编辑器使用 rename 保存）
+				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) != 0 {
 					// 防抖：延迟执行，避免编辑器多次写入
 					if debounceTimer != nil {
 						debounceTimer.Stop()
