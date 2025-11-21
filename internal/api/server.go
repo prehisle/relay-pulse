@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -30,8 +32,22 @@ func NewServer(store storage.Storage, cfg *config.AppConfig, port string) *Serve
 	// 创建路由
 	router := gin.Default()
 
-	// CORS中间件
-	router.Use(cors.Default())
+	// CORS中间件 - 从环境变量获取允许的来源
+	allowedOrigins := []string{"https://relaypulse.top"}
+	if extraOrigins := os.Getenv("MONITOR_CORS_ORIGINS"); extraOrigins != "" {
+		// 支持逗号分隔的多个域名，例如: MONITOR_CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+		allowedOrigins = append(allowedOrigins, strings.Split(extraOrigins, ",")...)
+	}
+
+	corsConfig := cors.Config{
+		AllowOrigins:     allowedOrigins,
+		AllowMethods:     []string{"GET", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: false,
+		MaxAge:           12 * time.Hour,
+	}
+	router.Use(cors.New(corsConfig))
 
 	// 创建处理器
 	handler := NewHandler(store, cfg)

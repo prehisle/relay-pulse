@@ -291,75 +291,91 @@ body: |
 
 ## 生产部署建议
 
+### 快速预览
+
+- **域名**: `relaypulse.top`
+- **仓库**: https://github.com/prehisle/relay-pulse.git
+- **架构**: Nginx（静态文件 + API 反向代理）→ Go 后端（监听 8080）→ SQLite/PostgreSQL
+
+> 📖 **完整部署指南**：请查看 [docs/deployment.md](docs/deployment.md) 获取详细的生产环境部署步骤、安全加固、监控维护等内容。
+
+### 部署前置准备
+
+1. **配置文件**：
+   ```bash
+   cp config.yaml.example config.production.yaml
+   cp deploy/relaypulse.env.example deploy/relaypulse.env
+   ```
+
+2. **前端环境变量**（`frontend/.env.production`）：
+   ```bash
+   VITE_API_BASE_URL=https://relaypulse.top
+   VITE_USE_MOCK_DATA=false
+   ```
+
+3. **数据持久化目录**：
+   ```bash
+   mkdir -p monitor
+   ```
+
 ### Docker 部署（推荐）
 
 #### 方式一：使用 GitHub Container Registry 镜像
 
 ```bash
 # 拉取最新镜像
-docker pull ghcr.io/yourusername/ysh-monitor:latest
+docker pull ghcr.io/prehisle/relay-pulse:latest
 
 # 使用 Docker Compose 启动（推荐）
-docker-compose up -d
+docker compose --env-file deploy/relaypulse.env up -d monitor
 
 # 或手动启动
 docker run -d \
-  --name llm-monitor \
+  --name relaypulse-monitor \
   -p 8080:8080 \
-  -v $(pwd)/config.local.yaml:/config/config.yaml:ro \
-  -e MONITOR_88CODE_CC_API_KEY="sk-xxx" \
-  -e MONITOR_DUCKCODING_CC_API_KEY="sk-yyy" \
-  ghcr.io/yourusername/ysh-monitor:latest
+  -v $(pwd)/config.production.yaml:/config/config.yaml:ro \
+  -v $(pwd)/monitor:/app/monitor-data \
+  --env-file deploy/relaypulse.env \
+  ghcr.io/prehisle/relay-pulse:latest
 ```
 
 #### 方式二：本地构建镜像
 
 ```bash
 # 构建镜像（多架构支持）
-docker build -t llm-monitor:latest .
+docker build -t relay-pulse:latest .
 
 # 启动容器
 docker run -d \
-  --name llm-monitor \
+  --name relaypulse-monitor \
   -p 8080:8080 \
-  -v $(pwd)/config.local.yaml:/config/config.yaml:ro \
-  llm-monitor:latest
+  -v $(pwd)/config.production.yaml:/config/config.yaml:ro \
+  -v $(pwd)/monitor:/app/monitor-data \
+  --env-file deploy/relaypulse.env \
+  relay-pulse:latest
 ```
 
 #### Docker Compose 部署
 
-项目根目录已包含 `docker-compose.yaml`，支持以下特性：
-
-```yaml
-services:
-  monitor:
-    image: ghcr.io/yourusername/ysh-monitor:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./config.local.yaml:/config/config.yaml:ro
-    environment:
-      - MONITOR_88CODE_CC_API_KEY=sk-xxx
-    restart: unless-stopped
-```
+项目根目录已包含 `docker-compose.yaml`：
 
 **常用操作**：
 ```bash
 # SQLite 模式（默认）
-docker-compose up -d monitor
+docker compose --env-file deploy/relaypulse.env up -d monitor
 
 # PostgreSQL 模式（需先取消注释 postgres 和 monitor-pg 配置）
-docker-compose up -d postgres monitor-pg
+docker compose --env-file deploy/relaypulse.env up -d postgres monitor-pg
 
 # 查看日志
-docker-compose logs -f monitor  # SQLite 模式
-docker-compose logs -f monitor-pg  # PostgreSQL 模式
+docker compose logs -f monitor        # SQLite 模式
+docker compose logs -f monitor-pg     # PostgreSQL 模式
 
 # 重启服务（配置更新后）
-docker-compose restart monitor
+docker compose restart monitor
 
 # 停止服务
-docker-compose down
+docker compose down
 ```
 
 #### PostgreSQL 模式部署
@@ -367,68 +383,121 @@ docker-compose down
 适用于 Kubernetes 或多副本部署场景：
 
 ```bash
-# 1. 编辑 docker-compose.yaml，取消注释 postgres 和 monitor-pg 服务
+# 1. 在 deploy/relaypulse.env 中设置:
+#    MONITOR_STORAGE_TYPE=postgres
+#    MONITOR_POSTGRES_HOST=postgres
+#    MONITOR_POSTGRES_USER=monitor
+#    MONITOR_POSTGRES_PASSWORD=your_secure_password
+#    MONITOR_POSTGRES_DATABASE=llm_monitor
 
 # 2. 启动 PostgreSQL 和监控服务
-docker-compose up -d postgres monitor-pg
+docker compose --env-file deploy/relaypulse.env up -d postgres monitor-pg
 
 # 3. 验证连接
-docker-compose logs -f monitor-pg
+docker compose logs -f monitor-pg
 # 输出应包含: ✅ postgres 存储已就绪
 
 # 4. 查看数据库
-docker-compose exec postgres psql -U monitor -d llm_monitor -c "SELECT COUNT(*) FROM probe_history;"
+docker compose exec postgres psql -U monitor -d llm_monitor -c "SELECT COUNT(*) FROM probe_history;"
 ```
-
-**PostgreSQL 环境变量配置**：
-```bash
-# .env
-MONITOR_STORAGE_TYPE=postgres
-MONITOR_POSTGRES_HOST=postgres
-MONITOR_POSTGRES_USER=monitor
-MONITOR_POSTGRES_PASSWORD=your_secure_password
-MONITOR_POSTGRES_DATABASE=llm_monitor
-```
-
-#### 环境变量配置（推荐）
-
-创建 `.env` 文件存储敏感信息：
-
-```bash
-# .env
-MONITOR_88CODE_CC_API_KEY=sk-your-real-key
-MONITOR_88CODE_CX_API_KEY=sk-another-key
-MONITOR_DUCKCODING_CC_API_KEY=sk-duck-key
-```
-
-然后在 `docker-compose.yaml` 中引用：
-```yaml
-services:
-  monitor:
-    env_file:
-      - .env
-```
-
-⚠️ **安全提示**：记得将 `.env` 添加到 `.gitignore`，避免泄露密钥。
 
 ### Systemd 服务
 
 ```ini
 [Unit]
-Description=LLM Monitor Service
+Description=Relay Pulse Monitor
 After=network.target
 
 [Service]
 Type=simple
 User=monitor
-WorkingDirectory=/opt/monitor
-ExecStart=/opt/monitor/monitor
+WorkingDirectory=/opt/relay-pulse
+EnvironmentFile=/etc/relay-pulse.env
+ExecStart=/opt/relay-pulse/monitor -config /opt/relay-pulse/config/config.production.yaml
 Restart=always
 RestartSec=10
+LimitNOFILE=4096
+
+# 安全加固
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/relay-pulse/monitor
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+**启动服务**：
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable relay-pulse.service
+sudo systemctl start relay-pulse.service
+sudo systemctl status relay-pulse.service
+```
+
+### 前端部署
+
+```bash
+# 构建前端
+cd frontend
+npm ci
+npm run build
+
+# 上传到服务器
+rsync -av dist/ user@relaypulse.top:/var/www/relaypulse.top/dist/
+```
+
+**Nginx 配置示例**（`/etc/nginx/sites-available/relaypulse.top`）：
+
+```nginx
+server {
+    listen 80;
+    listen 443 ssl http2;
+    server_name relaypulse.top;
+
+    # SSL 证书
+    ssl_certificate /etc/letsencrypt/live/relaypulse.top/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/relaypulse.top/privkey.pem;
+
+    # 静态文件
+    root /var/www/relaypulse.top/dist;
+    index index.html;
+
+    # API 反向代理
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 健康检查
+    location /health {
+        proxy_pass http://127.0.0.1:8080/health;
+    }
+
+    # SPA 路由支持
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+### 安全提示
+
+- ✅ 所有 API Key 使用环境变量，禁止提交到 Git
+- ✅ `deploy/relaypulse.env` 必须加入 `.gitignore`
+- ✅ 启用 HTTPS 和 HSTS（参见 `docs/deployment.md`）
+- ✅ 配置 CORS 仅允许 `https://relaypulse.top`（参见 `internal/api/server.go`）
+- ✅ PostgreSQL 使用 `sslmode=require`
+
+### 部署验证清单
+
+- [ ] `curl -I https://relaypulse.top/` 返回 200
+- [ ] `curl https://relaypulse.top/api/status` 返回 JSON 数据
+- [ ] 浏览器访问 `https://relaypulse.top` 显示仪表板
+- [ ] 后端服务状态正常：`systemctl status relay-pulse` 或 `docker compose ps`
+- [ ] 数据库有数据：`sqlite3 monitor/monitor.db 'SELECT COUNT(*) FROM probe_history;'`
+- [ ] 配置热更新生效：修改 `config.production.yaml`，观察日志
 
 ## 技术栈
 

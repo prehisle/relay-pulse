@@ -6,23 +6,22 @@ services:
   # ============================================
   monitor:
     # 使用本地构建或从 GitHub Container Registry 拉取
-    image: ghcr.io/yourusername/ysh-monitor:latest
+    image: ghcr.io/prehisle/relay-pulse:latest
     # 如需本地构建,取消注释以下两行:
     # build:
     #   context: .
 
-    container_name: llm-monitor
+    container_name: relaypulse-monitor
 
     # 端口映射
     ports:
       - "8080:8080"
 
-    # 挂载配置文件 (可选)
-    # 如不挂载,将使用容器内默认配置
+    # 挂载配置文件和数据目录
     volumes:
-      - ./config.local.yaml:/config/config.yaml:ro
-      # SQLite 持久化（使用 SQLite 时推荐）:
-      # - ./data:/app/data
+      - ./config.production.yaml:/config/config.yaml:ro
+      # SQLite 持久化（使用 SQLite 时必须）:
+      - ./monitor:/app/monitor-data
 
     # 环境变量覆盖 API 密钥 (推荐)
     environment:
@@ -38,8 +37,9 @@ services:
       # - MONITOR_DUCKCODING_CC_API_KEY=sk-duck-key
 
     # 从 .env 文件加载环境变量 (推荐用于生产环境)
+    # 使用方式: docker compose --env-file deploy/relaypulse.env up -d
     # env_file:
-    #   - .env
+    #   - deploy/relaypulse.env
 
     # 健康检查
     healthcheck:
@@ -69,7 +69,7 @@ services:
 
   # postgres:
   #   image: postgres:16-alpine
-  #   container_name: llm-monitor-postgres
+  #   container_name: relaypulse-postgres
   #   environment:
   #     POSTGRES_USER: monitor
   #     POSTGRES_PASSWORD: monitor_password
@@ -86,15 +86,15 @@ services:
   #   restart: unless-stopped
 
   # monitor-pg:
-  #   image: ghcr.io/yourusername/ysh-monitor:latest
-  #   container_name: llm-monitor-pg
+  #   image: ghcr.io/prehisle/relay-pulse:latest
+  #   container_name: relaypulse-monitor-pg
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
   #   ports:
   #     - "8080:8080"
   #   volumes:
-  #     - ./config.local.yaml:/config/config.yaml:ro
+  #     - ./config.production.yaml:/config/config.yaml:ro
   #   environment:
   #     - TZ=Asia/Shanghai
   #     - MONITOR_STORAGE_TYPE=postgres
@@ -103,7 +103,7 @@ services:
   #     - MONITOR_POSTGRES_USER=monitor
   #     - MONITOR_POSTGRES_PASSWORD=monitor_password
   #     - MONITOR_POSTGRES_DATABASE=llm_monitor
-  #     - MONITOR_POSTGRES_SSLMODE=disable
+  #     - MONITOR_POSTGRES_SSLMODE=disable  # ⚠️ 仅限本地测试！生产环境必须使用 require
   #   healthcheck:
   #     test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
   #     interval: 30s
@@ -119,39 +119,45 @@ services:
 # 使用说明
 # ============================================
 #
+# ⚠️ 重要：生产部署必须使用环境变量文件加载 API Key！
+#
 # 方式一：SQLite 模式（默认，单机部署）
 # ------------------------------
-# 1. 启动服务:
-#    docker-compose up -d monitor
+# 1. 准备环境变量:
+#    cp deploy/relaypulse.env.example deploy/relaypulse.env
+#    # 编辑 deploy/relaypulse.env，填入真实 API Key
 #
-# 2. 查看日志:
-#    docker-compose logs -f monitor
+# 2. 启动服务:
+#    docker compose --env-file deploy/relaypulse.env up -d monitor
 #
-# 3. 停止服务:
-#    docker-compose down
+# 3. 查看日志:
+#    docker compose logs -f monitor
+#
+# 4. 停止服务:
+#    docker compose down
 #
 # 方式二：PostgreSQL 模式（K8s/多副本推荐）
 # ------------------------------
 # 1. 编辑 docker-compose.yaml，取消注释 postgres 和 monitor-pg 相关配置
 #
-# 2. 启动服务（包含 PostgreSQL）:
-#    docker-compose up -d postgres monitor-pg
+# 2. 在 deploy/relaypulse.env 中设置 PostgreSQL 连接信息:
+#    MONITOR_STORAGE_TYPE=postgres
+#    MONITOR_POSTGRES_HOST=postgres
+#    MONITOR_POSTGRES_PASSWORD=your_secure_password
+#    MONITOR_POSTGRES_SSLMODE=require  # ⚠️ 生产环境必须启用 SSL
 #
-# 3. 查看日志:
-#    docker-compose logs -f monitor-pg
+# 3. 启动服务（包含 PostgreSQL）:
+#    docker compose --env-file deploy/relaypulse.env up -d postgres monitor-pg
 #
-# 4. 停止服务:
-#    docker-compose down
-#    docker-compose down -v  # 同时删除数据卷
+# 4. 查看日志:
+#    docker compose logs -f monitor-pg
 #
-# 环境变量配置 (.env 文件示例)
+# 5. 停止服务:
+#    docker compose down
+#    docker compose down -v  # 同时删除数据卷
+#
+# 开发模式（允许 localhost CORS）
 # ------------------------------
-# # API 密钥
-# MONITOR_88CODE_CC_API_KEY=sk-xxx
-# MONITOR_DUCKCODING_CC_API_KEY=sk-yyy
-#
-# # 存储配置
-# MONITOR_STORAGE_TYPE=postgres
-# MONITOR_POSTGRES_HOST=postgres
-# MONITOR_POSTGRES_PASSWORD=your_secure_password
+# 在 deploy/relaypulse.env 中添加:
+# MONITOR_CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 # ============================================

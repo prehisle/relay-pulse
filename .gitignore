@@ -31,14 +31,23 @@ tmp/
 frontend/node_modules/
 frontend/dist/
 frontend/.env*
+!frontend/.env.production  # 允许提交生产环境配置模板
 
 # Config files
 config.yaml
 config.local.yaml
+config.production.yaml  # 生产配置包含真实数据，不提交
 
 # Environment variables
 .env
 .env.local
+.env.*
+deploy/*.env  # 所有环境变量文件（包含真实 API Key）
+!deploy/*.env.example  # 允许提交示例文件
+
+# Monitor data directory
+monitor/
+!monitor/.gitkeep
 
 # Tools
 .playwright-mcp/

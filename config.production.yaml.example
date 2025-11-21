@@ -1,0 +1,68 @@
+interval: "1m"       # 巡检间隔，生产环境建议 1-5 分钟
+slow_latency: "5s"   # 慢请求阈值，超过则从绿降为黄
+
+# ============================================
+# 存储配置（生产环境）
+# ============================================
+storage:
+  type: "sqlite"  # 存储类型："sqlite" 或 "postgres"（通过 MONITOR_STORAGE_TYPE 覆盖）
+
+  # SQLite 配置（单机部署）
+  sqlite:
+    path: "monitor/monitor.db"  # 生产环境建议放在持久化目录
+
+  # PostgreSQL 配置（多副本/K8s 部署）
+  # 取消注释以下配置并设置环境变量：
+  # MONITOR_STORAGE_TYPE=postgres
+  # MONITOR_POSTGRES_HOST=postgres-service
+  # MONITOR_POSTGRES_PORT=5432
+  # MONITOR_POSTGRES_USER=monitor
+  # MONITOR_POSTGRES_PASSWORD=your_secure_password
+  # MONITOR_POSTGRES_DATABASE=llm_monitor
+  # MONITOR_POSTGRES_SSLMODE=require
+  # postgres:
+  #   host: "postgres-service"
+  #   port: 5432
+  #   user: "monitor"
+  #   password: "PLEASE_USE_ENV_VAR"  # 使用 MONITOR_POSTGRES_PASSWORD
+  #   database: "llm_monitor"
+  #   sslmode: "require"  # 生产环境必须启用 SSL
+  #   max_open_conns: 25
+  #   max_idle_conns: 5
+  #   conn_max_lifetime: "1h"
+
+# ============================================
+# 监控任务配置（生产环境示例）
+# ============================================
+# ⚠️ 重要提示：
+# 1. 所有 api_key 应通过环境变量覆盖（MONITOR_<PROVIDER>_<SERVICE>_API_KEY）
+# 2. category 和 sponsor 为必填字段
+# 3. provider_url 和 sponsor_url 建议填写真实链接
+# ============================================
+
+monitors:
+  # --- 88code 示例 ---
+  - provider: "88code"
+    provider_url: "https://88code.com"
+    service: "cc"
+    category: "commercial"  # 必填：commercial（推广站）或 public（公益站）
+    sponsor: "团队自有"      # 必填：赞助者名称
+    sponsor_url: "https://example.com/sponsor"  # 可选：赞助者链接
+    channel: "vip-channel"  # 可选：业务通道标识
+    url: "https://api.88code.com/v1/chat/completions"
+    method: "POST"
+    api_key: "sk-placeholder"  # ⚠️ 使用环境变量 MONITOR_88CODE_CC_API_KEY 覆盖
+    headers:
+      Authorization: "Bearer {{API_KEY}}"
+      Content-Type: "application/json"
+    body: |
+      {
+        "model": "claude-3-opus",
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1
+      }
+
+  # --- 更多监控任务示例 ---
+  # 复制上面的模板，修改 provider/service/url 等字段
+  # 通过环境变量设置 API Key：
+  # export MONITOR_<PROVIDER>_<SERVICE>_API_KEY="sk-real-key"
