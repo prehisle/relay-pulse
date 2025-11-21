@@ -10,6 +10,18 @@
 
 ## 开发命令
 
+### 首次开发环境设置
+
+```bash
+# ⚠️ 首次开发或前端代码更新后必须运行此脚本
+./scripts/setup-dev.sh
+
+# 如果前端代码有更新，需要重新构建并复制
+./scripts/setup-dev.sh --rebuild-frontend
+```
+
+**重要**: Go 的 `embed` 指令不支持符号链接，因此需要将 `frontend/dist` 复制到 `internal/api/frontend/dist`。setup-dev.sh 脚本会自动处理这个问题。
+
 ### 后端 (Go)
 
 ```bash
