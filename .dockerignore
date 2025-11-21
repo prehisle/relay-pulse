@@ -1,0 +1,55 @@
+# Git 相关
+.git
+.gitignore
+.github
+
+# 编译产物
+monitor
+monitor.log
+*.db
+*.db.backup_*
+tmp/
+coverage.out
+
+# 开发配置
+config.local.yaml
+.air.toml
+.pre-commit-config.yaml
+
+# Node.js 相关
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# Go 相关
+vendor/
+*.test
+*.out
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 文档
+*.md
+!README.md
+docs/
+CONTRIBUTING.md
+CHANGELOG.md
+
+# 其他
+.DS_Store
+Thumbs.db
+.env
+.env.local
+
+# Claude 和开发工具
+.claude/
+.playwright-mcp/
+AGENTS.md
+Makefile
+dev.sh
+scripts/

@@ -31,6 +31,14 @@ tmp/
 frontend/node_modules/
 frontend/dist/
 frontend/.env*
+
+# Config files
 config.yaml
 config.local.yaml
+
+# Environment variables
+.env
+.env.local
+
+# Tools
 .playwright-mcp/

@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  monitor:
+    # 使用本地构建或从 GitHub Container Registry 拉取
+    image: ghcr.io/yourusername/ysh-monitor:latest
+    # 如需本地构建,取消注释以下两行:
+    # build:
+    #   context: .
+
+    container_name: llm-monitor
+
+    # 端口映射
+    ports:
+      - "8080:8080"
+
+    # 挂载配置文件 (可选)
+    # 如不挂载,将使用容器内默认配置
+    volumes:
+      - ./config.local.yaml:/config/config.yaml:ro
+      # 如需持久化数据库,取消注释下一行:
+      # - ./data/monitor.db:/app/monitor.db
+
+    # 环境变量覆盖 API 密钥 (推荐)
+    environment:
+      # 时区设置
+      - TZ=Asia/Shanghai
+
+      # API 密钥覆盖示例 (格式: MONITOR_<PROVIDER>_<SERVICE>_API_KEY)
+      # - MONITOR_88CODE_CC_API_KEY=sk-your-real-key
+      # - MONITOR_88CODE_CX_API_KEY=sk-another-key
+      # - MONITOR_DUCKCODING_CC_API_KEY=sk-duck-key
+
+    # 从 .env 文件加载环境变量 (推荐用于生产环境)
+    # env_file:
+    #   - .env
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # 重启策略
+    restart: unless-stopped
+
+    # 资源限制 (可选)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1'
+    #       memory: 512M
+    #     reservations:
+    #       cpus: '0.5'
+    #       memory: 256M
+
+# ============================================
+# 使用说明
+# ============================================
+# 1. 本地构建并启动:
+#    docker-compose up --build
+#
+# 2. 使用远程镜像启动:
+#    docker-compose up -d
+#
+# 3. 查看日志:
+#    docker-compose logs -f monitor
+#
+# 4. 停止服务:
+#    docker-compose down
+#
+# 5. 环境变量配置 (.env 文件示例):
+#    MONITOR_88CODE_CC_API_KEY=sk-xxx
+#    MONITOR_DUCKCODING_CC_API_KEY=sk-yyy
+# ============================================

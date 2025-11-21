@@ -211,32 +211,93 @@ body: |
 
 ## 生产部署建议
 
-### Docker 部署
+### Docker 部署（推荐）
 
-```dockerfile
-FROM golang:1.21-alpine AS builder
-WORKDIR /app
-COPY . .
-RUN go mod download
-RUN go build -o monitor cmd/server/main.go
-
-FROM alpine:latest
-COPY --from=builder /app/monitor /monitor
-COPY config.yaml /config.yaml
-CMD ["/monitor"]
-```
-
-### 环境变量配置
+#### 方式一：使用 GitHub Container Registry 镜像
 
 ```bash
+# 拉取最新镜像
+docker pull ghcr.io/yourusername/ysh-monitor:latest
+
+# 使用 Docker Compose 启动（推荐）
+docker-compose up -d
+
+# 或手动启动
 docker run -d \
+  --name llm-monitor \
+  -p 8080:8080 \
+  -v $(pwd)/config.local.yaml:/config/config.yaml:ro \
   -e MONITOR_88CODE_CC_API_KEY="sk-xxx" \
   -e MONITOR_DUCKCODING_CC_API_KEY="sk-yyy" \
-  -p 8080:8080 \
-  -v $(pwd)/config.yaml:/config.yaml \
-  -v $(pwd)/data:/data \
-  monitor:latest
+  ghcr.io/yourusername/ysh-monitor:latest
 ```
+
+#### 方式二：本地构建镜像
+
+```bash
+# 构建镜像（多架构支持）
+docker build -t llm-monitor:latest .
+
+# 启动容器
+docker run -d \
+  --name llm-monitor \
+  -p 8080:8080 \
+  -v $(pwd)/config.local.yaml:/config/config.yaml:ro \
+  llm-monitor:latest
+```
+
+#### Docker Compose 部署
+
+项目根目录已包含 `docker-compose.yaml`，支持以下特性：
+
+```yaml
+services:
+  monitor:
+    image: ghcr.io/yourusername/ysh-monitor:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.local.yaml:/config/config.yaml:ro
+    environment:
+      - MONITOR_88CODE_CC_API_KEY=sk-xxx
+    restart: unless-stopped
+```
+
+**常用操作**：
+```bash
+# 启动服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f monitor
+
+# 重启服务（配置更新后）
+docker-compose restart monitor
+
+# 停止服务
+docker-compose down
+```
+
+#### 环境变量配置（推荐）
+
+创建 `.env` 文件存储敏感信息：
+
+```bash
+# .env
+MONITOR_88CODE_CC_API_KEY=sk-your-real-key
+MONITOR_88CODE_CX_API_KEY=sk-another-key
+MONITOR_DUCKCODING_CC_API_KEY=sk-duck-key
+```
+
+然后在 `docker-compose.yaml` 中引用：
+```yaml
+services:
+  monitor:
+    env_file:
+      - .env
+```
+
+⚠️ **安全提示**：记得将 `.env` 添加到 `.gitignore`，避免泄露密钥。
 
 ### Systemd 服务
 
