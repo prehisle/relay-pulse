@@ -30,11 +30,12 @@ export function ExternalLink({ href, children, className = '' }: ExternalLinkPro
       {children}
       <ExternalLinkIcon size={12} className="flex-shrink-0" />
       {isHttp && (
-        <AlertTriangle
-          size={12}
-          className="text-yellow-500 flex-shrink-0"
-          title="非加密 HTTP 链接"
-        />
+        <span title="非加密 HTTP 链接" className="inline-flex">
+          <AlertTriangle
+            size={12}
+            className="text-yellow-500 flex-shrink-0"
+          />
+        </span>
       )}
     </a>
   );
