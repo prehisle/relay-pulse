@@ -5,11 +5,14 @@ services:
   # 方式一：使用 SQLite (默认，单机部署)
   # ============================================
   monitor:
-    # 使用本地构建或从 GitHub Container Registry 拉取
-    image: ghcr.io/prehisle/relay-pulse:latest
-    # 如需本地构建,取消注释以下两行:
-    # build:
-    #   context: .
+    # 本地构建（开发环境推荐）
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: relay-pulse:latest
+
+    # 生产环境可使用预构建镜像（取消注释）:
+    # image: ghcr.io/prehisle/relay-pulse:latest
 
     container_name: relaypulse-monitor
 
@@ -19,9 +22,12 @@ services:
 
     # 挂载配置文件和数据目录
     volumes:
-      - ./config.production.yaml:/config/config.yaml:ro
-      # SQLite 持久化（使用 SQLite 时必须）:
-      - ./monitor:/app/monitor-data
+      # 配置文件（必需）
+      - ./config.yaml:/app/config.yaml:ro
+      # 数据目录（用于 !include 引用的 JSON 文件）
+      - ./data:/app/data:ro
+      # SQLite 数据库持久化（使用命名卷）
+      - relay-pulse-data:/app
 
     # 环境变量覆盖 API 密钥 (推荐)
     environment:
@@ -51,6 +57,10 @@ services:
 
     # 重启策略
     restart: unless-stopped
+
+    # 网络
+    networks:
+      - relay-pulse-network
 
     # 资源限制 (可选)
     # deploy:
@@ -112,8 +122,14 @@ services:
   #     start_period: 15s
   #   restart: unless-stopped
 
-# volumes:
-#   postgres_data:
+volumes:
+  relay-pulse-data:
+    driver: local
+  # postgres_data:  # PostgreSQL 数据卷（使用 PostgreSQL 时取消注释）
+
+networks:
+  relay-pulse-network:
+    driver: bridge
 
 # ============================================
 # 使用说明
@@ -123,17 +139,23 @@ services:
 #
 # 方式一：SQLite 模式（默认，单机部署）
 # ------------------------------
-# 1. 准备环境变量:
-#    cp deploy/relaypulse.env.example deploy/relaypulse.env
-#    # 编辑 deploy/relaypulse.env，填入真实 API Key
+# 1. 准备配置文件:
+#    cp config.yaml.example config.yaml
+#    vim config.yaml  # 编辑配置文件
 #
-# 2. 启动服务:
+# 2. 启动服务（推荐使用环境变量覆盖 API Key）:
 #    docker compose --env-file deploy/relaypulse.env up -d monitor
+#    # 或者直接启动（API Key 写在 config.yaml 中）:
+#    docker compose up -d monitor
 #
-# 3. 查看日志:
+# 3. 访问服务:
+#    Web 界面: http://localhost:8080
+#    API: http://localhost:8080/api/status
+#
+# 4. 查看日志:
 #    docker compose logs -f monitor
 #
-# 4. 停止服务:
+# 5. 停止服务:
 #    docker compose down
 #
 # 方式二：PostgreSQL 模式（K8s/多副本推荐）
