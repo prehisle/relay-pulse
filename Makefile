@@ -24,6 +24,9 @@ AIR_CMD=$(shell command -v air 2>/dev/null || echo "$(shell go env GOPATH)/bin/a
 # 如需自定义配置文件，请使用 make run 或直接运行 air
 CONFIG ?= config.yaml
 
+# 开发环境 CORS 配置（允许前端开发服务器访问）
+MONITOR_CORS_ORIGINS ?= http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:3000
+
 .PHONY: help build run dev test fmt clean install-air
 
 # 默认目标：显示帮助
@@ -36,6 +39,8 @@ help:
 	@echo "  make fmt         - 格式化代码"
 	@echo "  make clean       - 清理编译产物"
 	@echo "  make install-air - 安装air热重载工具"
+	@echo ""
+	@echo "开发环境已自动配置 CORS，允许前端开发服务器访问（端口 5173-5175, 3000）"
 
 # 编译二进制
 build:
@@ -46,7 +51,7 @@ build:
 # 直接运行（不编译）
 run:
 	@echo "正在启动监控服务..."
-	$(GORUN) $(MAIN_PACKAGE)
+	MONITOR_CORS_ORIGINS="$(MONITOR_CORS_ORIGINS)" $(GORUN) $(MAIN_PACKAGE)
 
 # 开发模式（热重载）
 dev:
@@ -62,7 +67,7 @@ dev:
 	fi
 	@echo "正在启动开发服务（热重载）..."
 	@echo "修改 .go 文件将自动重新编译"
-	@$(AIR_CMD) -c .air.toml
+	MONITOR_CORS_ORIGINS="$(MONITOR_CORS_ORIGINS)" $(AIR_CMD) -c .air.toml
 
 # 运行测试
 test:
