@@ -1,7 +1,7 @@
 # ============================================
 # Stage 1: Backend Builder (Go)
 # ============================================
-FROM golang:1.22-alpine AS backend-builder
+FROM golang:1.24-alpine AS backend-builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 
