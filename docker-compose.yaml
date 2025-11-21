@@ -29,13 +29,15 @@ services:
       # 数据目录（⚠️ 使用预构建镜像时必需，本地构建时可选）
       # 如果使用 ghcr.io 预构建镜像，必须取消注释下行:
       - ./data:/app/data:ro
-      # SQLite 数据库持久化（使用命名卷）
-      - relay-pulse-data:/app
+      # SQLite 数据库持久化（使用独立的 /data 目录，避免覆盖 /app 导致二进制文件不更新）
+      - relay-pulse-data:/data
 
     # 环境变量覆盖 API 密钥 (推荐)
     environment:
       # 时区设置
       - TZ=Asia/Shanghai
+      # SQLite 数据库路径（放在持久化卷 /data 中）
+      - MONITOR_SQLITE_PATH=/data/monitor.db
 
       # 存储类型（默认 sqlite）
       # - MONITOR_STORAGE_TYPE=sqlite
