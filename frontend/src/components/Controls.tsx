@@ -1,5 +1,5 @@
 import { Filter, RefreshCw, LayoutGrid, List } from 'lucide-react';
-import { PROVIDERS, TIME_RANGES } from '../constants';
+import { TIME_RANGES } from '../constants';
 import type { ViewMode } from '../types';
 
 interface ControlsProps {
@@ -11,6 +11,7 @@ interface ControlsProps {
   viewMode: ViewMode;
   loading: boolean;
   channels: string[];
+  providers: string[];
   onProviderChange: (provider: string) => void;
   onServiceChange: (service: string) => void;
   onChannelChange: (channel: string) => void;
@@ -29,6 +30,7 @@ export function Controls({
   viewMode,
   loading,
   channels,
+  providers,
   onProviderChange,
   onServiceChange,
   onChannelChange,
@@ -61,9 +63,9 @@ export function Controls({
           className="bg-slate-800 text-slate-200 text-sm rounded-lg border border-slate-700 focus:ring-2 focus:ring-cyan-500 focus:border-transparent p-2 outline-none transition-all hover:bg-slate-750"
         >
           <option value="all">所有服务商</option>
-          {PROVIDERS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
+          {providers.map((provider) => (
+            <option key={provider} value={provider}>
+              {provider}
             </option>
           ))}
         </select>

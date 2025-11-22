@@ -25,7 +25,7 @@ function App() {
     data: null,
   });
 
-  const { loading, error, data, stats, channels, refetch } = useMonitorData({
+  const { loading, error, data, stats, channels, providers, refetch } = useMonitorData({
     timeRange,
     filterService,
     filterProvider,
@@ -121,6 +121,7 @@ function App() {
           viewMode={viewMode}
           loading={loading}
           channels={channels}
+          providers={providers}
           onProviderChange={setFilterProvider}
           onServiceChange={setFilterService}
           onChannelChange={setFilterChannel}

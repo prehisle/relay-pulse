@@ -189,6 +189,17 @@ export function useMonitorData({
     return Array.from(set).sort();
   }, [rawData]);
 
+  // 提取所有服务商列表（去重并排序）
+  const providers = useMemo(() => {
+    const set = new Set<string>();
+    rawData.forEach((item) => {
+      if (item.providerId) {
+        set.add(item.providerId);
+      }
+    });
+    return Array.from(set).sort();
+  }, [rawData]);
+
   // 数据过滤和排序
   const processedData = useMemo(() => {
     const filtered = rawData.filter((item) => {
@@ -232,6 +243,7 @@ export function useMonitorData({
     data: processedData,
     stats,
     channels,
+    providers,
     refetch: () => {
       // 真正触发重新获取 - 修复刷新按钮无效的问题
       // 保持旧数据可见，直到新数据到来（与 docs/front.jsx 一致）
