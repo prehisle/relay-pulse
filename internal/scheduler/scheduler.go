@@ -131,8 +131,8 @@ func (s *Scheduler) runChecks(ctx context.Context) {
 
 			// 保存结果
 			if err := s.prober.SaveResult(result); err != nil {
-				log.Printf("[Scheduler] 保存结果失败 %s-%s: %v",
-					t.Provider, t.Service, err)
+				log.Printf("[Scheduler] 保存结果失败 %s-%s-%s: %v",
+					t.Provider, t.Service, t.Channel, err)
 			}
 		}(task)
 	}

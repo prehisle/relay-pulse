@@ -82,15 +82,15 @@ func (h *Handler) GetStatus(c *gin.Context) {
 			continue
 		}
 
-		// 去重
-		key := task.Provider + "/" + task.Service
+		// 去重（使用 provider + service + channel 组合）
+		key := task.Provider + "/" + task.Service + "/" + task.Channel
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 
 		// 获取最新记录
-		latest, err := h.storage.GetLatest(task.Provider, task.Service)
+		latest, err := h.storage.GetLatest(task.Provider, task.Service, task.Channel)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": fmt.Sprintf("查询失败: %v", err),
@@ -99,7 +99,7 @@ func (h *Handler) GetStatus(c *gin.Context) {
 		}
 
 		// 获取历史记录
-		history, err := h.storage.GetHistory(task.Provider, task.Service, since)
+		history, err := h.storage.GetHistory(task.Provider, task.Service, task.Channel, since)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": fmt.Sprintf("查询历史失败: %v", err),

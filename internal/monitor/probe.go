@@ -18,6 +18,7 @@ import (
 type ProbeResult struct {
 	Provider  string
 	Service   string
+	Channel   string
 	Status    int               // 1=绿, 0=红, 2=黄
 	SubStatus storage.SubStatus // 细分状态（黄色/红色原因）
 	Latency   int               // ms
@@ -44,6 +45,7 @@ func (p *Prober) Probe(ctx context.Context, cfg *config.ServiceConfig) *ProbeRes
 	result := &ProbeResult{
 		Provider:  cfg.Provider,
 		Service:   cfg.Service,
+		Channel:   cfg.Channel,
 		Timestamp: time.Now().Unix(),
 		SubStatus: storage.SubStatusNone,
 	}
@@ -73,7 +75,7 @@ func (p *Prober) Probe(ctx context.Context, cfg *config.ServiceConfig) *ProbeRes
 	result.Latency = latency
 
 	if err != nil {
-		log.Printf("[Probe] ERROR %s-%s: %v", cfg.Provider, cfg.Service, err)
+		log.Printf("[Probe] ERROR %s-%s-%s: %v", cfg.Provider, cfg.Service, cfg.Channel, err)
 		result.Error = err
 		result.Status = 0
 		result.SubStatus = storage.SubStatusNetworkError
@@ -87,7 +89,7 @@ func (p *Prober) Probe(ctx context.Context, cfg *config.ServiceConfig) *ProbeRes
 		if data, readErr := io.ReadAll(resp.Body); readErr == nil {
 			bodyBytes = data
 		} else {
-			log.Printf("[Probe] 读取响应体失败 %s-%s: %v", cfg.Provider, cfg.Service, readErr)
+			log.Printf("[Probe] 读取响应体失败 %s-%s-%s: %v", cfg.Provider, cfg.Service, cfg.Channel, readErr)
 		}
 	} else {
 		_, _ = io.Copy(io.Discard, resp.Body)
@@ -100,8 +102,8 @@ func (p *Prober) Probe(ctx context.Context, cfg *config.ServiceConfig) *ProbeRes
 	result.Status, result.SubStatus = evaluateStatus(result.Status, result.SubStatus, bodyBytes, cfg.SuccessContains)
 
 	// 日志（不打印敏感信息）
-	log.Printf("[Probe] %s-%s | Code: %d | Latency: %dms | Status: %d | SubStatus: %s",
-		cfg.Provider, cfg.Service, resp.StatusCode, latency, result.Status, result.SubStatus)
+	log.Printf("[Probe] %s-%s-%s | Code: %d | Latency: %dms | Status: %d | SubStatus: %s",
+		cfg.Provider, cfg.Service, cfg.Channel, resp.StatusCode, latency, result.Status, result.SubStatus)
 
 	return result
 }
@@ -179,6 +181,7 @@ func (p *Prober) SaveResult(result *ProbeResult) error {
 	record := &storage.ProbeRecord{
 		Provider:  result.Provider,
 		Service:   result.Service,
+		Channel:   result.Channel,
 		Status:    result.Status,
 		SubStatus: result.SubStatus,
 		Latency:   result.Latency,

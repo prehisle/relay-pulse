@@ -351,8 +351,8 @@ GA4 会自动追踪以下事件：
 # 缺少必填字段
 ❌ 无法加载配置文件: monitor[0]: 缺少必填字段 'category'
 
-# 重复的 provider + service
-❌ 无法加载配置文件: 重复的监控项: provider=88code, service=cc
+# 重复的 provider + service + channel
+❌ 无法加载配置文件: 重复的监控项: provider=88code, service=cc, channel=
 
 # 无效的 HTTP 方法
 ❌ 无法加载配置文件: monitor[0]: 无效的 method 'INVALID'

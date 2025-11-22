@@ -140,10 +140,10 @@ func (c *AppConfig) Validate() error {
 			}
 		}
 
-		// 唯一性检查
-		key := m.Provider + "/" + m.Service
+		// 唯一性检查（provider + service + channel 组合唯一）
+		key := m.Provider + "/" + m.Service + "/" + m.Channel
 		if seen[key] {
-			return fmt.Errorf("重复的监控项: provider=%s, service=%s", m.Provider, m.Service)
+			return fmt.Errorf("重复的监控项: provider=%s, service=%s, channel=%s", m.Provider, m.Service, m.Channel)
 		}
 		seen[key] = true
 	}

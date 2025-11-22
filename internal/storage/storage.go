@@ -20,6 +20,7 @@ type ProbeRecord struct {
 	ID        int64
 	Provider  string
 	Service   string
+	Channel   string    // 业务通道标识
 	Status    int       // 1=绿, 0=红, 2=黄
 	SubStatus SubStatus // 细分状态（黄色/红色原因）
 	Latency   int       // ms
@@ -66,10 +67,10 @@ type Storage interface {
 	SaveRecord(record *ProbeRecord) error
 
 	// GetLatest 获取最新记录
-	GetLatest(provider, service string) (*ProbeRecord, error)
+	GetLatest(provider, service, channel string) (*ProbeRecord, error)
 
 	// GetHistory 获取历史记录（时间范围）
-	GetHistory(provider, service string, since time.Time) ([]*ProbeRecord, error)
+	GetHistory(provider, service, channel string, since time.Time) ([]*ProbeRecord, error)
 
 	// CleanOldRecords 清理旧记录（保留最近N天）
 	CleanOldRecords(days int) error
