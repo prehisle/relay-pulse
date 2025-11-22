@@ -2,8 +2,10 @@ name: Docker Image CI/CD
 
 on:
   push:
+    branches:
+      - main  # 推送 main 时构建 latest
     tags:
-      - 'v*.*.*'  # 只在推送 tag 时触发（v0.1.0, v1.0.0 等）
+      - 'v*.*.*'  # 推送 tag 时构建版本镜像
   workflow_dispatch:  # 允许手动触发
     inputs:
       multi_arch:
@@ -44,21 +46,25 @@ jobs:
       - name: Extract version information
         id: meta
         run: |
-          # 获取版本号（从 tag 或 git describe）
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"
-          else
-            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')
-          fi
-
           GIT_COMMIT=$(git rev-parse --short HEAD)
           BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+          # 判断是 tag 还是 branch
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            IS_TAG=true
+          else
+            VERSION=$(git describe --tags --always 2>/dev/null || echo "dev-${GIT_COMMIT}")
+            IS_TAG=false
+          fi
+
           IMAGE_TAG="${VERSION#v}"  # 移除 v 前缀
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "git_commit=${GIT_COMMIT}" >> $GITHUB_OUTPUT
           echo "build_time=${BUILD_TIME}" >> $GITHUB_OUTPUT
           echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "is_tag=${IS_TAG}" >> $GITHUB_OUTPUT
 
       - name: Extract Docker metadata
         id: docker_meta
@@ -66,10 +72,12 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest
+            # tag 推送时：版本号标签
+            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=semver,pattern={{major}},enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            # main 推送或 tag 推送都打 latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
           flavor: |
             latest=false
 
@@ -103,6 +111,13 @@ jobs:
         run: |
           echo "## Docker Image Published 🐳" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Trigger" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ steps.meta.outputs.is_tag }}" == "true" ]]; then
+            echo "🏷️ **Tag Release**: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🔄 **Main Branch Update**" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Image Tags" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.docker_meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
@@ -116,5 +131,5 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pull Command" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
