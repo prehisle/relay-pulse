@@ -59,6 +59,8 @@ export function fetchMockMonitorData(timeRangeId: string): Promise<ProcessedMoni
               rate_limit: 0,
               server_error: 0,
               client_error: 0,
+              auth_error: 0,
+              invalid_request: 0,
               network_error: 0,
               content_mismatch: 0,
             };

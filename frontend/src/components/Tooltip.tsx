@@ -18,15 +18,17 @@ export function Tooltip({ tooltip }: TooltipProps) {
     rate_limit: 0,
     server_error: 0,
     client_error: 0,
+    auth_error: 0,
+    invalid_request: 0,
     network_error: 0,
     content_mismatch: 0,
   };
 
+  // 状态统计（不再显示"无数据"，因为运行时不会产生 status=3）
   const statusSummary = [
     { key: 'available', emoji: '🟢', label: '可用', value: counts.available },
     { key: 'degraded', emoji: '🟡', label: '波动', value: counts.degraded },
     { key: 'unavailable', emoji: '🔴', label: '不可用', value: counts.unavailable },
-    { key: 'missing', emoji: '⚪', label: '无数据', value: counts.missing },
   ];
 
   // 黄色波动细分
@@ -39,6 +41,8 @@ export function Tooltip({ tooltip }: TooltipProps) {
   const unavailableSubstatus = [
     { key: 'server_error', label: '服务器错误', value: counts.server_error },
     { key: 'client_error', label: '客户端错误', value: counts.client_error },
+    { key: 'auth_error', label: '认证失败', value: counts.auth_error },
+    { key: 'invalid_request', label: '请求参数错误', value: counts.invalid_request },
     { key: 'network_error', label: '连接失败', value: counts.network_error },
     { key: 'content_mismatch', label: '内容校验失败', value: counts.content_mismatch },
   ].filter(item => item.value > 0);

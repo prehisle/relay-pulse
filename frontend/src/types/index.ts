@@ -21,6 +21,8 @@ export interface StatusCounts {
   // 红色不可用细分
   server_error: number;     // 服务器错误次数（5xx）
   client_error: number;     // 客户端错误次数（4xx）
+  auth_error: number;       // 认证失败次数（401/403）
+  invalid_request: number;  // 请求参数错误次数（400）
   network_error: number;    // 连接失败次数
   content_mismatch: number; // 内容校验失败次数
 }

@@ -147,9 +147,14 @@ func (p *Prober) determineStatus(statusCode, latency int, slowLatency time.Durat
 		return 1, storage.SubStatusNone
 	}
 
-	// 400/401/403 = 灰色（未配置/认证失败）
-	if statusCode == 400 || statusCode == 401 || statusCode == 403 {
-		return 3, storage.SubStatusNone
+	// 401/403 = 红色（认证/权限失败）
+	if statusCode == 401 || statusCode == 403 {
+		return 0, storage.SubStatusAuthError
+	}
+
+	// 400 = 红色（请求参数错误）
+	if statusCode == 400 {
+		return 0, storage.SubStatusInvalidRequest
 	}
 
 	// 429 = 黄色（速率限制，提醒慢下来）

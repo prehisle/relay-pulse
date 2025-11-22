@@ -41,6 +41,8 @@ const mapStatusCounts = (counts?: StatusCounts): StatusCounts => ({
   rate_limit: counts?.rate_limit ?? 0,
   server_error: counts?.server_error ?? 0,
   client_error: counts?.client_error ?? 0,
+  auth_error: counts?.auth_error ?? 0,
+  invalid_request: counts?.invalid_request ?? 0,
   network_error: counts?.network_error ?? 0,
   content_mismatch: counts?.content_mismatch ?? 0,
 });

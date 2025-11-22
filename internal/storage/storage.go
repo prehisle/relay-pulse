@@ -11,6 +11,8 @@ const (
 	SubStatusRateLimit       SubStatus = "rate_limit"         // 限流（429）
 	SubStatusServerError     SubStatus = "server_error"       // 服务器错误（5xx）
 	SubStatusClientError     SubStatus = "client_error"       // 客户端错误（4xx）
+	SubStatusAuthError       SubStatus = "auth_error"         // 认证/权限失败（401/403）
+	SubStatusInvalidRequest  SubStatus = "invalid_request"    // 请求参数错误（400）
 	SubStatusNetworkError    SubStatus = "network_error"      // 网络错误（连接失败）
 	SubStatusContentMismatch SubStatus = "content_mismatch"   // 内容校验失败
 )
@@ -51,6 +53,8 @@ type StatusCounts struct {
 	// 细分统计（红色不可用细分）
 	ServerError     int `json:"server_error"`     // 红色-服务器错误次数（5xx）
 	ClientError     int `json:"client_error"`     // 红色-客户端错误次数（4xx）
+	AuthError       int `json:"auth_error"`       // 红色-认证失败次数（401/403）
+	InvalidRequest  int `json:"invalid_request"`  // 红色-请求参数错误次数（400）
 	NetworkError    int `json:"network_error"`    // 红色-连接失败次数
 	ContentMismatch int `json:"content_mismatch"` // 红色-内容校验失败次数
 }
