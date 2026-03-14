@@ -34,7 +34,7 @@ FROM ${FRONTEND_SOURCE} AS frontend
 # ============================================
 # Stage 2: Backend Builder (Go)
 # ============================================
-FROM golang:1.25-alpine AS backend-builder
+FROM golang:1.26-alpine AS backend-builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 
