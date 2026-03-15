@@ -9,7 +9,7 @@ require (
 	github.com/gin-contrib/gzip v1.2.5
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.7.6
+	github.com/jackc/pgx/v5 v5.8.0
 	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/compress v1.18.4
 	golang.org/x/net v0.52.0
