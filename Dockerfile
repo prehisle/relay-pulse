@@ -4,7 +4,7 @@
 # Stage 1: Frontend Builder (Node.js)
 # ============================================
 ARG FRONTEND_SOURCE=frontend-builder
-FROM node:20-alpine AS frontend-builder
+FROM node:26-alpine AS frontend-builder
 
 # Notifier API URL for subscription feature
 ARG VITE_NOTIFIER_API_URL=https://notifier.relaypulse.top
