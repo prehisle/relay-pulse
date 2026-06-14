@@ -1,11 +1,11 @@
 # Stage 1: Modules caching
-FROM golang:1.25-bookworm AS modules
+FROM golang:1.26-bookworm AS modules
 COPY go.mod go.sum /modules/
 WORKDIR /modules
 RUN go mod download
 
 # Stage 2: Build
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.26-bookworm AS builder
 COPY --from=modules /go/pkg /go/pkg
 COPY . /workdir
 WORKDIR /workdir
