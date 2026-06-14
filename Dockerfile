@@ -37,7 +37,7 @@ FROM ${FRONTEND_SOURCE} AS frontend
 # ============================================
 # Stage 2: Backend Builder (Go)
 # ============================================
-FROM golang:1.25-alpine AS backend-builder
+FROM golang:1.26-alpine AS backend-builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 
@@ -88,7 +88,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-amd64} \
 # ============================================
 # Stage 3: Runtime (Minimal Image)
 # ============================================
-FROM alpine:3.23
+FROM alpine:3.24
 
 # OCI 镜像标签
 ARG VERSION=dev
