@@ -36,6 +36,11 @@ func (l *Loader) Load(filename string) (*AppConfig, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
+	// 记录 config.yaml 内联监测行数量：mergeExternalMonitorSources 只把 monitors.d 追加到
+	// 切片尾部，此后 validate/继承/normalize 均原地修改、不增删不重排，故 [0,inlineMonitorCount)
+	// 恒为内联行——供末尾按此边界只给内联行补 model_id。
+	inlineMonitorCount := len(cfg.Monitors)
+
 	absPath, err := filepath.Abs(filename)
 	if err != nil {
 		return nil, fmt.Errorf("解析配置文件路径失败: %w", err)
@@ -64,6 +69,24 @@ func (l *Loader) Load(filename string) (*AppConfig, error) {
 	// 规范化配置（填充默认值等）
 	if err := cfg.normalize(); err != nil {
 		return nil, fmt.Errorf("配置规范化失败: %w", err)
+	}
+
+	// 给未显式写 model_id 的 config.yaml 内联监测行补齐确定性派生 id（仅内存，不改写文件）。
+	// 官方 config.yaml.example 不含 model_id，若不补则被 CheckRuntimeModelIDs 运行时闸挡下、
+	// 容器启动即崩——这是新手按 QUICKSTART 部署的必经路径。放在 normalize 之后，
+	// 确保模板解析完成、按最终 PSCM 字段派生（model 可能来自模板；缺 model 时派生仍确定、
+	// 唯一性由后置 validateModelIDs 兜底）。monitors.d 语义完全不动
+	// （其缺 id 仍由运行时闸 fail-closed 提示走 backfillids，因它有写时补 id + 持久化流程）。
+	for i := 0; i < inlineMonitorCount; i++ {
+		if cfg.Monitors[i].ModelID == "" {
+			cfg.Monitors[i].ModelID = deriveInlineModelID(cfg.Monitors[i])
+		}
+	}
+
+	// validate() 早于派生执行、跳过了当时为空的 model_id；此处对派生结果重跑格式+全局唯一性
+	// 校验，兜住派生 id 与既有 id（内联或 monitors.d、含手工填的 v5）的冲突。O(n) 扫描、无锁。
+	if err := cfg.validateModelIDs(); err != nil {
+		return nil, fmt.Errorf("内联 model_id 派生后校验失败: %w", err)
 	}
 
 	// Phase 1: 最终态校验仅告警，不阻断启动或热更新

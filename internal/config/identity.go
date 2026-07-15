@@ -18,6 +18,32 @@ func NewChannelID() string { return channelIDPrefix + uuid.NewString() }
 // NewModelID 生成监测行级稳定 id（md_<uuidv4>）。
 func NewModelID() string { return modelIDPrefix + uuid.NewString() }
 
+// inlineModelIDNamespace 是 config.yaml 内联监测行确定性派生 model_id 的命名空间。
+// 该值与 deriveInlineModelID 的名称编码是历史兼容契约：改动会让所有内联部署的
+// 派生 id 变化、内部历史（probe_history 按 model_id 重键）断档，故**不得随版本修改**。
+var inlineModelIDNamespace = uuid.NewSHA1(
+	uuid.NameSpaceURL,
+	[]byte("https://github.com/prehisle/relay-pulse/identity/inline-model/v1"),
+)
+
+// deriveInlineModelID 由 PSCM 四元组确定性派生 md_<uuidv5>，专供未显式写 model_id 的
+// config.yaml 内联监测行（monitors.d 走随机持久化 id，不用此路径）。
+// 确定性保证跨重启/热更新 id 稳定（随机 id 只存内存、每次 Load 都变，会抹掉可见历史）。
+// 已知取舍：id 耦合 model 名——改 model 展示名会派生出新 id、内部历史断档；需要改名不断
+// 历史的用户应在 config.yaml 里显式固定 model_id（显式值本函数不覆盖）。
+// 名称输入唯一性由 validateMonitorUniqueness（PSCM 四元组唯一）保证；派生 id 的最终唯一性
+// （含理论上极低概率的 uuidv5 碰撞）由 Load 末尾重跑的 validateModelIDs 兜底 fail-closed。
+// 用「长度:值」前缀编码消除裸斜杠拼接歧义（字段本身可含 "/"）。
+func deriveInlineModelID(m ServiceConfig) string {
+	name := fmt.Sprintf("%d:%s/%d:%s/%d:%s/%d:%s",
+		len(m.Provider), m.Provider,
+		len(m.Service), m.Service,
+		len(m.Channel), m.Channel,
+		len(m.Model), m.Model,
+	)
+	return modelIDPrefix + uuid.NewSHA1(inlineModelIDNamespace, []byte(name)).String()
+}
+
 // IsValidChannelID 判断是否为带通道前缀的合法 id。
 func IsValidChannelID(id string) bool { return isValidPrefixedUUID(id, channelIDPrefix) }
 
@@ -25,8 +51,8 @@ func IsValidChannelID(id string) bool { return isValidPrefixedUUID(id, channelID
 func IsValidModelID(id string) bool { return isValidPrefixedUUID(id, modelIDPrefix) }
 
 // isValidPrefixedUUID 校验 id = 指定前缀 + 合法 uuid。
-// 仅拒绝畸形输入（前缀错误 / 空主体 / 非 uuid）；不强制 v4/小写/非 nil——
-// 生成路径已是 uuid.NewString()（v4），收紧只增噪不增安全。
+// 仅拒绝畸形输入（前缀错误 / 空主体 / 非 uuid）；不强制版本/小写/非 nil——
+// 随机生成路径用 v4（NewString），内联确定性派生用 v5（deriveInlineModelID），两者都须放行。
 func isValidPrefixedUUID(id, prefix string) bool {
 	if len(id) <= len(prefix) || id[:len(prefix)] != prefix {
 		return false
