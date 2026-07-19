@@ -37,7 +37,7 @@ jobs:
           fetch-depth: 0  # commitlint + semantic-release 需要完整历史
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           # 跟随最新 1.26.x（与生产 Dockerfile golang:1.26-alpine 一致），
           # 确保 govulncheck 跑在含安全补丁的工具链上。
