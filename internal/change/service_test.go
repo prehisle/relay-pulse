@@ -680,6 +680,54 @@ func TestService_AdminApprove_WrongStatus(t *testing.T) {
 	}
 }
 
+// TestService_AdminApprove_RequiresTestWithoutAgreement_Rejected 锁定管理员审批侧的反作弊
+// fail-closed 闸：历史/异常记录（迁移前提交，或绕过 Submit 的脏数据）可能出现
+// RequiresTest=true 但 AgreementAccepted=false——这类请求即便管理员点了批准也必须被拒，
+// 否则「改 base_url/API Key 却未确认反作弊条款」的后门只是从 Submit 挪到了 AdminApprove。
+func TestService_AdminApprove_RequiresTestWithoutAgreement_Rejected(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+
+	cr := makeRequest("pub-approve-noagree")
+	cr.RequiresTest = true // AgreementAccepted 故意保持零值 false
+	if err := store.Save(ctx, cr); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := svc.AdminApprove(ctx, "pub-approve-noagree", ""); err == nil {
+		t.Fatal("expected error when approving a requires-test change without agreement re-attestation")
+	}
+
+	got, _ := store.GetByPublicID(ctx, "pub-approve-noagree")
+	if got.Status != StatusPending {
+		t.Errorf("Status: got %q, want %q (rejection must not mutate state)", got.Status, StatusPending)
+	}
+}
+
+// TestService_AdminApprove_RequiresTestWithAgreement_Success 是上一测试的镜像：正常走完
+// Submit re-attestation 流程（AgreementAccepted=true）的请求必须能被批准——证明新增的
+// fail-closed 闸不会误伤已合规确认的请求。
+func TestService_AdminApprove_RequiresTestWithAgreement_Success(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+
+	cr := makeRequest("pub-approve-agreed")
+	cr.RequiresTest = true
+	cr.AgreementAccepted = true
+	if err := store.Save(ctx, cr); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := svc.AdminApprove(ctx, "pub-approve-agreed", "looks good"); err != nil {
+		t.Fatalf("AdminApprove: %v", err)
+	}
+
+	got, _ := store.GetByPublicID(ctx, "pub-approve-agreed")
+	if got.Status != StatusApproved {
+		t.Errorf("Status: got %q, want %q", got.Status, StatusApproved)
+	}
+}
+
 // --- AdminReject tests ---
 
 func TestService_AdminReject_Success(t *testing.T) {
@@ -1155,6 +1203,44 @@ func TestAdminApply_DeletedChannel_NoPanic(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "不存在") {
 		t.Fatalf("期望『通道不存在』类错误，实际: %v", err)
+	}
+}
+
+// TestAdminApply_RequiresTestWithoutAgreement_Rejected 锁定 AdminApply 侧与 AdminApprove
+// 对称的反作弊 fail-closed 闸：auto 模式请求若 RequiresTest=true 却未确认
+// AgreementAccepted（历史/异常记录，或绕过 Submit 的脏数据），即便管理员直接点应用也必须
+// 被拒——且拒在任何 monitor 文件读写之前（不依赖通道文件是否存在），否则未确认反作弊
+// 条款的 base_url/API Key 篡改仍能经 Apply 落到运行态监测配置。
+func TestAdminApply_RequiresTestWithoutAgreement_Rejected(t *testing.T) {
+	svc, store, ms := newApplyTestService(t)
+	// 通道文件必须存在且合法，否则「通道不存在」这类更早的校验会先失败、
+	// 掩盖了本测试真正要锁定的反作弊闸（假阳性 RED）。
+	seedMonitorFile(t, ms, "prov--cc--chan", config.ServiceConfig{
+		ProviderName: "原名", BaseURL: "https://live.example.com",
+	})
+	cr := seedAutoChangeRequest(t, store, "prov--cc--chan", map[string]string{"base_url": "https://api.new.com"})
+	// seed 默认 RequiresTest/AgreementAccepted 均为零值 false；显式改 RequiresTest=true 并回写
+	// （mockStore 存的是副本，须 Update 才生效，同 TestAdminUpdate_AppliedStatus_Rejected 的idiom）。
+	cr.RequiresTest = true
+	if err := store.Update(context.Background(), cr); err != nil {
+		t.Fatalf("回写 RequiresTest 失败: %v", err)
+	}
+
+	if err := svc.AdminApply(context.Background(), cr.PublicID); err == nil {
+		t.Fatal("expected error when applying a requires-test change without agreement re-attestation")
+	}
+
+	got, _ := store.GetByPublicID(context.Background(), cr.PublicID)
+	if got.Status != StatusPending {
+		t.Fatalf("fail-closed 后 CR 状态应仍为 pending，实际 %q", got.Status)
+	}
+	// monitor 未被写：base_url 仍为原值（guard 必须在 apply_mode/monitor 写之前拦下）。
+	mf, err := ms.Get("prov--cc--chan")
+	if err != nil {
+		t.Fatalf("ms.Get: %v", err)
+	}
+	if got := config.RootMonitor(mf).BaseURL; got != "https://live.example.com" {
+		t.Fatalf("monitor base_url=%q，期望未变更的 https://live.example.com", got)
 	}
 }
 

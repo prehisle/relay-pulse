@@ -513,6 +513,9 @@ func (s *Service) AdminApprove(ctx context.Context, publicID, note string) error
 	if cr.Status != StatusPending {
 		return fmt.Errorf("只有待审核的请求可以批准，当前状态: %s", cr.Status)
 	}
+	if cr.RequiresTest && !cr.AgreementAccepted {
+		return fmt.Errorf("该变更涉及监测字段（base_url/API Key）但未确认禁止监测作弊条款，不能批准；请驳回并要求重新提交")
+	}
 
 	now := time.Now().Unix()
 	cr.Status = StatusApproved
@@ -562,6 +565,9 @@ func (s *Service) AdminApply(ctx context.Context, publicID string) error {
 	}
 	if cr.Status != StatusPending && cr.Status != StatusApproved {
 		return fmt.Errorf("只有待审核或已批准的请求可以应用，当前状态: %s", cr.Status)
+	}
+	if cr.RequiresTest && !cr.AgreementAccepted {
+		return fmt.Errorf("该变更涉及监测字段（base_url/API Key）但未确认禁止监测作弊条款，不能应用；请驳回并要求重新提交")
 	}
 	if cr.ApplyMode != "auto" {
 		return fmt.Errorf("该通道为 manual 模式，不能自动应用（通道不在 monitors.d/ 中）")
