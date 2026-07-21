@@ -55,7 +55,11 @@ func (s *SQLStore) InitTable(ctx context.Context) error {
 		locale            TEXT,
 
 		created_at        INTEGER NOT NULL,
-		updated_at        INTEGER NOT NULL
+		updated_at        INTEGER NOT NULL,
+
+		agreement_accepted    BOOLEAN NOT NULL DEFAULT FALSE,
+		agreement_accepted_at INTEGER,
+		agreement_version     TEXT
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_change_status ON change_requests(status, created_at DESC);
@@ -75,7 +79,8 @@ const changeAllColumns = `id, public_id, status,
 	requires_test, test_type, test_variant, test_job_id, test_passed_at, test_latency_ms, test_http_code,
 	admin_note, reviewed_at, applied_at,
 	submitter_ip_hash, locale,
-	created_at, updated_at`
+	created_at, updated_at,
+	agreement_accepted, agreement_accepted_at, agreement_version`
 
 // Save 保存新变更请求
 func (s *SQLStore) Save(ctx context.Context, r *ChangeRequest) error {
@@ -89,8 +94,9 @@ func (s *SQLStore) Save(ctx context.Context, r *ChangeRequest) error {
 		requires_test, test_type, test_variant, test_job_id, test_passed_at, test_latency_ms, test_http_code,
 		admin_note, reviewed_at, applied_at,
 		submitter_ip_hash, locale,
-		created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		created_at, updated_at,
+		agreement_accepted, agreement_accepted_at, agreement_version
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	result, err := s.db.ExecContext(ctx, query,
 		r.PublicID, r.Status,
@@ -102,6 +108,7 @@ func (s *SQLStore) Save(ctx context.Context, r *ChangeRequest) error {
 		nullStr(r.AdminNote), r.ReviewedAt, r.AppliedAt,
 		nullStr(r.SubmitterIPHash), nullStr(r.Locale),
 		r.CreatedAt, r.UpdatedAt,
+		r.AgreementAccepted, r.AgreementAcceptedAt, nullStr(r.AgreementVersion),
 	)
 	if err != nil {
 		return fmt.Errorf("保存变更请求失败: %w", err)
@@ -221,6 +228,8 @@ func scanChangeRequest(s scanner) (*ChangeRequest, error) {
 	var adminNote sql.NullString
 	var reviewedAt, appliedAt sql.NullInt64
 	var ipHash, locale sql.NullString
+	var agreementAcceptedAt sql.NullInt64
+	var agreementVersion sql.NullString
 
 	err := s.Scan(
 		&cr.ID, &cr.PublicID, &cr.Status,
@@ -232,6 +241,7 @@ func scanChangeRequest(s scanner) (*ChangeRequest, error) {
 		&adminNote, &reviewedAt, &appliedAt,
 		&ipHash, &locale,
 		&cr.CreatedAt, &cr.UpdatedAt,
+		&cr.AgreementAccepted, &agreementAcceptedAt, &agreementVersion,
 	)
 	if err != nil {
 		return nil, err
@@ -263,6 +273,11 @@ func scanChangeRequest(s scanner) (*ChangeRequest, error) {
 	}
 	cr.SubmitterIPHash = ipHash.String
 	cr.Locale = locale.String
+	if agreementAcceptedAt.Valid {
+		v := agreementAcceptedAt.Int64
+		cr.AgreementAcceptedAt = &v
+	}
+	cr.AgreementVersion = agreementVersion.String
 
 	return &cr, nil
 }
@@ -279,7 +294,7 @@ func (s *SQLStore) scanOne(ctx context.Context, query string, args ...any) (*Cha
 	return cr, nil
 }
 
-// ensureColumns 补全 test_type/test_variant 列（在线迁移）
+// ensureColumns 补全 test_type/test_variant/agreement_* 等新增列（在线迁移，幂等）
 func (s *SQLStore) ensureColumns(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(change_requests)`)
 	if err != nil {
@@ -307,6 +322,9 @@ func (s *SQLStore) ensureColumns(ctx context.Context) error {
 	}{
 		{name: "test_type", ddl: `ALTER TABLE change_requests ADD COLUMN test_type TEXT`},
 		{name: "test_variant", ddl: `ALTER TABLE change_requests ADD COLUMN test_variant TEXT`},
+		{name: "agreement_accepted", ddl: `ALTER TABLE change_requests ADD COLUMN agreement_accepted BOOLEAN NOT NULL DEFAULT FALSE`},
+		{name: "agreement_accepted_at", ddl: `ALTER TABLE change_requests ADD COLUMN agreement_accepted_at INTEGER`},
+		{name: "agreement_version", ddl: `ALTER TABLE change_requests ADD COLUMN agreement_version TEXT`},
 	} {
 		if existing[col.name] {
 			continue

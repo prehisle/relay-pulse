@@ -394,6 +394,251 @@ func TestSQLStore_DeleteByPublicID_NotFound(t *testing.T) {
 	}
 }
 
+// TestSQLStore_EnsureColumns_MigratesPreExistingTable 用一份「Task 2 上线前」的旧 schema
+// （不含 agreement_* 三列，但含更早已上线的 test_type/test_variant）手动建表并插入一条
+// 历史行，再调用 InitTable（内含 ensureColumns 在线迁移），验证：
+//  1. ALTER TABLE ADD COLUMN 迁移路径本身跑得通（不同于 NullHistoricalRow 测试里
+//     「新 schema 建表后裸 INSERT 省略新列」那种只测 scan 容忍 NULL、不真正走迁移代码的路子）；
+//  2. 迁移后读取该历史行不报错，3 个新列呈现预期零值。
+func TestSQLStore_EnsureColumns_MigratesPreExistingTable(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+
+	// Task 2 之前的表结构快照：无 agreement_accepted/agreement_accepted_at/agreement_version。
+	preTask2Schema := `
+	CREATE TABLE change_requests (
+		id                INTEGER PRIMARY KEY AUTOINCREMENT,
+		public_id         TEXT NOT NULL UNIQUE,
+		status            TEXT NOT NULL DEFAULT 'pending',
+
+		target_provider   TEXT NOT NULL,
+		target_service    TEXT NOT NULL,
+		target_channel    TEXT NOT NULL,
+		target_key        TEXT NOT NULL,
+		apply_mode        TEXT NOT NULL,
+
+		auth_fingerprint  TEXT NOT NULL,
+		auth_last4        TEXT NOT NULL,
+
+		current_snapshot  TEXT NOT NULL,
+		proposed_changes  TEXT NOT NULL,
+
+		new_key_encrypted   TEXT,
+		new_key_fingerprint TEXT,
+		new_key_last4       TEXT,
+
+		requires_test     BOOLEAN NOT NULL DEFAULT FALSE,
+		test_type         TEXT,
+		test_variant      TEXT,
+		test_job_id       TEXT,
+		test_passed_at    INTEGER,
+		test_latency_ms   INTEGER,
+		test_http_code    INTEGER,
+
+		admin_note        TEXT,
+		reviewed_at       INTEGER,
+		applied_at        INTEGER,
+
+		submitter_ip_hash TEXT,
+		locale            TEXT,
+
+		created_at        INTEGER NOT NULL,
+		updated_at        INTEGER NOT NULL
+	);`
+	if _, err := db.ExecContext(ctx, preTask2Schema); err != nil {
+		t.Fatalf("create pre-Task-2 schema: %v", err)
+	}
+
+	now := time.Now().Unix()
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO change_requests (
+			public_id, status,
+			target_provider, target_service, target_channel, target_key, apply_mode,
+			auth_fingerprint, auth_last4,
+			current_snapshot, proposed_changes,
+			requires_test,
+			created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"cr-pre-migration", StatusPending,
+		"prov", "cc", "ch1", "prov--cc--ch1", "auto",
+		"fp-pre", "0003",
+		`{"base_url":"https://a.com"}`, `{"base_url":"https://b.com"}`,
+		false,
+		now, now,
+	); err != nil {
+		t.Fatalf("insert legacy row into pre-Task-2 schema: %v", err)
+	}
+
+	// InitTable 对已存在的表是 CREATE TABLE IF NOT EXISTS（no-op）+ ensureColumns
+	// （检测缺列后逐条 ALTER TABLE ADD COLUMN）——这正是生产环境滚动升级时会真实走到的路径。
+	store := NewSQLStore(db)
+	if err := store.InitTable(ctx); err != nil {
+		t.Fatalf("InitTable (online migration of pre-existing table): %v", err)
+	}
+
+	got, err := store.GetByPublicID(ctx, "cr-pre-migration")
+	if err != nil {
+		t.Fatalf("GetByPublicID after migration must not error: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected migrated legacy row to be found")
+	}
+	if got.AgreementAccepted {
+		t.Error("migrated legacy row AgreementAccepted: got true want false")
+	}
+	if got.AgreementAcceptedAt != nil {
+		t.Errorf("migrated legacy row AgreementAcceptedAt: got %v want nil", got.AgreementAcceptedAt)
+	}
+	if got.AgreementVersion != "" {
+		t.Errorf("migrated legacy row AgreementVersion: got %q want empty", got.AgreementVersion)
+	}
+}
+
+// TestSQLStore_Update_DoesNotMutateAgreementFields 是回归闸：即便调用方在内存对象里
+// （不慎）篡改了这 3 个 audit-immutable 字段再调 Update，落库值也必须原封不动——
+// 防止未来有人把 agreement_* 三列误加进 Update 的 SET 子句。
+func TestSQLStore_Update_DoesNotMutateAgreementFields(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	r := makeRequest("cr-immutable-1")
+	r.AgreementAccepted = true
+	at := int64(1721563200)
+	r.AgreementAcceptedAt = &at
+	r.AgreementVersion = "2026-07-16"
+	if err := store.Save(ctx, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// 模拟调用方在内存对象里篡改了这三个字段，再走正常的审核 Update 流程。
+	r.AgreementAccepted = false
+	r.AgreementAcceptedAt = nil
+	r.AgreementVersion = "tampered"
+	r.Status = StatusApproved
+	r.AdminNote = "LGTM"
+	r.UpdatedAt = time.Now().Unix()
+	if err := store.Update(ctx, r); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := store.GetByPublicID(ctx, "cr-immutable-1")
+	if err != nil {
+		t.Fatalf("GetByPublicID: %v", err)
+	}
+	if !got.AgreementAccepted {
+		t.Error("Update must not mutate AgreementAccepted: got false want true (unchanged)")
+	}
+	if got.AgreementAcceptedAt == nil || *got.AgreementAcceptedAt != at {
+		t.Errorf("Update must not mutate AgreementAcceptedAt: got %v want %d (unchanged)", got.AgreementAcceptedAt, at)
+	}
+	if got.AgreementVersion != "2026-07-16" {
+		t.Errorf("Update must not mutate AgreementVersion: got %q want %q (unchanged)", got.AgreementVersion, "2026-07-16")
+	}
+	// 合法字段仍应正常生效，证明这不是 Update 整体失效。
+	if got.Status != StatusApproved {
+		t.Errorf("Update should still apply legitimate Status change: got %q want %q", got.Status, StatusApproved)
+	}
+	if got.AdminNote != "LGTM" {
+		t.Errorf("Update should still apply legitimate AdminNote change: got %q want %q", got.AdminNote, "LGTM")
+	}
+}
+
+func TestSQLStore_AgreementFields_RoundTrip(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	r := makeRequest("cr-agreement-1")
+	r.RequiresTest = true
+	r.AgreementAccepted = true
+	at := int64(1721563200)
+	r.AgreementAcceptedAt = &at
+	r.AgreementVersion = "2026-07-16"
+	if err := store.Save(ctx, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := store.GetByPublicID(ctx, "cr-agreement-1")
+	if err != nil {
+		t.Fatalf("GetByPublicID: %v", err)
+	}
+	if !got.AgreementAccepted {
+		t.Error("AgreementAccepted: got false want true")
+	}
+	if got.AgreementAcceptedAt == nil || *got.AgreementAcceptedAt != at {
+		t.Errorf("AgreementAcceptedAt: got %v want %d", got.AgreementAcceptedAt, at)
+	}
+	if got.AgreementVersion != "2026-07-16" {
+		t.Errorf("AgreementVersion: got %q", got.AgreementVersion)
+	}
+}
+
+// 模拟功能上线前就存在的历史行：agreement_accepted_at/version 为 NULL，
+// scan 必须不报错（否则 admin 列表读到旧行整体 500）。
+func TestSQLStore_AgreementFields_NullHistoricalRow(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	r := makeRequest("cr-legacy-1") // 未设任何 agreement 字段
+	if err := store.Save(ctx, r); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := store.GetByPublicID(ctx, "cr-legacy-1")
+	if err != nil {
+		t.Fatalf("GetByPublicID on legacy row must not error: %v", err)
+	}
+	if got.AgreementAccepted {
+		t.Error("legacy row AgreementAccepted: got true want false")
+	}
+	if got.AgreementAcceptedAt != nil {
+		t.Errorf("legacy row AgreementAcceptedAt: got %v want nil", got.AgreementAcceptedAt)
+	}
+	if got.AgreementVersion != "" {
+		t.Errorf("legacy row AgreementVersion: got %q want empty", got.AgreementVersion)
+	}
+
+	// 直接对底层 DB 插入一条「功能上线前」的行：agreement_* 三列完全不写
+	// （模拟真实历史行，而非 Save 写入的零值），验证 GetByPublicID 的 scan
+	// 不会因该列在物理上是 NULL 而报错。
+	_, err = store.db.ExecContext(ctx, `
+		INSERT INTO change_requests (
+			public_id, status,
+			target_provider, target_service, target_channel, target_key, apply_mode,
+			auth_fingerprint, auth_last4,
+			current_snapshot, proposed_changes,
+			requires_test,
+			created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"cr-legacy-raw", StatusPending,
+		"prov", "cc", "ch1", "prov--cc--ch1", "auto",
+		"fp-raw", "0002",
+		`{"base_url":"https://a.com"}`, `{"base_url":"https://b.com"}`,
+		false,
+		time.Now().Unix(), time.Now().Unix(),
+	)
+	if err != nil {
+		t.Fatalf("raw insert (legacy row simulation): %v", err)
+	}
+
+	gotRaw, err := store.GetByPublicID(ctx, "cr-legacy-raw")
+	if err != nil {
+		t.Fatalf("GetByPublicID on raw-inserted legacy row must not error: %v", err)
+	}
+	if gotRaw.AgreementAccepted {
+		t.Error("raw legacy row AgreementAccepted: got true want false")
+	}
+	if gotRaw.AgreementAcceptedAt != nil {
+		t.Errorf("raw legacy row AgreementAcceptedAt: got %v want nil", gotRaw.AgreementAcceptedAt)
+	}
+	if gotRaw.AgreementVersion != "" {
+		t.Errorf("raw legacy row AgreementVersion: got %q want empty", gotRaw.AgreementVersion)
+	}
+}
+
 func TestSQLStore_List_StatusAll(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
