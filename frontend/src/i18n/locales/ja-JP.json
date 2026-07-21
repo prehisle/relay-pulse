@@ -532,7 +532,9 @@
       "description": "以下の変更内容を確認して送信してください",
       "target": "対象チャネル",
       "submit": "変更を送信",
-      "submitFailed": "送信に失敗しました"
+      "submitFailed": "送信に失敗しました",
+      "noCheatConfirm": "上記の「監視・品質プローブへの不正禁止」条項を読み、同意します",
+      "noCheatRequired": "base URL または API キーを変更する前に、不正禁止条項を確認してください"
     },
     "done": {
       "title": "変更リクエストが送信されました",

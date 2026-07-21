@@ -11,6 +11,15 @@ import type {
 
 export type ChangeStep = 'auth' | 'edit' | 'test' | 'review' | 'done';
 
+/**
+ * 变更是否需要探测测试（并触发反作弊条款重确认）：改动了被探测目标 base_url，或提供了新 API Key。
+ * 纯函数（不依赖任何 hook 状态），供本 hook 与复核页 ReviewStep 共用，保证两端判据字节等价，
+ * 避免二处独立表达式漂移。与后端 change.Submit 的门控判据保持一致。
+ */
+export function changeRequiresTest(changes: Record<string, string>, newApiKey: string): boolean {
+  return 'base_url' in changes || newApiKey !== '';
+}
+
 interface InlineTestResult {
   probe_status?: number;
   sub_status?: string;
@@ -152,9 +161,7 @@ export function useChangeRequest() {
   }, [resetTestState]);
 
   // 判断是否需要测试（base_url 变更或提供新 API Key 时需要通过探测测试）
-  const requiresTest = Object.keys(changes).some(
-    f => f === 'base_url'
-  ) || newApiKey !== '';
+  const requiresTest = changeRequiresTest(changes, newApiKey);
 
   // 进入测试/提交步骤
   const proceedFromEdit = useCallback(() => {
@@ -222,7 +229,7 @@ export function useChangeRequest() {
   }, [selectedCandidate, selectedVariant, changes, newApiKey, apiKey, t]);
 
   // 提交变更
-  const submit = useCallback(async () => {
+  const submit = useCallback(async (agreementAccepted: boolean) => {
     if (!selectedCandidate) return;
     // 提交前本地预检 proof 是否过期（与 onboarding 流程对齐）。后端 Verify 仍是权威校验，
     // 这里只为在打服务器前给出清晰的「请重新测试」提示，避免一次无谓往返。
@@ -256,6 +263,10 @@ export function useChangeRequest() {
         req.test_api_url = testBaseUrl;
         req.test_latency = testResult?.latency;
         req.test_http_code = testResult?.http_code;
+      }
+
+      if (requiresTest) {
+        req.agreement_accepted = agreementAccepted;
       }
 
       const resp = await apiPost<SubmitChangeResponse>('/api/change/submit', req);

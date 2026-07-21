@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { ArrowLeft, ArrowRight, Check, Loader2, Key, AlertCircle, Copy, Activity } from 'lucide-react';
 import { LANGUAGE_PATH_MAP, type SupportedLanguage } from '../i18n';
-import { useChangeRequest, type ChangeStep } from '../hooks/useChangeRequest';
+import { useChangeRequest, changeRequiresTest, type ChangeStep } from '../hooks/useChangeRequest';
 import type { AuthCandidate } from '../types/change';
 import { inputClass, selectClass, labelClass, primaryButtonClass, secondaryButtonClass } from '../components/onboarding/controls';
 import { isProviderNameValid, isChannelNameValid } from '../utils/displayName';
@@ -376,7 +376,7 @@ function TestStep({
 }
 
 /** Review 步骤 */
-function ReviewStep({
+export function ReviewStep({
   selectedCandidate,
   changes,
   newApiKey,
@@ -389,11 +389,16 @@ function ReviewStep({
   changes: Record<string, string>;
   newApiKey: string;
   isSubmitting: boolean;
-  submit: () => void;
+  submit: (agreementAccepted: boolean) => void;
   goBack: () => void;
   error: string | null;
 }) {
   const { t } = useTranslation();
+
+  // 改动触及 base_url 或提供新 API Key 时，后端要求重新确认「禁止监测作弊」条款。
+  // 与 useChangeRequest 共用同一纯函数，判据字节等价、不会漂移。
+  const requiresTest = changeRequiresTest(changes, newApiKey);
+  const [agreementChecked, setAgreementChecked] = useState(false);
 
   // 改动字段的展示标签：与编辑页保持一致，避免在复核页暴露 snake_case 原始键名
   const fieldLabels: Record<string, string> = {
@@ -436,6 +441,26 @@ function ReviewStep({
         )}
       </div>
 
+      {requiresTest && (
+        <div className="p-4 rounded-lg bg-elevated border border-accent/20 mb-4 space-y-2">
+          <p className="text-sm text-secondary leading-relaxed">
+            {t('onboarding.confirm.agreement.clauseNoCheat')}
+          </p>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={agreementChecked}
+              onChange={() => setAgreementChecked((v) => !v)}
+              className="mt-0.5 w-4 h-4 flex-shrink-0 rounded border-muted accent-accent"
+            />
+            <span className="text-sm text-primary">{t('changeRequest.review.noCheatConfirm')}</span>
+          </label>
+          {!agreementChecked && (
+            <p className="text-xs text-muted">{t('changeRequest.review.noCheatRequired')}</p>
+          )}
+        </div>
+      )}
+
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-danger/10 text-danger text-sm mb-4">
           <AlertCircle size={16} />
@@ -448,8 +473,8 @@ function ReviewStep({
           <ArrowLeft size={14} />{t('changeRequest.back')}
         </button>
         <button
-          onClick={submit}
-          disabled={isSubmitting}
+          onClick={() => submit(agreementChecked)}
+          disabled={isSubmitting || (requiresTest && !agreementChecked)}
           className={`flex-1 justify-center ${primaryButtonClass}`}
         >
           {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}

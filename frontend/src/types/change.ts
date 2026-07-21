@@ -46,6 +46,7 @@ export interface SubmitChangeRequest {
   test_latency?: number;
   test_http_code?: number;
   locale?: string;
+  agreement_accepted?: boolean;
 }
 
 /** 提交变更响应 */
@@ -85,6 +86,9 @@ export interface AdminChangeRequest {
   applied_at?: number;
   submitter_ip_hash?: string;
   locale?: string;
+  agreement_accepted?: boolean;
+  agreement_accepted_at?: number;
+  agreement_version?: string;
   created_at: number;
   updated_at: number;
 }

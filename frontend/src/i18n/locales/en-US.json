@@ -565,7 +565,9 @@
       "description": "Please review the changes below before submitting",
       "target": "Target Channel",
       "submit": "Submit Changes",
-      "submitFailed": "Submission failed"
+      "submitFailed": "Submission failed",
+      "noCheatConfirm": "I have read and confirm the anti-cheat clause above",
+      "noCheatRequired": "Please confirm the anti-cheat clause before changing the base URL or API key"
     },
     "done": {
       "title": "Change Request Submitted",

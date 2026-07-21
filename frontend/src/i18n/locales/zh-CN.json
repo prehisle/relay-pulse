@@ -568,7 +568,9 @@
       "description": "请确认以下变更信息无误后提交",
       "target": "目标通道",
       "submit": "提交变更",
-      "submitFailed": "提交失败"
+      "submitFailed": "提交失败",
+      "noCheatConfirm": "我已阅读并确认上述「禁止监测作弊」条款",
+      "noCheatRequired": "变更网址或密钥前，请先勾选确认「禁止监测作弊」条款"
     },
     "done": {
       "title": "变更请求已提交",
