@@ -18,6 +18,7 @@ import (
 	"monitor/internal/config"
 	"monitor/internal/displayname"
 	"monitor/internal/logger"
+	"monitor/internal/onboarding"
 )
 
 // 需要测试的 proposed_changes 字段（顶层 new_api_key 单独处理）
@@ -103,18 +104,19 @@ func (s *Service) Auth(apiKey string) (*AuthResponse, error) {
 
 // SubmitRequest 提交变更请求
 type SubmitRequest struct {
-	APIKey          string            `json:"api_key" binding:"required,min=10,max=500"`
-	TargetKey       string            `json:"target_key" binding:"required,max=200"`
-	ProposedChanges map[string]string `json:"proposed_changes" binding:"required"`
-	NewAPIKey       string            `json:"new_api_key,omitempty"`
-	TestProof       string            `json:"test_proof,omitempty"`
-	TestJobID       string            `json:"test_job_id,omitempty"`
-	TestType        string            `json:"test_type,omitempty"`
-	TestVariant     string            `json:"test_variant,omitempty"`
-	TestAPIURL      string            `json:"test_api_url,omitempty"`
-	TestLatency     int               `json:"test_latency,omitempty"`
-	TestHTTPCode    int               `json:"test_http_code,omitempty"`
-	Locale          string            `json:"locale,omitempty"`
+	APIKey            string            `json:"api_key" binding:"required,min=10,max=500"`
+	TargetKey         string            `json:"target_key" binding:"required,max=200"`
+	ProposedChanges   map[string]string `json:"proposed_changes" binding:"required"`
+	NewAPIKey         string            `json:"new_api_key,omitempty"`
+	TestProof         string            `json:"test_proof,omitempty"`
+	TestJobID         string            `json:"test_job_id,omitempty"`
+	TestType          string            `json:"test_type,omitempty"`
+	TestVariant       string            `json:"test_variant,omitempty"`
+	TestAPIURL        string            `json:"test_api_url,omitempty"`
+	TestLatency       int               `json:"test_latency,omitempty"`
+	TestHTTPCode      int               `json:"test_http_code,omitempty"`
+	Locale            string            `json:"locale,omitempty"`
+	AgreementAccepted bool              `json:"agreement_accepted"`
 }
 
 // SubmitResponse 提交响应
@@ -199,6 +201,12 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		requiresTest = true
 	}
 
+	// 变更触及监测相关字段（base_url / API Key）时，须重新确认「禁止监测作弊」条款。
+	// fail-closed，早于 proof 校验；非 requiresTest 的展示类变更不要求、也不盖戳。
+	if requiresTest && !req.AgreementAccepted {
+		return nil, fmt.Errorf("变更监测相关字段（base_url/API Key）需先确认禁止监测作弊条款")
+	}
+
 	// 如果需要测试，验证 proof
 	if requiresTest {
 		if req.TestProof == "" || req.TestJobID == "" {
@@ -280,6 +288,12 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		cr.TestPassedAt = now
 		cr.TestLatency = req.TestLatency
 		cr.TestHTTPCode = req.TestHTTPCode
+
+		// 反作弊 re-attestation 盖戳（版本/时间由后端定，不信客户端；此分支已保证 AgreementAccepted==true）
+		cr.AgreementAccepted = true
+		acceptedAt := now
+		cr.AgreementAcceptedAt = &acceptedAt
+		cr.AgreementVersion = onboarding.AgreementVersion
 	}
 
 	// 加密新 API Key（如有）

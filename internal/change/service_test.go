@@ -14,6 +14,7 @@ import (
 
 	"monitor/internal/apikey"
 	"monitor/internal/config"
+	"monitor/internal/onboarding"
 )
 
 // --- mock store ---
@@ -218,15 +219,16 @@ func TestService_Submit_WithTestRequired(t *testing.T) {
 	proof := proofIssuer.Issue("job-1", "cc", "https://api.new.com", fingerprint)
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"base_url": "https://api.new.com"},
-		TestProof:       proof,
-		TestJobID:       "job-1",
-		TestType:        "cc",
-		TestAPIURL:      "https://api.new.com",
-		TestLatency:     150,
-		TestHTTPCode:    200,
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+		TestProof:         proof,
+		TestJobID:         "job-1",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.new.com",
+		TestLatency:       150,
+		TestHTTPCode:      200,
+		AgreementAccepted: true,
 	}
 
 	resp, err := svc.Submit(ctx, req, "127.0.0.1")
@@ -322,9 +324,10 @@ func TestService_Submit_MissingProofWhenTestRequired(t *testing.T) {
 	ctx := context.Background()
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"base_url": "https://api.new.com"},
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+		AgreementAccepted: true,
 		// 没有 proof
 	}
 
@@ -339,10 +342,11 @@ func TestService_Submit_NewAPIKeyRequiresTest(t *testing.T) {
 	ctx := context.Background()
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"provider_name": "NewName"},
-		NewAPIKey:       "sk-brand-new-key-abcd",
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"provider_name": "NewName"},
+		NewAPIKey:         "sk-brand-new-key-abcd",
+		AgreementAccepted: true,
 		// 没有 proof，但 new key 需要测试
 	}
 
@@ -363,14 +367,15 @@ func TestService_Submit_EncryptsNewAPIKey(t *testing.T) {
 	proof := proofIssuer.Issue("job-2", "cc", "https://api.test.com", fingerprint)
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"provider_name": "Updated"},
-		NewAPIKey:       newKey,
-		TestProof:       proof,
-		TestJobID:       "job-2",
-		TestType:        "cc",
-		TestAPIURL:      "https://api.test.com",
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"provider_name": "Updated"},
+		NewAPIKey:         newKey,
+		TestProof:         proof,
+		TestJobID:         "job-2",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.test.com",
+		AgreementAccepted: true,
 	}
 
 	resp, err := svc.Submit(ctx, req, "192.168.0.1")
@@ -388,6 +393,129 @@ func TestService_Submit_EncryptsNewAPIKey(t *testing.T) {
 	}
 	if cr.NewKeyLast4 != "abcd" {
 		t.Errorf("NewKeyLast4: got %q, want %q", cr.NewKeyLast4, "abcd")
+	}
+	// new_api_key 路径同样须盖戳反作弊 re-attestation（门控与盖戳代码不分字段，
+	// 但两条触发路径——base_url/new_api_key——各自都要有直接证据）。
+	if !cr.AgreementAccepted {
+		t.Error("expected AgreementAccepted=true stamped for new_api_key change")
+	}
+	if cr.AgreementVersion != onboarding.AgreementVersion {
+		t.Errorf("AgreementVersion: got %q want %q", cr.AgreementVersion, onboarding.AgreementVersion)
+	}
+	if cr.AgreementAcceptedAt == nil || *cr.AgreementAcceptedAt == 0 {
+		t.Error("expected non-nil AgreementAcceptedAt")
+	}
+}
+
+// TestService_Submit_RequiresTestWithoutAgreement_Rejected 锁定新增的反作弊 re-attestation
+// 门控本身——proof 齐全（否则会被更早的「缺 proof」检查拦下、测不出这个门控是否存在），
+// 唯独不设 AgreementAccepted，必须被拒且拒因是协议门控（而非其他校验）。
+func TestService_Submit_RequiresTestWithoutAgreement_Rejected(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+	cipher, _ := apikey.NewKeyCipher(testHexKey)
+	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
+	fingerprint := cipher.Fingerprint("sk-test-key-12345")
+	proof := proofIssuer.Issue("job-noagree", "cc", "https://api.new.com", fingerprint)
+	req := &SubmitRequest{
+		APIKey:          "sk-test-key-12345",
+		TargetKey:       "testprov--cc--vip",
+		ProposedChanges: map[string]string{"base_url": "https://api.new.com"},
+		TestProof:       proof,
+		TestJobID:       "job-noagree",
+		TestType:        "cc",
+		TestAPIURL:      "https://api.new.com",
+		// 故意不设 AgreementAccepted：即便 proof 齐全，改 base_url 未确认反作弊仍须被拒
+	}
+	_, err := svc.Submit(ctx, req, "127.0.0.1")
+	if err == nil {
+		t.Fatal("expected rejection when base_url change lacks anti-cheat re-attestation")
+	}
+	if !strings.Contains(err.Error(), "禁止监测作弊") {
+		t.Errorf("expected agreement-gate error, got: %v", err)
+	}
+}
+
+// TestService_Submit_NewAPIKeyWithoutAgreement_Rejected 是上一个测试在 new_api_key 路径上的
+// 镜像：requiresTest 由 base_url 或 new_api_key 任一触发，门控代码本身不分字段，但两条触发路径
+// 都应各自锁定一个直接证据，防止未来门控被误改成只挡 base_url。
+func TestService_Submit_NewAPIKeyWithoutAgreement_Rejected(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+	cipher, _ := apikey.NewKeyCipher(testHexKey)
+	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
+	newKey := "sk-brand-new-key-noagree"
+	fingerprint := cipher.Fingerprint(newKey)
+	proof := proofIssuer.Issue("job-newkey-noagree", "cc", "https://api.test.com", fingerprint)
+	req := &SubmitRequest{
+		APIKey:          "sk-test-key-12345",
+		TargetKey:       "testprov--cc--vip",
+		ProposedChanges: map[string]string{"provider_name": "Updated"},
+		NewAPIKey:       newKey,
+		TestProof:       proof,
+		TestJobID:       "job-newkey-noagree",
+		TestType:        "cc",
+		TestAPIURL:      "https://api.test.com",
+		// 故意不设 AgreementAccepted：即便 proof 齐全，new_api_key 变更未确认反作弊仍须被拒
+	}
+	_, err := svc.Submit(ctx, req, "127.0.0.1")
+	if err == nil {
+		t.Fatal("expected rejection when new_api_key change lacks anti-cheat re-attestation")
+	}
+	if !strings.Contains(err.Error(), "禁止监测作弊") {
+		t.Errorf("expected agreement-gate error, got: %v", err)
+	}
+}
+
+func TestService_Submit_RequiresTestWithAgreement_Stamped(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+	cipher, _ := apikey.NewKeyCipher(testHexKey)
+	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
+	fingerprint := cipher.Fingerprint("sk-test-key-12345")
+	proof := proofIssuer.Issue("job-ac", "cc", "https://api.new.com", fingerprint)
+	req := &SubmitRequest{
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+		TestProof:         proof,
+		TestJobID:         "job-ac",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.new.com",
+		AgreementAccepted: true,
+	}
+	resp, err := svc.Submit(ctx, req, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	saved, _ := store.GetByPublicID(ctx, resp.PublicID)
+	if saved == nil || !saved.AgreementAccepted {
+		t.Fatal("expected AgreementAccepted=true stamped")
+	}
+	if saved.AgreementVersion != onboarding.AgreementVersion {
+		t.Errorf("AgreementVersion: got %q want %q", saved.AgreementVersion, onboarding.AgreementVersion)
+	}
+	if saved.AgreementAcceptedAt == nil || *saved.AgreementAcceptedAt == 0 {
+		t.Error("expected non-nil AgreementAcceptedAt")
+	}
+}
+
+func TestService_Submit_CosmeticChange_NoAgreementStamp(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+	req := &SubmitRequest{
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"provider_name": "NewName"},
+		AgreementAccepted: true, // 客户端塞了也应被忽略：cosmetic 不盖戳
+	}
+	resp, err := svc.Submit(ctx, req, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	saved, _ := store.GetByPublicID(ctx, resp.PublicID)
+	if saved.AgreementAccepted || saved.AgreementVersion != "" || saved.AgreementAcceptedAt != nil {
+		t.Errorf("cosmetic change must not stamp attestation, got %+v", saved)
 	}
 }
 
@@ -649,13 +777,14 @@ func TestService_Submit_ProofWrongJobID(t *testing.T) {
 	proof := proofIssuer.Issue("job-good", "cc", "https://api.new.com", fingerprint)
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"base_url": "https://api.new.com"},
-		TestProof:       proof,
-		TestJobID:       "job-wrong",
-		TestType:        "cc",
-		TestAPIURL:      "https://api.new.com",
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+		TestProof:         proof,
+		TestJobID:         "job-wrong",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.new.com",
+		AgreementAccepted: true,
 	}
 
 	_, err := svc.Submit(ctx, req, "127.0.0.1")
@@ -677,13 +806,14 @@ func TestService_Submit_ProofWrongAPIURL(t *testing.T) {
 	proof := proofIssuer.Issue("job-url", "cc", "https://api.legit.com", fingerprint)
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"base_url": "https://api.evil.com"},
-		TestProof:       proof,
-		TestJobID:       "job-url",
-		TestType:        "cc",
-		TestAPIURL:      "https://api.evil.com", // 与 proof 中的不同
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.evil.com"},
+		TestProof:         proof,
+		TestJobID:         "job-url",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.evil.com", // 与 proof 中的不同
+		AgreementAccepted: true,
 	}
 
 	_, err := svc.Submit(ctx, req, "127.0.0.1")
@@ -703,13 +833,14 @@ func TestService_Submit_ProofExpired(t *testing.T) {
 	proof := expiredIssuer.Issue("job-exp", "cc", "https://api.new.com", fingerprint)
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"base_url": "https://api.new.com"},
-		TestProof:       proof,
-		TestJobID:       "job-exp",
-		TestType:        "cc",
-		TestAPIURL:      "https://api.new.com",
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+		TestProof:         proof,
+		TestJobID:         "job-exp",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.new.com",
+		AgreementAccepted: true,
 	}
 
 	_, err := svc.Submit(ctx, req, "127.0.0.1")
@@ -734,13 +865,14 @@ func TestService_Submit_ProofTampered(t *testing.T) {
 	tampered := "x" + proof[1:]
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"base_url": "https://api.new.com"},
-		TestProof:       tampered,
-		TestJobID:       "job-tamp",
-		TestType:        "cc",
-		TestAPIURL:      "https://api.new.com",
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+		TestProof:         tampered,
+		TestJobID:         "job-tamp",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.new.com",
+		AgreementAccepted: true,
 	}
 
 	_, err := svc.Submit(ctx, req, "127.0.0.1")
@@ -760,13 +892,14 @@ func TestService_Submit_ProofWrongKeyFingerprint(t *testing.T) {
 	proof := proofIssuer.Issue("job-fp", "cc", "https://api.new.com", wrongFingerprint)
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"base_url": "https://api.new.com"},
-		TestProof:       proof,
-		TestJobID:       "job-fp",
-		TestType:        "cc",
-		TestAPIURL:      "https://api.new.com",
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+		TestProof:         proof,
+		TestJobID:         "job-fp",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.new.com",
+		AgreementAccepted: true,
 	}
 
 	_, err := svc.Submit(ctx, req, "127.0.0.1")
@@ -845,13 +978,14 @@ func TestService_Submit_BaseURLHostMustMatchTestAPIURL(t *testing.T) {
 	proof := proofIssuer.Issue("job-host", "cc", "https://api.other.com", fingerprint)
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"base_url": "https://api.new.com"},
-		TestProof:       proof,
-		TestJobID:       "job-host",
-		TestType:        "cc",
-		TestAPIURL:      "https://api.other.com",
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+		TestProof:         proof,
+		TestJobID:         "job-host",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.other.com",
+		AgreementAccepted: true,
 	}
 
 	_, err := svc.Submit(ctx, req, "127.0.0.1")
@@ -875,14 +1009,15 @@ func TestService_Submit_NewAPIKeyHostMustMatchTargetBaseURL(t *testing.T) {
 	proof := proofIssuer.Issue("job-newkey-host", "cc", "https://api.evil.com", fingerprint)
 
 	req := &SubmitRequest{
-		APIKey:          "sk-test-key-12345",
-		TargetKey:       "testprov--cc--vip",
-		ProposedChanges: map[string]string{"provider_name": "Updated"},
-		NewAPIKey:       newKey,
-		TestProof:       proof,
-		TestJobID:       "job-newkey-host",
-		TestType:        "cc",
-		TestAPIURL:      "https://api.evil.com",
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"provider_name": "Updated"},
+		NewAPIKey:         newKey,
+		TestProof:         proof,
+		TestJobID:         "job-newkey-host",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.evil.com",
+		AgreementAccepted: true,
 	}
 
 	_, err := svc.Submit(ctx, req, "127.0.0.1")
@@ -922,14 +1057,15 @@ func TestService_Submit_SkipHostCheckWhenBaseURLEmpty(t *testing.T) {
 	proof := proofIssuer.Issue("job-nobase", "cc", "https://any.host.com/v1", fingerprint)
 
 	req := &SubmitRequest{
-		APIKey:          "sk-nobase-key-00001",
-		TargetKey:       "nbase--cc--ch",
-		ProposedChanges: map[string]string{"provider_name": "NoBase"},
-		NewAPIKey:       newKey,
-		TestProof:       proof,
-		TestJobID:       "job-nobase",
-		TestType:        "cc",
-		TestAPIURL:      "https://any.host.com/v1",
+		APIKey:            "sk-nobase-key-00001",
+		TargetKey:         "nbase--cc--ch",
+		ProposedChanges:   map[string]string{"provider_name": "NoBase"},
+		NewAPIKey:         newKey,
+		TestProof:         proof,
+		TestJobID:         "job-nobase",
+		TestType:          "cc",
+		TestAPIURL:        "https://any.host.com/v1",
+		AgreementAccepted: true,
 	}
 
 	ctx := context.Background()

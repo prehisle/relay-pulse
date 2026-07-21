@@ -62,6 +62,11 @@ type ChangeRequest struct {
 	SubmitterIPHash string `json:"submitter_ip_hash,omitempty"`
 	Locale          string `json:"locale,omitempty"`
 
+	// 反作弊 re-attestation（仅在变更触及 base_url/API Key 时由后端盖戳；历史行为空）
+	AgreementAccepted   bool   `json:"agreement_accepted"`
+	AgreementAcceptedAt *int64 `json:"agreement_accepted_at,omitempty"`
+	AgreementVersion    string `json:"agreement_version,omitempty"`
+
 	// 时间戳
 	CreatedAt int64 `json:"created_at"`
 	UpdatedAt int64 `json:"updated_at"`
