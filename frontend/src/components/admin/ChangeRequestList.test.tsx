@@ -228,3 +228,58 @@ describe('ChangeRequestList 只读审 diff', () => {
     expect(onUpdate).toHaveBeenCalledWith('cr-1234567890', { admin_note: '新备注' });
   });
 });
+
+describe('反作弊 attestation 审计展示', () => {
+  it('改监测字段且已确认：显示已确认 + 版本，且不含其它两态文案', () => {
+    const { container, root } = renderExpanded({
+      requires_test: true,
+      agreement_accepted: true,
+      agreement_version: '2026-07-16',
+      agreement_accepted_at: 1721563200,
+    });
+    roots.push(root);
+    const html = container.innerHTML;
+
+    expect(html).toContain('已确认');
+    expect(html).toContain('2026-07-16');
+    // 三态互斥：确认态不应混入不适用/未确认文案
+    expect(html).not.toContain('不适用');
+    expect(html).not.toContain('⚠');
+  });
+
+  it('改监测字段但未确认（历史行）：醒目未确认', () => {
+    const { container, root } = renderExpanded({
+      requires_test: true,
+      agreement_accepted: false,
+    });
+    roots.push(root);
+    const html = container.innerHTML;
+
+    expect(html).toContain('未确认');
+    expect(html).toContain('⚠');
+  });
+
+  it('已确认但缺版本/时间戳：只显示已确认，无 ·v 后缀与 Invalid Date', () => {
+    const { container, root } = renderExpanded({
+      requires_test: true,
+      agreement_accepted: true,
+      // 有意省略 agreement_version 与 agreement_accepted_at，覆盖守卫插值分支
+    });
+    roots.push(root);
+    const html = container.innerHTML;
+
+    expect(html).toContain('已确认');
+    expect(html).not.toContain('· v');
+    expect(html).not.toContain('Invalid Date');
+  });
+
+  it('纯展示变更：不适用', () => {
+    const { container, root } = renderExpanded({
+      requires_test: false,
+    });
+    roots.push(root);
+    const html = container.innerHTML;
+
+    expect(html).toContain('不适用');
+  });
+});

@@ -814,7 +814,10 @@
       "adminNote": "Admin Note",
       "adminNotePlaceholder": "Enter review note...",
       "rejectNotePlaceholder": "Enter rejection reason...",
-      "confirmReject": "Confirm Reject"
+      "confirmReject": "Confirm Reject",
+      "antiCheatNA": "Anti-cheat clause: N/A (no monitoring-related field changed)",
+      "antiCheatConfirmed": "Anti-cheat clause: confirmed",
+      "antiCheatMissing": "Anti-cheat clause: not confirmed"
     },
     "detail": {
       "back": "Back to list",

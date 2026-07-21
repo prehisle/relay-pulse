@@ -817,7 +817,10 @@
       "adminNote": "审核备注",
       "adminNotePlaceholder": "输入审核备注...",
       "rejectNotePlaceholder": "输入驳回原因...",
-      "confirmReject": "确认驳回"
+      "confirmReject": "确认驳回",
+      "antiCheatNA": "禁止监测作弊条款：不适用（未改监测相关字段）",
+      "antiCheatConfirmed": "禁止监测作弊条款：已确认",
+      "antiCheatMissing": "禁止监测作弊条款：未确认"
     },
     "detail": {
       "back": "返回列表",

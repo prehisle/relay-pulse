@@ -781,7 +781,10 @@
       "adminNote": "管理者メモ",
       "adminNotePlaceholder": "メモを入力...",
       "rejectNotePlaceholder": "却下理由を入力...",
-      "confirmReject": "却下を確認"
+      "confirmReject": "却下を確認",
+      "antiCheatNA": "不正禁止条項：対象外（監視関連項目の変更なし）",
+      "antiCheatConfirmed": "不正禁止条項：確認済み",
+      "antiCheatMissing": "不正禁止条項：未確認"
     },
     "detail": {
       "back": "リストに戻る",

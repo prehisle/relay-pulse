@@ -292,6 +292,23 @@ export function ChangeRequestList({
                       </div>
                     )}
 
+                    {/* 反作弊 attestation 三态审计行 */}
+                    <div className="text-xs">
+                      {!cr.requires_test ? (
+                        <span className="text-muted">{t('admin.changes.antiCheatNA')}</span>
+                      ) : cr.agreement_accepted ? (
+                        <span className="text-success">
+                          {t('admin.changes.antiCheatConfirmed')}
+                          {cr.agreement_version ? ` · v${cr.agreement_version}` : ''}
+                          {cr.agreement_accepted_at
+                            ? ` · ${new Date(cr.agreement_accepted_at * 1000).toLocaleString()}`
+                            : ''}
+                        </span>
+                      ) : (
+                        <span className="text-danger font-medium">⚠ {t('admin.changes.antiCheatMissing')}</span>
+                      )}
+                    </div>
+
                     {/* Actions */}
                     <div className="space-y-2 pt-2">
                       <div className="flex gap-2 flex-wrap">
