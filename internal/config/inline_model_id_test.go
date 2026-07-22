@@ -385,3 +385,61 @@ func TestDeriveInlineModelID_IsUUIDv5(t *testing.T) {
 		t.Errorf("expected uuid v5, got v%d", parsed.Version())
 	}
 }
+
+// TestLoad_OfficialExampleConfigPassesRuntimeGate 常驻守卫：官方 config.yaml.example（新手照 QUICKSTART
+// 直接 `docker compose up` 部署的那份文件）必须能被 Loader.Load 加载并通过 CheckRuntimeModelIDs 运行时闸，
+// 否则容器启动即 crash-loop（本文件顶部 fix 的根因）。读真实 repo 文件、连同真实模板目录复刻镜像里
+// config.yaml 与 templates/ 并排的形态；若日后有人往 example 加内联监测行却漏 model_id、或改动运行时闸/
+// 加载路径使 example 不再自愈，本测试立即变红——把「example 与运行时闸漂移」挡在发版前。
+// 与上面 TestLoad_TemplateProvidedModelGetsDerivedID 的区别：那个用合成 config 近似，这个读的是真文件。
+func TestLoad_OfficialExampleConfigPassesRuntimeGate(t *testing.T) {
+	const repoRoot = "../.."
+	exampleBody, err := os.ReadFile(filepath.Join(repoRoot, "config.yaml.example"))
+	if err != nil {
+		t.Fatalf("读取官方 config.yaml.example 失败: %v", err)
+	}
+
+	// 隔离到临时目录：repo 根带 monitors.d/ 与运行态 sqlite，就地加载会引入干扰；
+	// 但用真实 example 内容 + 真实模板目录，保证捕获的是真文件漂移而非合成近似。
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), exampleBody, 0600); err != nil {
+		t.Fatal(err)
+	}
+	copyJSONDir(t, filepath.Join(repoRoot, "templates"), filepath.Join(dir, "templates"))
+
+	cfg, err := NewLoader().Load(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		t.Fatalf("官方 config.yaml.example 加载失败（新手部署会崩）: %v", err)
+	}
+	// 非空断言防「零监测行 → 运行时闸真空通过」的假绿：example 本就演示至少一个内联监测行。
+	if len(cfg.Monitors) == 0 {
+		t.Fatal("官方 config.yaml.example 应至少定义一个内联监测行")
+	}
+	if err := CheckRuntimeModelIDs(cfg.Monitors); err != nil {
+		t.Fatalf("官方 config.yaml.example 未过 model_id 运行时闸（新手容器会 crash-loop）: %v", err)
+	}
+}
+
+// copyJSONDir 把 src 目录下所有 *.json 平铺复制到 dst（templates 目录是 flat json、无子目录）。
+func copyJSONDir(t *testing.T, src, dst string) {
+	t.Helper()
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatalf("读取模板目录 %s 失败: %v", src, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(src, e.Name()))
+		if err != nil {
+			t.Fatalf("读取模板 %s 失败: %v", e.Name(), err)
+		}
+		if err := os.WriteFile(filepath.Join(dst, e.Name()), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
