@@ -1013,6 +1013,42 @@ func TestService_Submit_DisallowGhostAPIKeyField(t *testing.T) {
 	}
 }
 
+// TestService_Submit_RejectsEmptyProposedBaseURL 锁定 bug①：proposed_changes 显式带 base_url=""
+// 时虽触发 requiresTest，却曾因 `!= ""` 短路跳过合法性校验、把空地址存库（Apply 时会抹空通道
+// base_url）。键存在即必须是合法 HTTPS+hostname，空串须被拒且不落库。
+func TestService_Submit_RejectsEmptyProposedBaseURL(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+
+	// 备齐合法 agreement + proof，使唯一可能的拒因就是 base_url 合法性校验本身；否则空 base_url 会先
+	// 被 agreement / proof 闸以别的理由拦下，测不到 bug①（空串旁路 base_url 校验）。
+	cipher, _ := apikey.NewKeyCipher(testHexKey)
+	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
+	fingerprint := cipher.Fingerprint("sk-test-key-12345")
+	proof := proofIssuer.Issue("job-empty", "cc", "https://api.test.com", fingerprint)
+
+	req := &SubmitRequest{
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": ""},
+		TestProof:         proof,
+		TestJobID:         "job-empty",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.test.com",
+		AgreementAccepted: true,
+	}
+	_, err := svc.Submit(ctx, req, "127.0.0.1")
+	if err == nil {
+		t.Fatal("空 proposed base_url 应被拒，实际 nil")
+	}
+	if !strings.Contains(err.Error(), "base_url 必须使用 HTTPS") {
+		t.Fatalf("期望 base_url 合法性拒因，实际: %v", err)
+	}
+	if _, total, _ := store.List(ctx, "all", 10, 0); total != 0 {
+		t.Fatalf("被拒的空 base_url 不应落库，实际 total=%d", total)
+	}
+}
+
 // --- TestAPIURL host consistency tests ---
 
 func TestService_Submit_BaseURLHostMustMatchTestAPIURL(t *testing.T) {
@@ -1040,8 +1076,68 @@ func TestService_Submit_BaseURLHostMustMatchTestAPIURL(t *testing.T) {
 	if err == nil {
 		t.Error("expected error: test_api_url host does not match new base_url")
 	}
-	if !strings.Contains(err.Error(), "host 必须一致") {
+	if !strings.Contains(err.Error(), "host/port 必须一致") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestService_Submit_BaseURLPortMustMatchTestAPIURL 锁定 bug②：host 一致性此前只比 Hostname()、
+// 忽略端口，可在 host:443（诚实后端）测出 proof 却把 base_url 应用成 host:9999（作弊后端），绕过
+// 「先证明将要应用的地址可用」。现须 host + 端口都一致。
+func TestService_Submit_BaseURLPortMustMatchTestAPIURL(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+
+	cipher, _ := apikey.NewKeyCipher(testHexKey)
+	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
+	fingerprint := cipher.Fingerprint("sk-test-key-12345")
+	// proof 绑定缺省端口的 test_api_url，但 base_url 指向同 host 的 :9999
+	proof := proofIssuer.Issue("job-port", "cc", "https://api.new.com", fingerprint)
+
+	req := &SubmitRequest{
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com:9999"},
+		TestProof:         proof,
+		TestJobID:         "job-port",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.new.com",
+		AgreementAccepted: true,
+	}
+
+	_, err := svc.Submit(ctx, req, "127.0.0.1")
+	if err == nil {
+		t.Fatal("端口不一致应被拒，实际 nil")
+	}
+	if !strings.Contains(err.Error(), "host/port 必须一致") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestService_Submit_BaseURLDefaultHTTPSPortMatchesExplicit443 锁定端口归一化不误拒：base_url 显式
+// :443 与 test_api_url 缺省端口（https 默认 443）应判为一致、放行——否则 bug② 修复会误伤合法提交。
+func TestService_Submit_BaseURLDefaultHTTPSPortMatchesExplicit443(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := context.Background()
+
+	cipher, _ := apikey.NewKeyCipher(testHexKey)
+	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
+	fingerprint := cipher.Fingerprint("sk-test-key-12345")
+	proof := proofIssuer.Issue("job-port-443", "cc", "https://api.new.com", fingerprint)
+
+	req := &SubmitRequest{
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com:443"},
+		TestProof:         proof,
+		TestJobID:         "job-port-443",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.new.com",
+		AgreementAccepted: true,
+	}
+
+	if _, err := svc.Submit(ctx, req, "127.0.0.1"); err != nil {
+		t.Fatalf("显式 :443 应与缺省 https 端口判为一致，实际 err=%v", err)
 	}
 }
 
@@ -1072,7 +1168,7 @@ func TestService_Submit_NewAPIKeyHostMustMatchTargetBaseURL(t *testing.T) {
 	if err == nil {
 		t.Error("expected error: test_api_url host does not match target base_url")
 	}
-	if !strings.Contains(err.Error(), "host 必须一致") {
+	if !strings.Contains(err.Error(), "host/port 必须一致") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1498,6 +1594,36 @@ func TestApply_HistoricalDirtyDisplayName_FailsClosed(t *testing.T) {
 		t.Fatalf("monitor provider_name=%q，期望未变更的 原名", got)
 	}
 	// CR 状态仍为 pending（未 applied）——精确断言，而非仅「非 applied」
+	saved, _ := store.GetByPublicID(context.Background(), cr.PublicID)
+	if saved.Status != StatusPending {
+		t.Fatalf("fail-closed 后 CR 状态应仍为 pending，实际 %q", saved.Status)
+	}
+}
+
+// TestApply_HistoricalDirtyBaseURL_FailsClosed 锁定 AdminApply 侧 base_url 防御闸（与 provider_name/
+// channel_name 的 fail-closed 防御对称）：历史脏数据 / 直改 DB 造出的空或非法 base_url，即便绕过了
+// Submit 校验，也须在 Apply 时被拦、fail-closed 不写盘、不改状态——否则空/非法地址仍能落到运行态监测。
+func TestApply_HistoricalDirtyBaseURL_FailsClosed(t *testing.T) {
+	svc, store, ms := newApplyTestService(t)
+	seedMonitorFile(t, ms, "prov--cc--chan", config.ServiceConfig{
+		ProviderName: "原名", BaseURL: "https://live.example.com",
+	})
+	cr := seedAutoChangeRequest(t, store, "prov--cc--chan", map[string]string{
+		"base_url": "", // 空地址：绕过 Submit 直接构造的脏数据
+	})
+
+	if err := svc.AdminApply(context.Background(), cr.PublicID); err == nil {
+		t.Fatal("历史脏 base_url 应 fail-closed，实际 nil")
+	}
+
+	// monitors.d/ 未被写：base_url 仍为原值
+	mf, err := ms.Get("prov--cc--chan")
+	if err != nil {
+		t.Fatalf("ms.Get: %v", err)
+	}
+	if got := config.RootMonitor(mf).BaseURL; got != "https://live.example.com" {
+		t.Fatalf("monitor base_url=%q，期望未变更的 https://live.example.com", got)
+	}
 	saved, _ := store.GetByPublicID(context.Background(), cr.PublicID)
 	if saved.Status != StatusPending {
 		t.Fatalf("fail-closed 后 CR 状态应仍为 pending，实际 %q", saved.Status)

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 	"monitor/internal/displayname"
 	"monitor/internal/logger"
 	"monitor/internal/onboarding"
+	"monitor/internal/urlutil"
 )
 
 // 需要测试的 proposed_changes 字段（顶层 new_api_key 单独处理）
@@ -180,8 +180,9 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		}
 	}
 
-	// 校验新 base_url 合法性（必须 HTTPS + 有效 hostname）
-	if newBaseURL, ok := req.ProposedChanges["base_url"]; ok && newBaseURL != "" {
+	// 校验新 base_url 合法性：键存在即视为变更，必须 HTTPS + 有效 hostname——空串亦拒（否则会把通道
+	// 地址抹空，且旁路下方 base_url↔test_api_url 的 host/port 一致性校验）。
+	if newBaseURL, ok := req.ProposedChanges["base_url"]; ok {
 		parsedNew, err := url.Parse(newBaseURL)
 		if err != nil || parsedNew.Hostname() == "" || parsedNew.Scheme != "https" {
 			return nil, fmt.Errorf("base_url 必须使用 HTTPS 协议且包含有效 hostname")
@@ -227,8 +228,8 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 			if err != nil || parsedTestURL.Hostname() == "" {
 				return nil, fmt.Errorf("test_api_url 无效")
 			}
-			if !strings.EqualFold(parsedBaseURL.Hostname(), parsedTestURL.Hostname()) {
-				return nil, fmt.Errorf("base_url 与 test_api_url 的 host 必须一致")
+			if !urlutil.SameHostPort(parsedBaseURL, parsedTestURL) {
+				return nil, fmt.Errorf("base_url 与 test_api_url 的 host/port 必须一致")
 			}
 		}
 
@@ -628,6 +629,12 @@ func (s *Service) AdminApply(ctx context.Context, publicID string) error {
 				m.PriceMax = &f
 			}
 		case "base_url":
+			// 防御闸：与 provider_name/channel_name 对称——即便 Submit 已校验，历史脏数据 / 直改 DB
+			// 仍可能带入空或非 HTTPS 的 base_url，此处 fail-closed 早于循环后的 AtomicWrite。
+			parsed, err := url.Parse(value)
+			if err != nil || parsed.Hostname() == "" || parsed.Scheme != "https" {
+				return fmt.Errorf("变更内容的 base_url 非法（须 HTTPS + 有效 hostname）")
+			}
 			m.BaseURL = value
 		}
 	}
@@ -646,6 +653,9 @@ func (s *Service) AdminApply(ctx context.Context, publicID string) error {
 	mf.Metadata.Revision++
 	mf.Metadata.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
+	// 故意先写 monitors.d/ 文件、再标记 DB applied：文件写失败时 CR 仍是 pending/approved、可重试；
+	// DB 更新失败时配置已生效（符合变更意图）但请求保持 pending/approved + loud error，管理员可再次
+	// Apply 自愈（幂等）。反过来（DB 先）会造成「DB 已 applied 但配置未生效且不可重试」的更差状态。
 	if err := ms.Update(cr.TargetKey, mf, oldRevision); err != nil {
 		return fmt.Errorf("写入 monitors.d/ 失败: %w", err)
 	}

@@ -18,6 +18,7 @@ import (
 	"monitor/internal/config"
 	"monitor/internal/displayname"
 	"monitor/internal/logger"
+	"monitor/internal/urlutil"
 )
 
 // pscSegmentPattern 校验 PSC 段仅允许小写字母、数字、短横线，且不能以短横线开头或结尾。
@@ -261,13 +262,14 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		return nil, fmt.Errorf("base_url 必须使用 HTTPS 协议")
 	}
 
-	// 验证 test_api_url 与 base_url 的 host 一致，防止"测试安全地址、提交不同目标"绕过 proof 绑定
+	// 验证 test_api_url 与 base_url 的 host+端口一致（共享 urlutil.SameHostPort，与 change 流程同一真相源），
+	// 防止"在一个端口测出 proof、却把 base_url 收录成同 host 另一端口"绕过 proof 绑定。
 	parsedTestURL, err := url.Parse(req.TestAPIURL)
 	if err != nil || parsedTestURL.Hostname() == "" {
 		return nil, fmt.Errorf("test_api_url 无效")
 	}
-	if !strings.EqualFold(parsedBaseURL.Hostname(), parsedTestURL.Hostname()) {
-		return nil, fmt.Errorf("base_url 与 test_api_url 的 host 必须一致")
+	if !urlutil.SameHostPort(parsedBaseURL, parsedTestURL) {
+		return nil, fmt.Errorf("base_url 与 test_api_url 的 host/port 必须一致")
 	}
 
 	// 加密 API Key
