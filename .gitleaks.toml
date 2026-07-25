@@ -28,7 +28,11 @@ useDefault = true
 #    被加白的文件类型，都必须**仍然报出来**。
 
 [[allowlists]]
-description = "探针模板里的 Anthropic-Beta 特性开关串。它是长横线串、被熵值规则误判，不是凭据。"
+description = """探针模板里的 Anthropic-Beta 特性开关串（被内置熵值规则误判，不是凭据）。
+targetRules 必须限定到 generic-api-key：未限定的 allowlist 是**全局**的、优先级高于
+rule-specific allowlist，会连自有规则 relay-monitor-api-key 的命中一起压掉——
+那意味着一把恰好长成"小写词-日期"形态的真实凭据可以从自有规则底下溜走。"""
+targetRules = ["generic-api-key"]
 regexTarget = "secret"
 regexes = [
   # 熵值规则捕到的是逗号分隔串里的**单个**特性名（如 interleaved-thinking-2025-05-14），
@@ -68,7 +72,9 @@ regexes = [
 [[rules]]
 id = "relay-monitor-api-key"
 description = "监测配置里的 api_key 赋值（本仓库两次泄露的就是这个形态）"
-regex = '''(?i)\bapi[_-]?key["']?\s*[:=]\s*["']?([A-Za-z0-9][A-Za-z0-9_\-.]{19,})'''
+# 赋值符要同时吃 `:`（YAML/JSON）、`=`（Go/env）与 `:=`（Go 短声明）；
+# 引号要同时吃 " ' 和 Go 的反引号原始字符串——少一种就是一条确定性漏检。
+regex = '''(?i)\bapi[_-]?key["'`]?\s*(?::=|[:=])\s*["'`]?([A-Za-z0-9][A-Za-z0-9_\-.]{19,})'''
 secretGroup = 1
 keywords = ["api_key", "apikey", "api-key"]
 

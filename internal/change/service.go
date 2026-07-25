@@ -610,9 +610,11 @@ func (s *Service) AdminReject(ctx context.Context, publicID, note string) error 
 //
 // 查两处：
 //  1. **认证指纹**——已落库请求只存 HMAC 指纹、无明文，故只能比对 Rebuild 派生的
-//     「名单 ∩ 当前配置在用 key」的 HMAC 集合。**这不是完备覆盖**：若某把泄露 key 此后
-//     已被轮换出配置或整条 monitor 被删，就无法从 SHA-256 名单反推其 HMAC 指纹，用它认证过的
-//     历史请求会漏检。名单上线时须另行人工冻结/驳回存量队列来补这个缺口（见 docs/user/config.md）。
+//     「名单 ∩ 当前配置在用 key」的 HMAC 集合。**这不是完备覆盖**，两种情况会漏检：
+//     (a) 某把泄露 key 此后已被轮换出配置或整条 monitor 被删 —— 无法从 SHA-256 名单反推其
+//     HMAC 指纹；(b) `onboarding.encryption_key` 轮换过 —— 历史请求的指纹是用**旧**密钥算的，
+//     而 Rebuild 用新密钥派生，两边对不上（哪怕那把 key 仍在配置里）。
+//     名单上线时须另行人工冻结/驳回存量队列来补这个缺口（见 docs/user/config.md）。
 //  2. **请求携带的新 key**——密文可解，故这一侧是精确判定：既拦「提交时新 key 就在名单里但早于
 //     本闸落库」的请求，也拦「新 key 事后才进名单」的请求。放在 Approve 与 Apply 两处而非只在
 //     Apply，是因为 manual 模式的请求根本不走 Apply。
