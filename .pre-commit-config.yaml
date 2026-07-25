@@ -3,6 +3,17 @@
 # 手动运行: pre-commit run --all-files
 
 repos:
+  # 密钥泄露闸（放最前：宁可挡住提交，也不要让密钥进 git 历史）
+  #
+  # 本仓库曾把带真实中转商 API Key 的 testenv/config.yaml 与早期根 config.yaml 提交进历史；
+  # `.gitignore` 不会取消已追踪文件，`git rm --cached` 也只影响增量，历史 blob 至今可读。
+  # 唯一有效的闸只能在提交期。规则与加白见 .gitleaks.toml（CI 里跑同一份配置）。
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        name: Secret Scan (gitleaks)
+
   # Commitlint - 检查提交信息格式
   - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
     rev: v9.18.0

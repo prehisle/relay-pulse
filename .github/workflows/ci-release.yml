@@ -122,6 +122,21 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
+      # 密钥泄露闸：本仓库曾把带真实中转商 API Key 的配置提交进 git 历史，
+      # GitHub 自带扫描只认官方厂商格式、对自定义格式全盲，故自建这道闸。
+      # 扫**检出的工作树**（不扫历史——历史里那两处泄露已成事实，扫历史会让 CI 永久红）；
+      # 干净检出里没有 monitors.d/、config.yaml、testenv/ 这些 gitignore 的本地凭据文件。
+      # 加白规则与「这道闸对当年那份泄露报 102 条」的实证见 .gitleaks.toml。
+      - name: Secret scan (gitleaks)
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION="8.30.1"
+          curl -fsSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          # --redact：命中内容绝不进 CI 日志（公开仓库的 Actions 日志任何人可读）
+          /tmp/gitleaks dir --redact --no-banner --config .gitleaks.toml --exit-code 1 .
+
       - name: Test Summary
         run: |
           echo "## Test Results" >> $GITHUB_STEP_SUMMARY

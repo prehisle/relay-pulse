@@ -1,0 +1,48 @@
+# gitleaks 提交期密钥检测配置
+#
+# 存在的理由：本仓库曾把带真实中转商 API Key 的配置文件提交进 git 历史
+# （`testenv/config.yaml`、早期的根 `config.yaml`），`.gitignore` 与 `git rm --cached`
+# 都只影响增量、拦不住已发生的提交，GitHub 自带的密钥扫描又只认官方厂商格式、
+# 对 `sk-<厂商>-…` / `88_…` / `cr_…` 这类自定义格式一条都不报。
+# 唯一有效的闸只能在**提交期**：pre-commit 扫暂存区，CI 扫工作树。
+#
+# 实证（2026-07-25）：默认规则集对当年泄露的那份 config.yaml 报 102 条 —— 这道闸当年能拦住它。
+
+title = "relay-pulse secret scanning"
+
+[extend]
+# 用 gitleaks 内置规则集（含各厂商精确规则 + generic-api-key 熵值启发规则），
+# 不自造规则：厂商规则随上游更新，自造只会越维护越漏。
+useDefault = true
+
+[allowlist]
+description = "已核实的非密钥匹配。加白一律用精确形态，不整目录放行——真实密钥最爱藏在测试文件里。"
+
+paths = [
+  # 探针模板：凭据全是 {{API_KEY}} 占位符，命中的是 Anthropic-Beta 头里的长特性串。
+  # 模板文件是 wire 字节的单一真相源、必须逐字提交，故整体放行。
+  '''templates/.*\.json$''',
+]
+
+regexes = [
+  # 测试固件 key：统一是 sk-test-/sk-secret-/sk-other-/sk-branch- 等无意义前缀 + 递增数字。
+  # 只放行这些形态，随手粘一把真 key 进测试仍会被抓。
+  '''sk-(test|secret|other|branch|nobranch|different|con|fallback|revoked|leaked|healthy|rotated|caller|monkey|manual|auto|active|disabled|child|deepcopy|old|new|nonexistent|concurrent|named|elsewhere)[-_a-z0-9]*''',
+  # 纯数字序列的测试固件 key（如 sk-0123456789），同样不可能是真凭据。
+  '''sk-0123456789\d*''',
+  # change 包测试里的固定 32 字节 hex 加密密钥（0123456789abcdef 重复四遍）。
+  '''(?i)(0123456789abcdef){4}''',
+  # localStorage 键名，不是凭据。
+  '''relay-pulse\.[a-z.]+\.v\d+''',
+]
+
+stopwords = [
+  # 文档里的占位符与示例值
+  "your-api-key",
+  "your_token",
+  "changeme",
+  "placeholder",
+  "example",
+  # docs/user/config.md 的 curl 示例用的占位 token
+  "your-token",
+]
