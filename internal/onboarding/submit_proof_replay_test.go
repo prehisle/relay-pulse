@@ -83,3 +83,40 @@ func TestSubmit_DistinctTestJobIDsBothAccepted(t *testing.T) {
 		t.Fatalf("两次不同探测的提交数=%d，期望 2", total)
 	}
 }
+
+// TestSubmit_SponsorLevelWhitelist 锁定赞助等级白名单。
+//
+// 2026-07-25 的探测流量里有一条自选 sponsor_level=core（最高付费档）的提交：
+// 此前只黑名单挡了 public/signal，而该值会被 BuildServiceConfigFromSubmission
+// 直接灌进上架配置——管理员不改字段直接发布，自封的付费徽章即刻生效。
+func TestSubmit_SponsorLevelWhitelist(t *testing.T) {
+	ctx := context.Background()
+
+	for _, level := range []string{"core", "backbone", "beacon", "public", "signal", "bogus"} {
+		t.Run("拒绝_"+level, func(t *testing.T) {
+			svc := newSubmitTestService(t)
+			req := newReplayTestRequest(svc, "probe-sponsor-"+level)
+			req.SponsorLevel = level
+
+			_, err := svc.Submit(ctx, req, "1.2.3.4")
+			if err == nil {
+				t.Fatalf("sponsor_level=%q 应被拒绝，实际 nil", level)
+			}
+			if !strings.Contains(err.Error(), "赞助等级") {
+				t.Fatalf("期望赞助等级拒因，实际: %v", err)
+			}
+		})
+	}
+
+	for _, level := range []string{"", "pulse"} {
+		t.Run("接受_"+level, func(t *testing.T) {
+			svc := newSubmitTestService(t)
+			req := newReplayTestRequest(svc, "probe-sponsor-ok-"+level)
+			req.SponsorLevel = level
+
+			if _, err := svc.Submit(ctx, req, "1.2.3.4"); err != nil {
+				t.Fatalf("sponsor_level=%q 应被接受: %v", level, err)
+			}
+		})
+	}
+}

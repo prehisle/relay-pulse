@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -181,6 +182,18 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 				return nil, err
 			}
 			req.ProposedChanges[field] = canonical
+		}
+	}
+
+	// 校验 provider_url：键存在即视为变更，必须是 http/https 且有 hostname。
+	//
+	// 此前该字段全程无校验，javascript:/data: 之类的伪协议可一路存进待审队列并被 Apply
+	// 写进 monitors.d/——虽然完整配置校验会在热加载时拒掉整份配置（公开看板因而不受影响），
+	// 但那意味着「文件已落盘、DB 已标 applied、运行态却没变」，且下次重启直接起不来。
+	// 在入口拒掉，比留给下游兜底更早、也更容易理解。
+	if providerURL, ok := req.ProposedChanges["provider_url"]; ok {
+		if err := validateHTTPURL(providerURL); err != nil {
+			return nil, fmt.Errorf("provider_url 无效: %w", err)
 		}
 	}
 
@@ -621,6 +634,12 @@ func (s *Service) AdminApply(ctx context.Context, publicID string) error {
 			}
 			m.ProviderName = canonical
 		case "provider_url":
+			// 防御闸：与 provider_name/channel_name/base_url 对称——即便 Submit 已校验，
+			// 历史脏数据 / 直改 DB 仍可能带入伪协议，此处 fail-closed 早于 AtomicWrite，
+			// 免得把整份配置写坏（热加载会整体拒绝，重启则直接起不来）。
+			if err := validateHTTPURL(value); err != nil {
+				return fmt.Errorf("变更内容的 provider_url 非法: %w", err)
+			}
 			m.ProviderURL = value
 		case "channel_name":
 			canonical, err := displayname.ValidateChannelName(value)
@@ -704,6 +723,28 @@ func (s *Service) AdminDelete(ctx context.Context, publicID string) error {
 		return fmt.Errorf("变更请求不存在")
 	}
 	return s.store.DeleteByPublicID(ctx, publicID)
+}
+
+// validateHTTPURL 校验用于展示的外链：必须是 http/https 且带 hostname。
+//
+// 与 config 层加载期校验（config.validateURL）同判据，在此提前一道，
+// 使非法值止步于提交入口，而不是等到写盘后由热加载整份拒绝。
+func validateHTTPURL(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fmt.Errorf("不能为空")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return fmt.Errorf("格式无效: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("只允许 http/https 协议，当前为 %q", parsed.Scheme)
+	}
+	if parsed.Hostname() == "" {
+		return fmt.Errorf("缺少有效 hostname")
+	}
+	return nil
 }
 
 // hashIP 计算 IP 地址的 SHA256 哈希

@@ -7,6 +7,25 @@ import { ExternalLinkModal } from './ExternalLinkModal';
 // sessionStorage key 用于记住"不再提示"选项
 const DONT_SHOW_AGAIN_KEY = 'externalLink_dontShowAgain';
 
+/**
+ * 只有 http/https 才作为可跳转外链渲染。
+ *
+ * 这些 URL 来自服务商自助提交，后端已在入口与落盘两处校验协议；此处是纵深防御——
+ * 历史脏数据或将来任何绕过后端校验的路径，都不应让 javascript:/data: 之类的伪协议
+ * 进到 <a href> 或 window.open（那等于在本站源上执行攻击者代码）。
+ * 非法协议降级为纯文本展示，不隐藏内容。
+ */
+const isSafeExternalHref = (href: string): boolean => {
+  try {
+    // 刻意不传 base：外链必须是绝对 URL，否则 "javascript" 之外的任意串
+    // 都会被解析成同源相对路径而"看起来合法"
+    const scheme = new URL(href).protocol;
+    return scheme === 'http:' || scheme === 'https:';
+  } catch {
+    return false;
+  }
+};
+
 // 检查是否已选择"不再提示"
 const shouldSkipConfirm = () => {
   try {
@@ -127,8 +146,8 @@ export function ExternalLink({
   const sizeClass = inline ? '' : (compact ? 'min-h-[32px] py-0.5 -my-0.5' : 'min-h-[44px] py-1 -my-1');
   const baseClass = `inline-flex items-center gap-1 ${sizeClass} ${className}`.trim();
 
-  // 如果没有 URL，显示纯文本但保持相同行高，避免表格行高不一致
-  if (!href) {
+  // 没有 URL、或协议不在 http/https 白名单内：显示纯文本但保持相同行高，避免表格行高不一致
+  if (!href || !isSafeExternalHref(href)) {
     return <span className={baseClass}>{children}</span>;
   }
 

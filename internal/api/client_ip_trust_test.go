@@ -86,6 +86,50 @@ func TestApplyClientIPTrust(t *testing.T) {
 	})
 }
 
+// TestSubmitOnboardingRejectsNonHTTPWebsiteURL 锁定 website_url 的协议白名单。
+//
+// 该字段发布后会成为公开看板上的服务商外链（provider_url）。校验落在 binding 标签上，
+// 因此必须在 handler 层测——Service 层测试直连方法、绕过 gin binding，改坏也照样绿。
+func TestSubmitOnboardingRejectsNonHTTPWebsiteURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := &Handler{onboardingSvc: &onboarding.Service{}}
+	router := gin.New()
+	router.POST("/submit", h.SubmitOnboarding)
+
+	post := func(websiteURL string) (int, string) {
+		body := `{"provider_name":"P","website_url":"` + websiteURL +
+			`","category":"commercial","service_type":"cc","template_name":"t","channel_type":"O",` +
+			`"channel_source":"max","base_url":"https://a.com","api_key":"sk-0123456789",` +
+			`"test_proof":"p","test_job_id":"j","test_type":"cc","test_api_url":"https://a.com"}`
+		req := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "192.0.2.11:1234"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code, w.Body.String()
+	}
+
+	for _, bad := range []string{
+		"javascript:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+		"ftp://example.com",
+	} {
+		code, body := post(bad)
+		if code != http.StatusBadRequest {
+			t.Fatalf("website_url=%q status=%d，期望 400", bad, code)
+		}
+		if !strings.Contains(body, "WebsiteURL") {
+			t.Fatalf("website_url=%q 期望字段级校验拒因，实际 body=%s", bad, body)
+		}
+	}
+
+	// 合法 https 必须过 binding（后续因 Service 为零值而失败，但不能停在 WebsiteURL 上）
+	if _, body := post("https://example.com"); strings.Contains(body, "WebsiteURL") {
+		t.Fatalf("合法 https website_url 不应被 binding 拒绝: %s", body)
+	}
+}
+
 // TestSubmitEndpointsAreRateLimited 锁定两个 submit 端点接入 IP 限流。
 // 此前只有 /test 与 /auth 接了 limiter，两个 submit 裸奔，秒级突发无闸。
 func TestSubmitEndpointsAreRateLimited(t *testing.T) {

