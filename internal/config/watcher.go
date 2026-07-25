@@ -93,7 +93,15 @@ func (w *Watcher) Start(ctx context.Context) error {
 				isMonitorDFile := strings.HasPrefix(eventPath, monitorsDirPrefix) &&
 					isMonitorDefinitionFile(filepath.Base(eventPath))
 
-				if !isConfigFile && !isTemplateFile && !isMonitorsDirSelf && !isMonitorDFile {
+				// 泄露 Key 拒绝名单就在已监听的主配置目录里，但它不是 config.yaml 也不是模板，
+				// 不在此显式放行的话，单独更新名单永远不会触发热更新（名单改了却不生效）。
+				// 按**当前生效配置**引用的文件名判定，而不是目录内任意文件，避免无关文件变更
+				// 触发整份配置重载；配置里改了名单文件名时，config.yaml 自身的变更会先触发一次
+				// 重载，之后这里读到的就是新名字。
+				isRevokedKeyFile := eventPath == w.currentRevokedKeyPath(dir)
+
+				if !isConfigFile && !isTemplateFile && !isRevokedKeyFile &&
+					!isMonitorsDirSelf && !isMonitorDFile {
 					continue
 				}
 
@@ -207,4 +215,22 @@ func (w *Watcher) rewatchPath(path string) error {
 		return nil
 	}
 	return w.addWatch(filepath.Dir(path))
+}
+
+// currentRevokedKeyPath 返回**当前生效配置**引用的泄露 Key 拒绝名单绝对路径。
+// 未配置、配置非法或尚无生效配置时返回空字符串——调用方用 `eventPath == ""` 判不成立，
+// 因此不会误放行任何事件（filepath.Clean 后的事件路径不可能是空串）。
+func (w *Watcher) currentRevokedKeyPath(configDir string) string {
+	if w.loader == nil {
+		return ""
+	}
+	cfg := w.loader.getCurrent()
+	if cfg == nil {
+		return ""
+	}
+	path, err := resolveRevokedKeyFilePath(configDir, cfg.ChangeRequests.RevokedKeyFile)
+	if err != nil || path == "" {
+		return ""
+	}
+	return filepath.Clean(path)
 }

@@ -118,6 +118,18 @@ type ChangeRequestConfig struct {
 
 	// 每 IP 每天最大提交数（默认 3）
 	MaxPerIPPerDay int `yaml:"max_per_ip_per_day" json:"-"`
+
+	// 已公开泄露 API Key 的拒绝名单文件名（主配置目录下的直接子文件，空值=功能关闭）。
+	// 文件格式与哈希空间见 revoked_keys.go。
+	RevokedKeyFile string `yaml:"revoked_key_file" json:"-"`
+
+	// 名单预期条目数。必须与文件去重后的条目数一致，否则整次配置加载失败——
+	// 这是唯一能发现「名单被部分写入/截断」的手段（截断后的前缀仍是合法摘要行）。
+	RevokedKeyCount int `yaml:"revoked_key_count" json:"-"`
+
+	// 加载后的运行时名单（sha256 hex 集合）。由 loadRevokedKeyFile 填充，不参与 YAML/JSON 序列化。
+	// 加载完成后只读，可在热更新的新旧配置间安全共享。
+	RevokedKeySHA256 map[string]struct{} `yaml:"-" json:"-"`
 }
 
 // BoardsConfig 热板/冷板功能配置

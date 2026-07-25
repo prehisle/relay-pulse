@@ -71,6 +71,13 @@ func (l *Loader) Load(filename string) (*AppConfig, error) {
 		return nil, fmt.Errorf("配置规范化失败: %w", err)
 	}
 
+	// 加载「已公开泄露 API Key」拒绝名单。名单是运行时配置的一部分，读取或内容错误一律
+	// fail-closed 让整次加载失败：启动期拒绝启动、热更新期由 loadOrRollback 保留上一份
+	// 完整配置（含上一份名单）。放在 normalize 之后，保证读到的是最终生效的 change_requests 段。
+	if err := cfg.loadRevokedKeyFile(configDir); err != nil {
+		return nil, fmt.Errorf("加载变更流程泄露 Key 拒绝名单失败: %w", err)
+	}
+
 	// 给未显式写 model_id 的 config.yaml 内联监测行补齐确定性派生 id（仅内存，不改写文件）。
 	// 官方 config.yaml.example 不含 model_id，若不补则被 CheckRuntimeModelIDs 运行时闸挡下、
 	// 容器启动即崩——这是新手按 QUICKSTART 部署的必经路径。放在 normalize 之后，
