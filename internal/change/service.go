@@ -83,10 +83,21 @@ func (s *Service) UpdateConfig(cfg *config.ChangeRequestConfig, monitors []confi
 	ms := s.monitorStore
 	s.mu.Unlock()
 
-	s.authIndex.Rebuild(monitors, s.cipher, ms)
+	s.authIndex.Rebuild(monitors, s.cipher, ms, cfg.RevokedKeySHA256)
 }
 
 // === 用户端 API ===
+
+// RevokedAPIKeyError 表示凭据命中「已公开泄露 API Key」拒绝名单。
+//
+// 单独成类型而非普通 error，是为了让 API 层能映射出对合法中转商有意义的提示
+// （"该 key 已因公开泄露被停用，请联系我们更换"），而不是复用"查不到通道"的统一文案——
+// 后者会让被动受害的中转商完全无从判断发生了什么。
+type RevokedAPIKeyError struct{}
+
+func (*RevokedAPIKeyError) Error() string {
+	return "该 API Key 已因公开泄露被停用，请联系我们更换后再提交变更"
+}
 
 // AuthRequest 认证请求
 type AuthRequest struct {
@@ -100,7 +111,10 @@ type AuthResponse struct {
 
 // Auth 验证 API Key 并返回匹配的通道列表。
 func (s *Service) Auth(apiKey string) (*AuthResponse, error) {
-	candidates := s.authIndex.Lookup(apiKey, s.cipher)
+	candidates, revoked := s.authIndex.Lookup(apiKey, s.cipher)
+	if revoked {
+		return nil, &RevokedAPIKeyError{}
+	}
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("API Key 无法匹配任何已收录通道")
 	}
@@ -146,7 +160,10 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 	}
 
 	// 验证 API Key 匹配目标通道
-	candidates := s.authIndex.Lookup(req.APIKey, s.cipher)
+	candidates, revoked := s.authIndex.Lookup(req.APIKey, s.cipher)
+	if revoked {
+		return nil, &RevokedAPIKeyError{}
+	}
 	var target *AuthCandidate
 	for i, c := range candidates {
 		if c.MonitorKey == req.TargetKey {
@@ -217,6 +234,12 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 	// 新 API Key 也需要测试
 	if req.NewAPIKey != "" {
 		requiresTest = true
+
+		// 轮换目标不能又是一把已公开泄露的 key——否则"换 key"等于原地踏步，
+		// 且会把一把公开可用的凭据重新写回监测配置。
+		if s.authIndex.IsRevokedKey(req.NewAPIKey) {
+			return nil, fmt.Errorf("新 API Key 命中已公开泄露名单，请改用一把全新的 key: %w", &RevokedAPIKeyError{})
+		}
 	}
 
 	// 变更触及监测相关字段（base_url / API Key）时，须重新确认「禁止监测作弊」条款。
@@ -546,6 +569,9 @@ func (s *Service) AdminApprove(ctx context.Context, publicID, note string) error
 	if cr.RequiresTest && !cr.AgreementAccepted {
 		return fmt.Errorf("该变更涉及监测字段（base_url/API Key）但未确认禁止监测作弊条款，不能批准；请驳回并要求重新提交")
 	}
+	if err := s.ensureAuthNotRevoked(cr); err != nil {
+		return err
+	}
 
 	now := time.Now().Unix()
 	cr.Status = StatusApproved
@@ -576,6 +602,21 @@ func (s *Service) AdminReject(ctx context.Context, publicID, note string) error 
 	return s.store.Update(ctx, cr)
 }
 
+// ensureAuthNotRevoked 拦下「认证用的 API Key 事后被判定为已公开泄露」的历史请求。
+//
+// 拒绝名单只在 Submit 入口生效，对名单生效**之前**已落库的 pending/approved 请求不追溯；
+// 若不在 admin 侧补同一道闸，攻击者在窗口期用泄露 key 塞进来的 payload 仍可能被批准/应用。
+// 与 v2.69.0 反作弊条款的 admin 闸是同一类后门，处置方式也一致：只能驳回，不能批准或应用。
+//
+// 覆盖面 = 泄露名单 ∩ 当前配置里的在用 key（已落库请求只存 HMAC 指纹，无法反推明文）。
+// 这正好等于「历史请求当初能认证成功」的那批 key，因此对本场景是完备的。
+func (s *Service) ensureAuthNotRevoked(cr *ChangeRequest) error {
+	if !s.authIndex.IsRevokedAuthFingerprint(cr.AuthFingerprint) {
+		return nil
+	}
+	return fmt.Errorf("该请求的认证 API Key 已因公开泄露被撤销，只能驳回: %w", &RevokedAPIKeyError{})
+}
+
 // AdminApply 应用变更到 monitors.d/（仅 auto 模式）。
 func (s *Service) AdminApply(ctx context.Context, publicID string) error {
 	s.mu.Lock()
@@ -598,6 +639,9 @@ func (s *Service) AdminApply(ctx context.Context, publicID string) error {
 	}
 	if cr.RequiresTest && !cr.AgreementAccepted {
 		return fmt.Errorf("该变更涉及监测字段（base_url/API Key）但未确认禁止监测作弊条款，不能应用；请驳回并要求重新提交")
+	}
+	if err := s.ensureAuthNotRevoked(cr); err != nil {
+		return err
 	}
 	if cr.ApplyMode != "auto" {
 		return fmt.Errorf("该通道为 manual 模式，不能自动应用（通道不在 monitors.d/ 中）")

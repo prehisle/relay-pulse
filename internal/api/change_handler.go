@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -34,7 +35,12 @@ func (h *Handler) AuthChange(c *gin.Context) {
 
 	resp, err := svc.Auth(req.APIKey)
 	if err != nil {
-		// 统一错误文案，防止枚举
+		// 已公开泄露的 key 单独给可行动提示：持有者往往是被动受害的中转商，
+		// 混进"验证失败"的统一文案里会让他们完全无从判断发生了什么。
+		if writeRevokedAPIKeyError(c, err) {
+			return
+		}
+		// 其余情况保持统一错误文案，防止枚举
 		apiError(c, http.StatusUnauthorized, ErrCodeUnauthorized, "API Key 验证失败")
 		return
 	}
@@ -98,6 +104,9 @@ func (h *Handler) SubmitChange(c *gin.Context) {
 	clientIP := c.ClientIP()
 	resp, err := svc.Submit(c.Request.Context(), &req, clientIP)
 	if err != nil {
+		if writeRevokedAPIKeyError(c, err) {
+			return
+		}
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, err.Error())
 		return
 	}
@@ -298,4 +307,15 @@ func (h *Handler) AdminDeleteChange(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+}
+
+// writeRevokedAPIKeyError 若 err 链上带 change.RevokedAPIKeyError，则写出专用错误码并返回 true。
+// 供 auth / submit 两个入口共用，保证两处的状态码与文案不漂移。
+func writeRevokedAPIKeyError(c *gin.Context, err error) bool {
+	var revoked *change.RevokedAPIKeyError
+	if !errors.As(err, &revoked) {
+		return false
+	}
+	apiError(c, http.StatusUnauthorized, ErrCodeRevokedAPIKey, err.Error())
+	return true
 }

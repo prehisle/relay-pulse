@@ -29,10 +29,10 @@ func TestAuthIndex_Rebuild_Basic(t *testing.T) {
 		{Provider: "p1", Service: "cc", Channel: "ch1", APIKey: "sk-test-key-001"},
 		{Provider: "p2", Service: "cc", Channel: "ch2", APIKey: "sk-test-key-002"},
 	}
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
 	// 能查到 p1
-	candidates := idx.Lookup("sk-test-key-001", cipher)
+	candidates, _ := idx.Lookup("sk-test-key-001", cipher)
 	if len(candidates) != 1 {
 		t.Fatalf("expected 1 candidate, got %d", len(candidates))
 	}
@@ -41,7 +41,7 @@ func TestAuthIndex_Rebuild_Basic(t *testing.T) {
 	}
 
 	// 能查到 p2
-	candidates = idx.Lookup("sk-test-key-002", cipher)
+	candidates, _ = idx.Lookup("sk-test-key-002", cipher)
 	if len(candidates) != 1 {
 		t.Fatalf("expected 1 candidate, got %d", len(candidates))
 	}
@@ -60,16 +60,16 @@ func TestAuthIndex_Rebuild_SkipsDisabledParentNoKey(t *testing.T) {
 		{Provider: "child", Service: "cc", Channel: "ch", APIKey: "sk-child-key-01", Parent: "p/s/c"},
 		{Provider: "nokey", Service: "cc", Channel: "ch"},
 	}
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
 	// 只有 active 应被索引
-	if c := idx.Lookup("sk-active-key-1", cipher); len(c) != 1 {
+	if c, _ := idx.Lookup("sk-active-key-1", cipher); len(c) != 1 {
 		t.Errorf("active: expected 1 candidate, got %d", len(c))
 	}
-	if c := idx.Lookup("sk-disabled-key", cipher); len(c) != 0 {
+	if c, _ := idx.Lookup("sk-disabled-key", cipher); len(c) != 0 {
 		t.Errorf("disabled: expected 0 candidates, got %d", len(c))
 	}
-	if c := idx.Lookup("sk-child-key-01", cipher); len(c) != 0 {
+	if c, _ := idx.Lookup("sk-child-key-01", cipher); len(c) != 0 {
 		t.Errorf("child: expected 0 candidates, got %d", len(c))
 	}
 }
@@ -83,10 +83,10 @@ func TestAuthIndex_Rebuild_NameFallback(t *testing.T) {
 		{Provider: "provID2", Service: "cc", Channel: "chID2", APIKey: "sk-named-key-01",
 			ProviderName: "Custom Name", ChannelName: "Custom Ch"},
 	}
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
 	// 无 ProviderName 时回退到 Provider
-	c1 := idx.Lookup("sk-fallback-key1", cipher)
+	c1, _ := idx.Lookup("sk-fallback-key1", cipher)
 	if len(c1) != 1 {
 		t.Fatalf("expected 1 candidate")
 	}
@@ -98,7 +98,7 @@ func TestAuthIndex_Rebuild_NameFallback(t *testing.T) {
 	}
 
 	// 有 ProviderName 时使用自定义名
-	c2 := idx.Lookup("sk-named-key-01", cipher)
+	c2, _ := idx.Lookup("sk-named-key-01", cipher)
 	if len(c2) != 1 {
 		t.Fatalf("expected 1 candidate")
 	}
@@ -120,9 +120,9 @@ func TestAuthIndex_Rebuild_SameKeyMultipleCandidates(t *testing.T) {
 		{Provider: "p1", Service: "cc", Channel: "ch1", APIKey: key},
 		{Provider: "p1", Service: "cc", Channel: "ch2", APIKey: key},
 	}
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
-	candidates := idx.Lookup(key, cipher)
+	candidates, _ := idx.Lookup(key, cipher)
 	if len(candidates) != 2 {
 		t.Fatalf("expected 2 candidates, got %d", len(candidates))
 	}
@@ -135,10 +135,10 @@ func TestAuthIndex_Lookup_NotFound(t *testing.T) {
 	monitors := []config.ServiceConfig{
 		{Provider: "p1", Service: "cc", Channel: "ch1", APIKey: "sk-exists-key-1"},
 	}
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
 	// 不存在的 key
-	if c := idx.Lookup("sk-nonexistent1", cipher); len(c) != 0 {
+	if c, _ := idx.Lookup("sk-nonexistent1", cipher); len(c) != 0 {
 		t.Errorf("expected empty slice for non-existent key, got %v", c)
 	}
 }
@@ -150,13 +150,13 @@ func TestAuthIndex_Lookup_DeepCopy(t *testing.T) {
 	monitors := []config.ServiceConfig{
 		{Provider: "p1", Service: "cc", Channel: "ch1", APIKey: "sk-deepcopy-key"},
 	}
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
-	c1 := idx.Lookup("sk-deepcopy-key", cipher)
+	c1, _ := idx.Lookup("sk-deepcopy-key", cipher)
 	c1[0].Provider = "mutated"
 
 	// 再次查询应不受影响
-	c2 := idx.Lookup("sk-deepcopy-key", cipher)
+	c2, _ := idx.Lookup("sk-deepcopy-key", cipher)
 	if c2[0].Provider != "p1" {
 		t.Errorf("internal state was mutated: got %q, want %q", c2[0].Provider, "p1")
 	}
@@ -169,9 +169,9 @@ func TestAuthIndex_Rebuild_ReplacesOldIndex(t *testing.T) {
 	monitors1 := []config.ServiceConfig{
 		{Provider: "old", Service: "cc", Channel: "ch", APIKey: "sk-old-key-1234"},
 	}
-	idx.Rebuild(monitors1, cipher, nil)
+	idx.Rebuild(monitors1, cipher, nil, nil)
 
-	if c := idx.Lookup("sk-old-key-1234", cipher); len(c) != 1 {
+	if c, _ := idx.Lookup("sk-old-key-1234", cipher); len(c) != 1 {
 		t.Fatalf("expected 1 candidate before rebuild")
 	}
 
@@ -179,12 +179,12 @@ func TestAuthIndex_Rebuild_ReplacesOldIndex(t *testing.T) {
 	monitors2 := []config.ServiceConfig{
 		{Provider: "new", Service: "cc", Channel: "ch", APIKey: "sk-new-key-1234"},
 	}
-	idx.Rebuild(monitors2, cipher, nil)
+	idx.Rebuild(monitors2, cipher, nil, nil)
 
-	if c := idx.Lookup("sk-old-key-1234", cipher); len(c) != 0 {
+	if c, _ := idx.Lookup("sk-old-key-1234", cipher); len(c) != 0 {
 		t.Errorf("old key should be gone after rebuild, got %d candidates", len(c))
 	}
-	if c := idx.Lookup("sk-new-key-1234", cipher); len(c) != 1 {
+	if c, _ := idx.Lookup("sk-new-key-1234", cipher); len(c) != 1 {
 		t.Errorf("new key should exist, got %d candidates", len(c))
 	}
 }
@@ -196,9 +196,9 @@ func TestAuthIndex_Lookup_MonitorKey(t *testing.T) {
 	monitors := []config.ServiceConfig{
 		{Provider: "p1", Service: "svc", Channel: "ch", APIKey: "sk-monkey-key-1"},
 	}
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
-	c := idx.Lookup("sk-monkey-key-1", cipher)
+	c, _ := idx.Lookup("sk-monkey-key-1", cipher)
 	if len(c) != 1 {
 		t.Fatalf("expected 1 candidate")
 	}
@@ -215,9 +215,9 @@ func TestAuthIndex_Lookup_ApplyMode_ManualWithoutMonitorStore(t *testing.T) {
 		{Provider: "p1", Service: "cc", Channel: "ch", APIKey: "sk-manual-key-1"},
 	}
 	// nil monitorStore → always manual
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
-	c := idx.Lookup("sk-manual-key-1", cipher)
+	c, _ := idx.Lookup("sk-manual-key-1", cipher)
 	if len(c) != 1 {
 		t.Fatalf("expected 1 candidate")
 	}
@@ -233,9 +233,9 @@ func TestAuthIndex_Lookup_KeyLast4(t *testing.T) {
 	monitors := []config.ServiceConfig{
 		{Provider: "p1", Service: "cc", Channel: "ch", APIKey: "sk-test-abcd"},
 	}
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
-	c := idx.Lookup("sk-test-abcd", cipher)
+	c, _ := idx.Lookup("sk-test-abcd", cipher)
 	if len(c) != 1 {
 		t.Fatalf("expected 1 candidate")
 	}
@@ -251,14 +251,14 @@ func TestAuthIndex_ConcurrentLookup(t *testing.T) {
 	monitors := []config.ServiceConfig{
 		{Provider: "p1", Service: "cc", Channel: "ch", APIKey: "sk-concurrent-k1"},
 	}
-	idx.Rebuild(monitors, cipher, nil)
+	idx.Rebuild(monitors, cipher, nil, nil)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c := idx.Lookup("sk-concurrent-k1", cipher)
+			c, _ := idx.Lookup("sk-concurrent-k1", cipher)
 			if len(c) != 1 {
 				t.Errorf("concurrent lookup: expected 1 candidate")
 			}
@@ -294,10 +294,10 @@ monitors:
 		{Provider: "p1", Service: "cc", Channel: "ch1", APIKey: "sk-auto-mode-k1"},
 		{Provider: "p2", Service: "cc", Channel: "ch2", APIKey: "sk-manual-mode1"},
 	}
-	idx.Rebuild(monitors, cipher, ms)
+	idx.Rebuild(monitors, cipher, ms, nil)
 
 	// p1--cc--ch1 存在于 monitors.d/ → auto
-	c1 := idx.Lookup("sk-auto-mode-k1", cipher)
+	c1, _ := idx.Lookup("sk-auto-mode-k1", cipher)
 	if len(c1) != 1 {
 		t.Fatalf("expected 1 candidate for p1, got %d", len(c1))
 	}
@@ -306,7 +306,7 @@ monitors:
 	}
 
 	// p2--cc--ch2 不在 monitors.d/ → manual
-	c2 := idx.Lookup("sk-manual-mode1", cipher)
+	c2, _ := idx.Lookup("sk-manual-mode1", cipher)
 	if len(c2) != 1 {
 		t.Fatalf("expected 1 candidate for p2, got %d", len(c2))
 	}

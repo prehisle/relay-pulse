@@ -19,6 +19,11 @@ const (
 	// 但模板变更涉及 URLPattern/Headers/Body/SuccessContains 等派生字段重新解析，
 	// 不能简单替换 cfg.Template 字段；必须先保存监测项后再测试。
 	ErrCodeTemplateChangeRequiresSave = "TEMPLATE_CHANGE_REQUIRES_SAVE"
+
+	// ErrCodeRevokedAPIKey: 提交所用的 API Key 命中「已公开泄露」拒绝名单。
+	// 与 UNAUTHORIZED 分开，是为了让被动受害的中转商拿到可行动的提示（联系我们换 key），
+	// 而不是与"key 查不到通道"混成同一条统一文案。
+	ErrCodeRevokedAPIKey = "REVOKED_API_KEY"
 )
 
 // APIErrorDetail 统一错误对象
