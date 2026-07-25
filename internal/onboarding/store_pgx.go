@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -75,6 +76,11 @@ func (s *PgxStore) InitTable(ctx context.Context) error {
 		agreement_version TEXT NOT NULL DEFAULT ''
 	);
 
+	CREATE TABLE IF NOT EXISTS onboarding_used_test_jobs (
+		job_id TEXT PRIMARY KEY,
+		used_at BIGINT NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_onboarding_status ON onboarding_submissions(status, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_onboarding_fingerprint ON onboarding_submissions(api_key_fingerprint);
 	`
@@ -101,7 +107,36 @@ func (s *PgxStore) InitTable(ctx context.Context) error {
 			return fmt.Errorf("迁移 onboarding_submissions 失败: %w", err)
 		}
 	}
+	return s.backfillUsedTestJobs(ctx)
+}
+
+// backfillUsedTestJobs 把历史提交用过的 test_job_id 标记为已消费。理由见 SQLStore 同名方法。
+func (s *PgxStore) backfillUsedTestJobs(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO onboarding_used_test_jobs(job_id, used_at)
+		SELECT test_job_id, MAX(created_at)
+		FROM onboarding_submissions
+		WHERE test_job_id <> ''
+		GROUP BY test_job_id
+		ON CONFLICT (job_id) DO NOTHING
+	`)
+	if err != nil {
+		return fmt.Errorf("回填已消费 test_job_id 失败: %w", err)
+	}
 	return nil
+}
+
+// ConsumeTestJobID 原子占用测试任务 ID；已被占用时返回 false。
+func (s *PgxStore) ConsumeTestJobID(ctx context.Context, jobID string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		INSERT INTO onboarding_used_test_jobs(job_id, used_at)
+		VALUES ($1, $2)
+		ON CONFLICT (job_id) DO NOTHING
+	`, jobID, time.Now().Unix())
+	if err != nil {
+		return false, fmt.Errorf("消费 test_job_id 失败: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // Save 保存新申请

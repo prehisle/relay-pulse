@@ -26,6 +26,10 @@ var fieldsRequiringTest = map[string]bool{
 	"base_url": true,
 }
 
+// ProofAudience 是变更请求流程签发/验证 proof 时的用途标识。
+// 与 onboarding.ProofAudience 区分，理由见该常量注释（防跨流程 proof 重放）。
+const ProofAudience = "change"
+
 // allowedFields 是用户可自助变更的 proposed_changes 字段白名单。
 // 刻意排除 category / sponsor_level：二者涉及商业分类与赞助权益，须人工对接；
 // 如需调整通道字段，请通过通道管理（monitors.d/）直接编辑，变更请求采用只读审 diff 模型。
@@ -306,6 +310,18 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		cr.NewKeyEncrypted = encrypted
 		cr.NewKeyFingerprint = s.cipher.Fingerprint(req.NewAPIKey)
 		cr.NewKeyLast4 = apikey.Last4(req.NewAPIKey)
+	}
+
+	// proof 一次性消费（理由同 onboarding.Submit）。纯展示类变更不涉及探测、也不落 test_job_id，
+	// 故不在此消费——否则客户端随手附带的任意 job_id 都会被无谓烧掉。
+	if requiresTest {
+		consumed, err := s.store.ConsumeTestJobID(ctx, req.TestJobID)
+		if err != nil {
+			return nil, fmt.Errorf("记录测试证明消费状态失败: %w", err)
+		}
+		if !consumed {
+			return nil, fmt.Errorf("该测试结果已被使用，请重新测试后再提交")
+		}
 	}
 
 	if err := s.store.Save(ctx, cr); err != nil {

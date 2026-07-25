@@ -128,6 +128,13 @@ func (h *Handler) SubmitOnboarding(c *gin.Context) {
 		return
 	}
 
+	// 与 /test 共用 token bucket：服务层的每日配额是"当天总量"闸，挡不住秒级突发，
+	// 且一次成功探测本就只对应一次提交，这里按分钟维度先收住洪峰。
+	if h.probeLimiter != nil && !h.probeLimiter.Allow(c.ClientIP()) {
+		apiError(c, http.StatusTooManyRequests, ErrCodeRateLimited, "请求过于频繁，请稍后再试")
+		return
+	}
+
 	var req onboarding.SubmitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logger.Warn("onboarding", "提交参数校验失败", "error", err)

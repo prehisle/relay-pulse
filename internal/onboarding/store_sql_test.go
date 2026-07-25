@@ -164,3 +164,57 @@ func TestList_SearchPagination(t *testing.T) {
 		t.Fatalf("page2 期望 len=1，实际 len=%d", len(page2))
 	}
 }
+
+// TestSQLStore_ConsumeTestJobID 锁定原子占用语义：同一 job_id 只有首次能抢到。
+func TestSQLStore_ConsumeTestJobID(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	consumed, err := store.ConsumeTestJobID(ctx, "probe-abc")
+	if err != nil {
+		t.Fatalf("首次 ConsumeTestJobID: %v", err)
+	}
+	if !consumed {
+		t.Fatal("首次消费应抢占成功")
+	}
+
+	consumed, err = store.ConsumeTestJobID(ctx, "probe-abc")
+	if err != nil {
+		t.Fatalf("二次 ConsumeTestJobID: %v", err)
+	}
+	if consumed {
+		t.Fatal("同一 job_id 第二次消费必须失败")
+	}
+
+	if consumed, err = store.ConsumeTestJobID(ctx, "probe-other"); err != nil || !consumed {
+		t.Fatalf("不同 job_id 应能独立抢占: consumed=%v err=%v", consumed, err)
+	}
+}
+
+// TestSQLStore_BackfillUsedTestJobsTolerscatesDuplicates 锁定升级路径：
+// 存量数据里已存在重复 test_job_id（重放留下的）时，InitTable 必须成功而非因唯一约束崩掉，
+// 且回填后这些历史 job_id 不能再被兑换一次。
+func TestSQLStore_BackfillUsedTestJobsToleratesDuplicates(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// saveSubmission 固定写 TestJobID="job"，两条即构成存量重复
+	saveSubmission(t, store, "dup-1", "pending", 100)
+	saveSubmission(t, store, "dup-2", "pending", 200)
+
+	// 模拟"升级前消费表尚不存在"
+	if _, err := store.db.ExecContext(ctx, `DROP TABLE onboarding_used_test_jobs`); err != nil {
+		t.Fatalf("DROP: %v", err)
+	}
+	if err := store.InitTable(ctx); err != nil {
+		t.Fatalf("存量含重复 test_job_id 时 InitTable 应成功: %v", err)
+	}
+
+	consumed, err := store.ConsumeTestJobID(ctx, "job")
+	if err != nil {
+		t.Fatalf("ConsumeTestJobID: %v", err)
+	}
+	if consumed {
+		t.Fatal("历史已用过的 test_job_id 必须已被回填为已消费")
+	}
+}

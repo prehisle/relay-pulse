@@ -37,6 +37,11 @@ func (c *AppConfig) validate() error {
 		return fmt.Errorf("至少需要配置一个监测项")
 	}
 
+	// 信任边界先于一切业务校验：写错就 fail-closed，绝不让服务带着错误的客户端 IP 信任面起来
+	if err := ValidateTrustedProxies(c.Server.TrustedProxies); err != nil {
+		return err
+	}
+
 	// 0. 预处理：子项的 provider/service/channel 从 parent 路径继承
 	if err := c.preprocessParentInheritance(); err != nil {
 		return err

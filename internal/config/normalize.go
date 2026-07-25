@@ -188,6 +188,18 @@ func (c *AppConfig) normalizeGlobalDefaults() error {
 		return fmt.Errorf("degraded_weight 必须在 0 到 1 之间（0 表示使用默认值 0.7），当前值: %.2f", c.DegradedWeight)
 	}
 
+	// 可信代理边界：未配置时只信本机回环（cloudflared / nginx sidecar 的典型部署形态），
+	// 绝不回落到 gin 默认的"信任所有代理"——那会让任何人伪造 X-Forwarded-For 顶替客户端 IP。
+	if len(c.Server.TrustedProxies) == 0 {
+		c.Server.TrustedProxies = append([]string(nil), defaultTrustedProxies...)
+	} else {
+		// 就地 trim：校验与实际交给 gin 的必须是同一个字符串，否则 " 127.0.0.1 " 会
+		// 过了加载期校验、却在运行时解析失败而触发收紧兜底（行为正确但与文档承诺不符）
+		for i, entry := range c.Server.TrustedProxies {
+			c.Server.TrustedProxies[i] = strings.TrimSpace(entry)
+		}
+	}
+
 	// 公开访问的基础 URL（默认 https://relaypulse.top）
 	if c.PublicBaseURL == "" {
 		c.PublicBaseURL = "https://relaypulse.top"

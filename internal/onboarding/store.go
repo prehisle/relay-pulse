@@ -86,6 +86,10 @@ type Store interface {
 	// Save 保存新申请
 	Save(ctx context.Context, s *Submission) error
 
+	// ConsumeTestJobID 原子占用一个测试任务 ID，使同一次探测的 proof 只能兑换一次提交。
+	// 返回 true 表示本次抢占成功；false 表示该 ID 此前已被消费（proof 重放）。
+	ConsumeTestJobID(ctx context.Context, jobID string) (bool, error)
+
 	// GetByPublicID 按公开 ID 查询申请
 	GetByPublicID(ctx context.Context, publicID string) (*Submission, error)
 

@@ -82,6 +82,12 @@ func (h *Handler) SubmitChange(c *gin.Context) {
 		return
 	}
 
+	// 与 /auth、/test 共用 token bucket，理由同 SubmitOnboarding：每日配额挡不住秒级突发。
+	if h.probeLimiter != nil && !h.probeLimiter.Allow(c.ClientIP()) {
+		apiError(c, http.StatusTooManyRequests, ErrCodeRateLimited, "请求过于频繁，请稍后再试")
+		return
+	}
+
 	var req change.SubmitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logger.Warn("change", "提交参数校验失败", "error", err)

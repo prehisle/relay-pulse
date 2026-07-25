@@ -126,6 +126,33 @@ monitors:
 
 ### 全局配置
 
+#### `server`（可信代理边界）
+
+决定服务如何判定"真实客户端 IP"。这个判定是所有按 IP 计数的防护（探测限流、收录/变更每日提交配额、`submitter_ip_hash` 审计）的共同信任根，判错则三者同时失效。
+
+```yaml
+server:
+  trusted_platform: ""              # 可选；仅在入口会强制覆写该 Header 时设置
+  trusted_proxies:                  # 默认仅信任本机回环
+    - "127.0.0.1"
+    - "::1"
+```
+
+- `trusted_platform`
+  - **类型**: string
+  - **默认值**: `""`（不启用）
+  - **说明**: 由可信入口覆写、客户端无法伪造的客户端 IP Header。设置后直接采信该 Header，不再解析 `X-Forwarded-For` 链。
+  - **示例**: Cloudflare（含 Tunnel）填 `"CF-Connecting-IP"`
+  - ⚠️ **前置条件**: 应用监听端口必须不可被绕过该入口直连（例如只绑 `127.0.0.1`）。否则任何人都能自带这个 Header 伪造来源 IP——这比不设更危险。
+
+- `trusted_proxies`
+  - **类型**: string 数组（IP 或 CIDR）
+  - **默认值**: `["127.0.0.1", "::1"]`
+  - **说明**: 只有来自这些地址的转发，其 `X-Forwarded-For` / `X-Real-IP` 才被采信。反向代理与应用同机（cloudflared / nginx sidecar）时用默认值即可；代理在另一台机器时填该机地址。
+  - **不要**填 `0.0.0.0/0`：等于信任所有来源的 XFF，任何客户端都能任意伪造来源 IP。
+
+两项均只在 HTTP 服务创建时读取，**修改后需重启**（热更新不会重建 gin engine）。配置非法时启动/热更新校验会直接失败；万一漏到运行时，会收紧为"不信任任何代理"而非退回宽松默认。
+
 #### `interval`
 - **类型**: string (Go duration 格式)
 - **默认值**: `"1m"`

@@ -114,6 +114,7 @@ func NewServer(store storage.Storage, cfg *config.AppConfig, port string, autoMo
 
 	// 创建路由
 	router := gin.Default()
+	applyClientIPTrust(router, cfg.Server)
 
 	// CORS中间件 - 从环境变量获取允许的来源
 	allowedOrigins := []string{"https://relaypulse.top"}

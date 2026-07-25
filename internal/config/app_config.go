@@ -2,6 +2,22 @@ package config
 
 import "time"
 
+// ServerConfig 描述 HTTP 入口如何判定"真实客户端 IP"。
+//
+// 该判定是所有按 IP 计数的防护（探测限流、收录/变更每日配额、submitter_ip_hash 审计）
+// 的唯一信任根：判错则三者同时失效。默认值刻意收紧到"只信本机回环代理"，
+// 且不预设任何厂商专有 Header——自托管者不在 CDN 后面时开箱即安全。
+type ServerConfig struct {
+	// TrustedPlatform 是由可信入口覆写、不可被客户端伪造的客户端 IP Header
+	// （如 Cloudflare 的 CF-Connecting-IP）。非空时 gin 直接采信该 Header 并跳过
+	// X-Forwarded-For 链解析，因此**仅当应用端口不可被绕过入口直连时**才可设置。
+	TrustedPlatform string `yaml:"trusted_platform" json:"trusted_platform"`
+
+	// TrustedProxies 是允许提供 X-Forwarded-For / X-Real-IP 的代理地址（IP 或 CIDR）。
+	// 留空则回落到 defaultTrustedProxies（仅回环）。
+	TrustedProxies []string `yaml:"trusted_proxies" json:"trusted_proxies"`
+}
+
 // AppConfig 应用配置
 type AppConfig struct {
 	// ===== 探测时间配置 =====
@@ -98,6 +114,9 @@ type AppConfig struct {
 
 	// 存储配置
 	Storage StorageConfig `yaml:"storage" json:"storage"`
+
+	// HTTP 入口的可信代理边界（决定 c.ClientIP() 取值，进而决定限流与配额的计数主体）
+	Server ServerConfig `yaml:"server" json:"server"`
 
 	// 公开访问的基础 URL（用于 SEO、sitemap 等）
 	// 默认: https://relaypulse.top

@@ -20,13 +20,30 @@ import (
 // --- mock store ---
 
 type mockStore struct {
-	mu      sync.Mutex
-	records map[string]*ChangeRequest
-	nextID  int64
+	mu           sync.Mutex
+	records      map[string]*ChangeRequest
+	usedTestJobs map[string]struct{}
+	consumeCalls int
+	nextID       int64
 }
 
 func newMockStore() *mockStore {
-	return &mockStore{records: make(map[string]*ChangeRequest), nextID: 1}
+	return &mockStore{
+		records:      make(map[string]*ChangeRequest),
+		usedTestJobs: make(map[string]struct{}),
+		nextID:       1,
+	}
+}
+
+func (m *mockStore) ConsumeTestJobID(_ context.Context, jobID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.consumeCalls++
+	if _, used := m.usedTestJobs[jobID]; used {
+		return false, nil
+	}
+	m.usedTestJobs[jobID] = struct{}{}
+	return true, nil
 }
 
 func (m *mockStore) Save(_ context.Context, r *ChangeRequest) error {
@@ -237,6 +254,71 @@ func TestService_Submit_WithTestRequired(t *testing.T) {
 	}
 	if resp.PublicID == "" {
 		t.Error("expected non-empty PublicID")
+	}
+}
+
+// TestService_Submit_TestProofIsSingleUse 锁定 proof 一次性消费：同一 test_job_id 只能兑换一条变更请求。
+func TestService_Submit_TestProofIsSingleUse(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+
+	cipher, _ := apikey.NewKeyCipher(testHexKey)
+	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
+	fingerprint := cipher.Fingerprint("sk-test-key-12345")
+
+	req := &SubmitRequest{
+		APIKey:            "sk-test-key-12345",
+		TargetKey:         "testprov--cc--vip",
+		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+		TestProof:         proofIssuer.Issue("job-single-use", "cc", "https://api.new.com", fingerprint),
+		TestJobID:         "job-single-use",
+		TestType:          "cc",
+		TestAPIURL:        "https://api.new.com",
+		AgreementAccepted: true,
+	}
+
+	if _, err := svc.Submit(ctx, req, "127.0.0.1"); err != nil {
+		t.Fatalf("首次提交应成功: %v", err)
+	}
+
+	// proposed_changes 会被 Submit 就地规范化，重放时按同样内容重建请求
+	req.ProposedChanges = map[string]string{"base_url": "https://api.new.com"}
+	_, err := svc.Submit(ctx, req, "127.0.0.1")
+	if err == nil {
+		t.Fatal("复用同一 test_job_id 的提交应被拒绝，实际 nil")
+	}
+	if !strings.Contains(err.Error(), "已被使用") {
+		t.Fatalf("期望 proof 已被使用的拒因，实际: %v", err)
+	}
+
+	store.mu.Lock()
+	count := len(store.records)
+	store.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("重放被拒后记录数=%d，期望 1", count)
+	}
+}
+
+// TestService_Submit_DisplayOnlyChangeDoesNotConsumeTestJob 反向守卫：
+// 纯展示类变更不涉及探测，不得消费客户端随手附带的 test_job_id（否则会白烧掉一个合法 proof）。
+func TestService_Submit_DisplayOnlyChangeDoesNotConsumeTestJob(t *testing.T) {
+	svc, store := newTestService(t)
+
+	_, err := svc.Submit(context.Background(), &SubmitRequest{
+		APIKey:          "sk-test-key-12345",
+		TargetKey:       "testprov--cc--vip",
+		ProposedChanges: map[string]string{"channel_name": "New Name"},
+		TestJobID:       "job-should-not-be-consumed",
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("展示类变更应成功: %v", err)
+	}
+
+	store.mu.Lock()
+	calls := store.consumeCalls
+	store.mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("展示类变更消费了 %d 次 test_job_id，期望 0", calls)
 	}
 }
 

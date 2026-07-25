@@ -328,6 +328,17 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		UpdatedAt:           now,
 	}
 
+	// proof 一次性消费：proof 本身是无状态 HMAC，TTL 内可无限次重放，
+	// 一次真实探测即可兑换任意多条提交。这里用"抢占 test_job_id"把它钉成一次一用。
+	// 紧挨 Save 之前执行，让前面所有纯内存校验失败的路径都不至于白烧掉用户的探测。
+	consumed, err := s.store.ConsumeTestJobID(ctx, req.TestJobID)
+	if err != nil {
+		return nil, fmt.Errorf("记录测试证明消费状态失败: %w", err)
+	}
+	if !consumed {
+		return nil, fmt.Errorf("该测试结果已被使用，请重新测试后再提交")
+	}
+
 	if err := s.store.Save(ctx, sub); err != nil {
 		return nil, err
 	}

@@ -109,6 +109,10 @@ type AuthCandidate struct {
 // Store 变更请求持久化接口
 type Store interface {
 	Save(ctx context.Context, r *ChangeRequest) error
+
+	// ConsumeTestJobID 原子占用一个测试任务 ID，使同一次探测的 proof 只能兑换一次提交。
+	// 返回 true 表示本次抢占成功；false 表示该 ID 此前已被消费（proof 重放）。
+	ConsumeTestJobID(ctx context.Context, jobID string) (bool, error)
 	GetByPublicID(ctx context.Context, publicID string) (*ChangeRequest, error)
 	List(ctx context.Context, status string, limit, offset int) ([]*ChangeRequest, int, error)
 	Update(ctx context.Context, r *ChangeRequest) error

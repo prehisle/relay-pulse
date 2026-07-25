@@ -62,13 +62,55 @@ func (s *SQLStore) InitTable(ctx context.Context) error {
 		agreement_version     TEXT
 	);
 
+	CREATE TABLE IF NOT EXISTS change_used_test_jobs (
+		job_id TEXT PRIMARY KEY,
+		used_at INTEGER NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_change_status ON change_requests(status, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_change_target ON change_requests(target_key);
 	`
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return err
 	}
-	return s.ensureColumns(ctx)
+	if err := s.ensureColumns(ctx); err != nil {
+		return err
+	}
+	return s.backfillUsedTestJobs(ctx)
+}
+
+// backfillUsedTestJobs 把历史变更请求用过的 test_job_id 标记为已消费。
+//
+// 理由同 onboarding：升级瞬间不该白送仍在 TTL 内的历史 proof 一次重放。
+// 只有 requiresTest 的请求才会落 test_job_id（见 Submit），故非空即代表确已消费过。
+func (s *SQLStore) backfillUsedTestJobs(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO change_used_test_jobs(job_id, used_at)
+		SELECT test_job_id, MAX(created_at)
+		FROM change_requests
+		WHERE test_job_id IS NOT NULL AND test_job_id <> ''
+		GROUP BY test_job_id
+	`)
+	if err != nil {
+		return fmt.Errorf("回填已消费 test_job_id 失败: %w", err)
+	}
+	return nil
+}
+
+// ConsumeTestJobID 原子占用测试任务 ID；已被占用时返回 false。
+func (s *SQLStore) ConsumeTestJobID(ctx context.Context, jobID string) (bool, error) {
+	result, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO change_used_test_jobs(job_id, used_at) VALUES (?, ?)`,
+		jobID, time.Now().Unix(),
+	)
+	if err != nil {
+		return false, fmt.Errorf("消费 test_job_id 失败: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("读取 test_job_id 消费结果失败: %w", err)
+	}
+	return affected == 1, nil
 }
 
 const changeAllColumns = `id, public_id, status,

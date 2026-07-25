@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // SQLStore 基于 database/sql 的 Store 实现（适用于 SQLite）。
@@ -74,6 +75,11 @@ func (s *SQLStore) InitTable(ctx context.Context) error {
 		agreement_version TEXT NOT NULL DEFAULT ''
 	);
 
+	CREATE TABLE IF NOT EXISTS onboarding_used_test_jobs (
+		job_id TEXT PRIMARY KEY,
+		used_at INTEGER NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_onboarding_status ON onboarding_submissions(status, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_onboarding_fingerprint ON onboarding_submissions(api_key_fingerprint);
 	`
@@ -81,7 +87,46 @@ func (s *SQLStore) InitTable(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return s.ensureColumns(ctx)
+	if err := s.ensureColumns(ctx); err != nil {
+		return err
+	}
+	return s.backfillUsedTestJobs(ctx)
+}
+
+// backfillUsedTestJobs 把历史提交用过的 test_job_id 标记为已消费。
+//
+// 没有这一步，升级瞬间那些"已提交过、但 proof 仍在 TTL 内"的任务 ID 会因消费表为空
+// 而被判定为首次使用，等于白送每个历史 proof 一次额外重放。GROUP BY 去重后写入，
+// 因此即便存量数据本身就有重复 job_id（重放攻击留下的）也不会触发主键冲突——
+// 这也是不给 test_job_id 直接加唯一索引的原因：那会让带脏数据的库启动即失败。
+func (s *SQLStore) backfillUsedTestJobs(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO onboarding_used_test_jobs(job_id, used_at)
+		SELECT test_job_id, MAX(created_at)
+		FROM onboarding_submissions
+		WHERE test_job_id <> ''
+		GROUP BY test_job_id
+	`)
+	if err != nil {
+		return fmt.Errorf("回填已消费 test_job_id 失败: %w", err)
+	}
+	return nil
+}
+
+// ConsumeTestJobID 原子占用测试任务 ID；已被占用时返回 false。
+func (s *SQLStore) ConsumeTestJobID(ctx context.Context, jobID string) (bool, error) {
+	result, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO onboarding_used_test_jobs(job_id, used_at) VALUES (?, ?)`,
+		jobID, time.Now().Unix(),
+	)
+	if err != nil {
+		return false, fmt.Errorf("消费 test_job_id 失败: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("读取 test_job_id 消费结果失败: %w", err)
+	}
+	return affected == 1, nil
 }
 
 // ensureColumns 为旧数据库补齐新列（兼容热升级）

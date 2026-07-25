@@ -657,3 +657,56 @@ func TestSQLStore_List_StatusAll(t *testing.T) {
 		t.Errorf("expected 1 result for status=all, got total=%d len=%d", total, len(results))
 	}
 }
+
+// TestSQLStore_ConsumeTestJobID 锁定原子占用语义：同一 job_id 只有首次能抢到。
+func TestSQLStore_ConsumeTestJobID(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	consumed, err := store.ConsumeTestJobID(ctx, "probe-abc")
+	if err != nil {
+		t.Fatalf("首次 ConsumeTestJobID: %v", err)
+	}
+	if !consumed {
+		t.Fatal("首次消费应抢占成功")
+	}
+
+	consumed, err = store.ConsumeTestJobID(ctx, "probe-abc")
+	if err != nil {
+		t.Fatalf("二次 ConsumeTestJobID: %v", err)
+	}
+	if consumed {
+		t.Fatal("同一 job_id 第二次消费必须失败")
+	}
+}
+
+// TestSQLStore_BackfillUsedTestJobsToleratesDuplicates 锁定升级路径：存量重复 test_job_id
+// 不得让 InitTable 失败，且回填后历史 job_id 不能再兑换一次。
+func TestSQLStore_BackfillUsedTestJobsToleratesDuplicates(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for _, id := range []string{"dup-1", "dup-2"} {
+		cr := makeRequest(id)
+		cr.RequiresTest = true
+		cr.TestJobID = "probe-legacy-dup"
+		if err := store.Save(ctx, cr); err != nil {
+			t.Fatalf("Save(%s): %v", id, err)
+		}
+	}
+
+	if _, err := store.db.ExecContext(ctx, `DROP TABLE change_used_test_jobs`); err != nil {
+		t.Fatalf("DROP: %v", err)
+	}
+	if err := store.InitTable(ctx); err != nil {
+		t.Fatalf("存量含重复 test_job_id 时 InitTable 应成功: %v", err)
+	}
+
+	consumed, err := store.ConsumeTestJobID(ctx, "probe-legacy-dup")
+	if err != nil {
+		t.Fatalf("ConsumeTestJobID: %v", err)
+	}
+	if consumed {
+		t.Fatal("历史已用过的 test_job_id 必须已被回填为已消费")
+	}
+}

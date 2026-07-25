@@ -397,7 +397,9 @@ func main() {
 			logger.Error("main", "创建 API Key 加密器失败", "error", err)
 			os.Exit(1)
 		}
-		proofIssuer := apikey.NewProofIssuer(cfg.Onboarding.ProofSecret, cfg.Onboarding.ProofTTLDuration)
+		// 用途限定为 change：与 onboarding 共用同一份 proof_secret，但 proof 不得互通
+		proofIssuer := apikey.NewProofIssuerForAudience(
+			cfg.Onboarding.ProofSecret, change.ProofAudience, cfg.Onboarding.ProofTTLDuration)
 
 		var chStore change.Store
 		switch s := store.(type) {
