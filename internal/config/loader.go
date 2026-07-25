@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -14,6 +15,12 @@ import (
 
 // Loader 配置加载器
 type Loader struct {
+	// currentMu 保护 currentConfig。
+	//
+	// 必须加锁：配置监听器的**事件 goroutine** 会经 getCurrent() 读它（判断某次文件事件
+	// 是否命中拒绝名单文件），而 reload 跑在 time.AfterFunc 的**另一个 goroutine** 里写它。
+	// 二者并发访问同一指针字段，无锁即数据竞争。
+	currentMu     sync.RWMutex
 	currentConfig *AppConfig
 }
 
@@ -102,7 +109,9 @@ func (l *Loader) Load(filename string) (*AppConfig, error) {
 		logger.Warn("config", "最终配置校验告警", "detail", warn.Error())
 	}
 
+	l.currentMu.Lock()
 	l.currentConfig = &cfg
+	l.currentMu.Unlock()
 	return &cfg, nil
 }
 
@@ -177,15 +186,18 @@ func (l *Loader) loadOrRollback(filename string) (*AppConfig, error) {
 	newConfig, err := l.Load(filename)
 	if err != nil {
 		// 返回错误但保持旧配置
-		if l.currentConfig != nil {
-			return l.currentConfig, fmt.Errorf("配置加载失败，保持旧配置: %w", err)
+		if current := l.getCurrent(); current != nil {
+			return current, fmt.Errorf("配置加载失败，保持旧配置: %w", err)
 		}
 		return nil, err
 	}
 	return newConfig, nil
 }
 
-// getCurrent 获取当前配置（仅包内使用）
+// getCurrent 获取当前配置（仅包内使用）。
+// 返回的是指针：AppConfig 加载完成后按约定只读，调用方不得改动。
 func (l *Loader) getCurrent() *AppConfig {
+	l.currentMu.RLock()
+	defer l.currentMu.RUnlock()
 	return l.currentConfig
 }

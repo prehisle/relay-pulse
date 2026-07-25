@@ -569,7 +569,7 @@ func (s *Service) AdminApprove(ctx context.Context, publicID, note string) error
 	if cr.RequiresTest && !cr.AgreementAccepted {
 		return fmt.Errorf("该变更涉及监测字段（base_url/API Key）但未确认禁止监测作弊条款，不能批准；请驳回并要求重新提交")
 	}
-	if err := s.ensureAuthNotRevoked(cr); err != nil {
+	if err := s.ensureRequestKeysNotRevoked(cr); err != nil {
 		return err
 	}
 
@@ -602,19 +602,37 @@ func (s *Service) AdminReject(ctx context.Context, publicID, note string) error 
 	return s.store.Update(ctx, cr)
 }
 
-// ensureAuthNotRevoked 拦下「认证用的 API Key 事后被判定为已公开泄露」的历史请求。
+// ensureRequestKeysNotRevoked 拦下「涉及已公开泄露 API Key」的历史请求。
 //
 // 拒绝名单只在 Submit 入口生效，对名单生效**之前**已落库的 pending/approved 请求不追溯；
-// 若不在 admin 侧补同一道闸，攻击者在窗口期用泄露 key 塞进来的 payload 仍可能被批准/应用。
+// 若不在 admin 侧补同一道闸，攻击者在窗口期塞进来的 payload 仍可能被批准/应用。
 // 与 v2.69.0 反作弊条款的 admin 闸是同一类后门，处置方式也一致：只能驳回，不能批准或应用。
 //
-// 覆盖面 = 泄露名单 ∩ 当前配置里的在用 key（已落库请求只存 HMAC 指纹，无法反推明文）。
-// 这正好等于「历史请求当初能认证成功」的那批 key，因此对本场景是完备的。
-func (s *Service) ensureAuthNotRevoked(cr *ChangeRequest) error {
-	if !s.authIndex.IsRevokedAuthFingerprint(cr.AuthFingerprint) {
+// 查两处：
+//  1. **认证指纹**——已落库请求只存 HMAC 指纹、无明文，故只能比对 Rebuild 派生的
+//     「名单 ∩ 当前配置在用 key」的 HMAC 集合。**这不是完备覆盖**：若某把泄露 key 此后
+//     已被轮换出配置或整条 monitor 被删，就无法从 SHA-256 名单反推其 HMAC 指纹，用它认证过的
+//     历史请求会漏检。名单上线时须另行人工冻结/驳回存量队列来补这个缺口（见 docs/user/config.md）。
+//  2. **请求携带的新 key**——密文可解，故这一侧是精确判定：既拦「提交时新 key 就在名单里但早于
+//     本闸落库」的请求，也拦「新 key 事后才进名单」的请求。放在 Approve 与 Apply 两处而非只在
+//     Apply，是因为 manual 模式的请求根本不走 Apply。
+func (s *Service) ensureRequestKeysNotRevoked(cr *ChangeRequest) error {
+	if s.authIndex.IsRevokedAuthFingerprint(cr.AuthFingerprint) {
+		return fmt.Errorf("该请求的认证 API Key 已因公开泄露被撤销，只能驳回: %w", &RevokedAPIKeyError{})
+	}
+
+	if cr.NewKeyEncrypted == "" {
 		return nil
 	}
-	return fmt.Errorf("该请求的认证 API Key 已因公开泄露被撤销，只能驳回: %w", &RevokedAPIKeyError{})
+	newKey, err := s.cipher.Decrypt(cr.NewKeyEncrypted)
+	if err != nil {
+		// 解不开就无法判定，fail-closed：宁可让管理员驳回重提，也不把无法校验的凭据写进配置。
+		return fmt.Errorf("无法解密该请求携带的新 API Key，不能批准或应用: %w", err)
+	}
+	if s.authIndex.IsRevokedKey(newKey) {
+		return fmt.Errorf("该请求要换成的新 API Key 命中已公开泄露名单，只能驳回: %w", &RevokedAPIKeyError{})
+	}
+	return nil
 }
 
 // AdminApply 应用变更到 monitors.d/（仅 auto 模式）。
@@ -640,7 +658,7 @@ func (s *Service) AdminApply(ctx context.Context, publicID string) error {
 	if cr.RequiresTest && !cr.AgreementAccepted {
 		return fmt.Errorf("该变更涉及监测字段（base_url/API Key）但未确认禁止监测作弊条款，不能应用；请驳回并要求重新提交")
 	}
-	if err := s.ensureAuthNotRevoked(cr); err != nil {
+	if err := s.ensureRequestKeysNotRevoked(cr); err != nil {
 		return err
 	}
 	if cr.ApplyMode != "auto" {

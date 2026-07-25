@@ -310,3 +310,141 @@ func TestService_AdminApply_RevokedHistoricalRequest(t *testing.T) {
 		t.Fatalf("应返回 RevokedAPIKeyError，实际 %T: %v", err, err)
 	}
 }
+
+// TestAuthIndex_RevokedAuthFingerprint_CoversDisabledAndChildRows 撤销指纹集刻意**不套用**
+// 索引的跳过规则（disabled / 有 parent 的子通道 / 无 key），单独遍历所有带 key 的配置行。
+// 理由：某通道当初启用时提交的历史请求，之后通道被 disable 或降为子通道，其 AuthFingerprint
+// 仍应被 admin 侧拦下。这条守卫防的是「有人日后把派生逻辑合回索引主循环」。
+func TestAuthIndex_RevokedAuthFingerprint_CoversDisabledAndChildRows(t *testing.T) {
+	cipher := testCipher(t)
+	idx := NewAuthIndex()
+
+	const disabledKey = "sk-leaked-disabled-row"
+	const childKey = "sk-leaked-child-row01"
+	monitors := []config.ServiceConfig{
+		{Provider: "p1", Service: "cc", Channel: "off", APIKey: disabledKey, Disabled: true},
+		{Provider: "p2", Service: "cc", Channel: "sub", APIKey: childKey, Parent: "p2/cc/main"},
+	}
+	idx.Rebuild(monitors, cipher, nil, revokedSet(disabledKey, childKey))
+
+	// 两行都不进认证索引（Lookup 侧本就查不到候选）……
+	for _, k := range []string{disabledKey, childKey} {
+		if c, _ := idx.Lookup(k, cipher); len(c) != 0 {
+			t.Fatalf("%s… 不应有候选", k[:12])
+		}
+	}
+	// ……但它们的 HMAC 指纹必须仍进撤销集，否则历史请求追溯不到。
+	if !idx.IsRevokedAuthFingerprint(cipher.Fingerprint(disabledKey)) {
+		t.Fatal("disabled 行的指纹应进入撤销集")
+	}
+	if !idx.IsRevokedAuthFingerprint(cipher.Fingerprint(childKey)) {
+		t.Fatal("子通道行的指纹应进入撤销集")
+	}
+}
+
+// TestRevokedKeySHA256Hex_MatchesIndependentSHA256 名单哈希必须就是标准 sha256(明文)。
+// 独立算一遍常量比对，避免「生产函数和测试都用同一个函数」的共同错误源
+// ——若哪天误改成加盐/HMAC，名单文件与运行时就会静默错位、全部 key 判不出撤销。
+func TestRevokedKeySHA256Hex_MatchesIndependentSHA256(t *testing.T) {
+	// echo -n "abc" | sha256sum
+	const abcSHA256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+	if got := config.RevokedKeySHA256Hex("abc"); got != abcSHA256 {
+		t.Fatalf("RevokedKeySHA256Hex(\"abc\") = %s, want %s", got, abcSHA256)
+	}
+}
+
+// TestService_Submit_RevokedKeyPrecedesFieldValidation 撤销判定必须早于字段校验：
+// 用一个**必然被字段白名单拒掉**的字段提交，仍应拿到 typed revoked error。
+// （否则把撤销检查挪到字段校验之后也能让上面那条测试通过，等于没测到顺序。）
+func TestService_Submit_RevokedKeyPrecedesFieldValidation(t *testing.T) {
+	svc, _, leaked := serviceWithRevoked(t)
+
+	_, err := svc.Submit(context.Background(), &SubmitRequest{
+		APIKey:          leaked,
+		TargetKey:       "testprov--cc--vip",
+		ProposedChanges: map[string]string{"sponsor_level": "beacon"}, // 不在 allowedFields 里
+	}, "127.0.0.1")
+	if err == nil {
+		t.Fatal("应失败")
+	}
+	var revokedErr *RevokedAPIKeyError
+	if !errors.As(err, &revokedErr) {
+		t.Fatalf("撤销判定应早于字段校验，实际先报了别的错: %v", err)
+	}
+}
+
+// TestService_AdminApprove_RevokedNewAPIKey 名单生效前落库的请求，其**要换成的新 key**
+// 也必须追溯校验——认证 key 健康、但提议换成一把已泄露 key 的请求不能被批准。
+// 密文可解，所以这一侧是精确判定（不受「名单 ∩ 当前配置」的覆盖面限制）。
+func TestService_AdminApprove_RevokedNewAPIKey(t *testing.T) {
+	svc, store, leaked := serviceWithRevoked(t)
+	ctx := context.Background()
+
+	encrypted, err := svc.cipher.Encrypt(leaked)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	cr := makeRequest("pub-newkey-revoked")
+	cr.AuthFingerprint = svc.cipher.Fingerprint("sk-other-key-6789") // 认证 key 是健康的
+	cr.NewKeyEncrypted = encrypted
+	if err := store.Save(ctx, cr); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	err = svc.AdminApprove(ctx, "pub-newkey-revoked", "ok")
+	if err == nil {
+		t.Fatal("提议换成已泄露 key 的请求不得被批准")
+	}
+	var revokedErr *RevokedAPIKeyError
+	if !errors.As(err, &revokedErr) {
+		t.Fatalf("应返回 RevokedAPIKeyError，实际 %T: %v", err, err)
+	}
+}
+
+// TestService_AdminApply_RevokedNewAPIKey Apply 是另一条落地路径，同样要拦。
+func TestService_AdminApply_RevokedNewAPIKey(t *testing.T) {
+	svc, store, leaked := serviceWithRevoked(t)
+	ctx := context.Background()
+	svc.SetMonitorStore(config.NewMonitorStore(t.TempDir()))
+
+	encrypted, err := svc.cipher.Encrypt(leaked)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	cr := makeRequest("pub-newkey-apply")
+	cr.AuthFingerprint = svc.cipher.Fingerprint("sk-other-key-6789")
+	cr.NewKeyEncrypted = encrypted
+	if err := store.Save(ctx, cr); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	err = svc.AdminApply(ctx, "pub-newkey-apply")
+	if err == nil {
+		t.Fatal("提议换成已泄露 key 的请求不得被应用")
+	}
+	var revokedErr *RevokedAPIKeyError
+	if !errors.As(err, &revokedErr) {
+		t.Fatalf("应返回 RevokedAPIKeyError，实际 %T: %v", err, err)
+	}
+}
+
+// TestService_AdminApprove_HealthyNewAPIKeyUnaffected 新 key 健康时不受影响（对照）。
+func TestService_AdminApprove_HealthyNewAPIKeyUnaffected(t *testing.T) {
+	svc, store, _ := serviceWithRevoked(t)
+	ctx := context.Background()
+
+	encrypted, err := svc.cipher.Encrypt("sk-brand-new-clean-key-0001")
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	cr := makeRequest("pub-newkey-ok")
+	cr.AuthFingerprint = svc.cipher.Fingerprint("sk-other-key-6789")
+	cr.NewKeyEncrypted = encrypted
+	if err := store.Save(ctx, cr); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := svc.AdminApprove(ctx, "pub-newkey-ok", "ok"); err != nil {
+		t.Fatalf("新 key 健康的请求应可批准: %v", err)
+	}
+}

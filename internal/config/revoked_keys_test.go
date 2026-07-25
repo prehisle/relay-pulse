@@ -288,3 +288,68 @@ func TestWatcher_CurrentRevokedKeyPath(t *testing.T) {
 		t.Fatalf("非法路径应返回空串，实际 %q", got)
 	}
 }
+
+// TestLoadRevokedKeyFile_RejectsSymlink 符号链接也要拒（Lstat 不跟随），
+// 否则名单可被指向目录外的任意文件。
+func TestLoadRevokedKeyFile_RejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.txt")
+	if err := os.WriteFile(real, []byte(sha256Hex("k")+"\n"), 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Symlink(real, filepath.Join(dir, "revoked_keys.txt")); err != nil {
+		t.Skipf("本环境不支持 symlink: %v", err)
+	}
+
+	cfg := &AppConfig{}
+	cfg.ChangeRequests.RevokedKeyFile = "revoked_keys.txt"
+	cfg.ChangeRequests.RevokedKeyCount = 1
+	if err := cfg.loadRevokedKeyFile(dir); err == nil {
+		t.Fatal("符号链接必须被拒")
+	}
+}
+
+// TestLoadOrRollback_KeepsPreviousRevokedList 名单坏掉时热更新必须保留**上一份含名单的配置**，
+// 而不是降级成一份没有名单的配置——后者等于全部泄露 key 复活。
+func TestLoadOrRollback_KeepsPreviousRevokedList(t *testing.T) {
+	path := writeInlineConfig(t, revokedListConfigBody)
+	dir := filepath.Dir(path)
+	want := sha256Hex("leaked")
+	writeRevokedList(t, dir, "revoked_keys.txt", want+"\n")
+
+	loader := &Loader{}
+	if _, err := loader.Load(path); err != nil {
+		t.Fatalf("首次 Load: %v", err)
+	}
+
+	// 把名单写坏，走热更新路径
+	writeRevokedList(t, dir, "revoked_keys.txt", "not-a-hash\n")
+	cfg, err := loader.loadOrRollback(path)
+	if err == nil {
+		t.Fatal("坏名单必须报错")
+	}
+	if cfg == nil {
+		t.Fatal("应返回上一份配置而非 nil")
+	}
+	if _, ok := cfg.ChangeRequests.RevokedKeySHA256[want]; !ok {
+		t.Fatalf("回滚后必须仍持有上一份名单，实际 %d 条", len(cfg.ChangeRequests.RevokedKeySHA256))
+	}
+}
+
+// TestLoad_FirstActivationFailureLeavesNoList 首次启用名单若加载失败，运行态是「没有名单」
+// ——这不是相对安全目标的 fail-closed。固化这个已知边界：部署名单必须验证它真的进了运行态
+// （见 docs/user/config.md 的运维说明），别指望热更新失败会保护你。
+func TestLoad_FirstActivationFailureLeavesNoList(t *testing.T) {
+	path := writeInlineConfig(t, revokedListConfigBody)
+	writeRevokedList(t, filepath.Dir(path), "revoked_keys.txt", "not-a-hash\n")
+
+	loader := &Loader{}
+	cfg, err := loader.loadOrRollback(path)
+	if err == nil {
+		t.Fatal("坏名单必须报错")
+	}
+	if cfg != nil {
+		t.Fatalf("首次激活失败时没有可回退的配置，应返回 nil，实际非 nil（名单 %d 条）",
+			len(cfg.ChangeRequests.RevokedKeySHA256))
+	}
+}

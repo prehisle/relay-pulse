@@ -14,7 +14,10 @@ import (
 // 同时防 FIFO/设备文件或误配的巨文件把配置加载拖死。
 const revokedKeyFileMaxBytes = 1 << 20
 
-// resolveRevokedKeyFilePath 把配置里的名单文件名解析为绝对路径。
+// resolveRevokedKeyFilePath 把配置里的名单文件名拼到主配置目录下。
+//
+// 返回值与传入的 configDir 同为相对或绝对——调用方各自自洽即可：
+// 加载路径传的是 filepath.Abs 后的目录，watcher 传的是与 fsnotify 事件同源的目录表示。
 //
 // 只接受**主配置目录下的直接子文件名**（不接受绝对路径、子目录、`..` 穿越）。这条约束不是洁癖：
 // 配置监听器对主配置目录是**非递归**监听，只有直接子文件的变更才会产生 fsnotify 事件。
@@ -84,7 +87,9 @@ func (c *AppConfig) loadRevokedKeyFile(configDir string) error {
 		return fmt.Errorf("拒绝名单文件超过 %d 字节上限", revokedKeyFileMaxBytes)
 	}
 
-	hashes := make(map[string]struct{}, c.ChangeRequests.RevokedKeyCount)
+	// 不用 RevokedKeyCount 作容量提示：它是用户可写的无界整数，写错一个数量级会在读文件前
+	// 就触发巨额分配。文件本身已有 1 MiB 上限，让 map 自然增长即可。
+	hashes := make(map[string]struct{})
 	for i, raw := range strings.Split(string(data), "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "#") {

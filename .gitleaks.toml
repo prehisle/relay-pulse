@@ -6,7 +6,8 @@
 # 对 `sk-<厂商>-…` / `88_…` / `cr_…` 这类自定义格式一条都不报。
 # 唯一有效的闸只能在**提交期**：pre-commit 扫暂存区，CI 扫工作树。
 #
-# 实证（2026-07-25）：默认规则集对当年泄露的那份 config.yaml 报 102 条 —— 这道闸当年能拦住它。
+# 实证（2026-07-25，gitleaks 8.30.1）：默认规则集对当年泄露的那份 config.yaml 报 102 条
+# —— 这道闸当年能拦住它；加白之后对已追踪文件 0 误报，且反向对照仍能抓住真实形态的 key。
 
 title = "relay-pulse secret scanning"
 
@@ -15,34 +16,72 @@ title = "relay-pulse secret scanning"
 # 不自造规则：厂商规则随上游更新，自造只会越维护越漏。
 useDefault = true
 
-[allowlist]
-description = "已核实的非密钥匹配。加白一律用精确形态，不整目录放行——真实密钥最爱藏在测试文件里。"
+# ⚠️ 加白纪律（本文件唯一的设计约束，改动前请读完）
+#
+# 1. **不放行任何目录或路径**。真实密钥最爱藏在"看起来无害"的文件里——本仓库这次泄露就叫
+#    `testenv/config.yaml`。放行路径等于给未来的自己开一个静默后门。
+# 2. **每条正则必须全串锚定（^…$）**。gitleaks 的 allowlist 正则默认按**子串**匹配：
+#    未锚定的 `sk-test` 会连带放行 `sk-test<真实高熵内容>`。
+# 3. **不用全局 stopwords**。它同样按子串工作，一把真实凭据只要碰巧含 "example" 就会被放行。
+#    文档占位符靠下面锚定的正则逐个列出。
+# 4. 每次加白后必须跑反向 bite-test（见 commit 说明）：加白前缀 + 高熵后缀、真实形态塞进
+#    被加白的文件类型，都必须**仍然报出来**。
 
-paths = [
-  # 探针模板：凭据全是 {{API_KEY}} 占位符，命中的是 Anthropic-Beta 头里的长特性串。
-  # 模板文件是 wire 字节的单一真相源、必须逐字提交，故整体放行。
-  '''templates/.*\.json$''',
-]
-
+[[allowlists]]
+description = "探针模板里的 Anthropic-Beta 特性开关串。它是长横线串、被熵值规则误判，不是凭据。"
+regexTarget = "secret"
 regexes = [
-  # 测试固件 key：统一是 sk-test-/sk-secret-/sk-other-/sk-branch- 等无意义前缀 + 递增数字。
-  # 只放行这些形态，随手粘一把真 key 进测试仍会被抓。
-  '''sk-(test|secret|other|branch|nobranch|different|con|fallback|revoked|leaked|healthy|rotated|caller|monkey|manual|auto|active|disabled|child|deepcopy|old|new|nonexistent|concurrent|named|elsewhere)[-_a-z0-9]*''',
-  # 纯数字序列的测试固件 key（如 sk-0123456789），同样不可能是真凭据。
-  '''sk-0123456789\d*''',
-  # change 包测试里的固定 32 字节 hex 加密密钥（0123456789abcdef 重复四遍）。
-  '''(?i)(0123456789abcdef){4}''',
-  # localStorage 键名，不是凭据。
-  '''relay-pulse\.[a-z.]+\.v\d+''',
+  # 熵值规则捕到的是逗号分隔串里的**单个**特性名（如 interleaved-thinking-2025-05-14），
+  # 不是整串。故按「小写单词以短横线相连、以日期结尾」全串锚定：真实凭据不长这样。
+  '''^[a-z0-9]+(-[a-z0-9]+)*-\d{4}-\d{2}-\d{2}$''',
+  # 少数特性名不带日期后缀（如 claude-code-20250219）。
+  '''^[a-z]+(-[a-z0-9]+)*-\d{8}$''',
 ]
 
-stopwords = [
-  # 文档里的占位符与示例值
-  "your-api-key",
-  "your_token",
-  "changeme",
-  "placeholder",
-  "example",
-  # docs/user/config.md 的 curl 示例用的占位 token
-  "your-token",
+[[allowlists]]
+description = "测试固件 key：无意义前缀 + 短小的可读后缀，全串锚定 + 限长，真实凭据的熵进不来。"
+regexTarget = "secret"
+regexes = [
+  # sk-test-1234567890abcd / sk-secret-1234567890 / sk-other-key-6789 / sk-0123456789 …
+  # 后缀只允许小写字母、数字与短横线，且总长 ≤ 32——真实中转商 key 实测 35~108 字符。
+  '''^sk-(test|secret|other|branch|nobranch|different|con|fallback|revoked|leaked|healthy|rotated|caller|monkey|manual|auto|active|disabled|child|deepcopy|old|new|nonexistent|concurrent|named|elsewhere|0123456789)[a-z0-9-]{0,20}$''',
+  # change 包测试固定的 32 字节 hex 加密密钥（0123456789abcdef 重复四遍），全串锚定。
+  '''^(?i)(0123456789abcdef){4}$''',
 ]
+
+[[allowlists]]
+description = "非凭据的常量：localStorage 键名与文档里的占位 token。全串锚定，逐个列出。"
+regexTarget = "secret"
+regexes = [
+  '''^relay-pulse\.[a-z.]+\.v\d+$''',
+  '''^your-token$''',
+  '''^your-api-key$''',
+]
+
+# ── 自有规则：内置规则集覆盖不全，必须补 ──────────────────────────────────────
+#
+# 实测（2026-07-25）：只用内置规则集对当年泄露的那份配置**只覆盖 87/101 把** key，
+# 漏掉的 13 把多是 `sk-ant-…` 形态——中转商签发的仿 Anthropic 前缀 key 长度 45~108 字符、
+# 不匹配内置 anthropic 规则的严格格式，也没被熵值规则捕到。
+# 本仓库的真实泄露形态就是「配置文件里的 api_key 赋值」，所以按这个形态直接立一条规则，
+# 不依赖内置规则的运气。
+[[rules]]
+id = "relay-monitor-api-key"
+description = "监测配置里的 api_key 赋值（本仓库两次泄露的就是这个形态）"
+regex = '''(?i)\bapi[_-]?key["']?\s*[:=]\s*["']?([A-Za-z0-9][A-Za-z0-9_\-.]{19,})'''
+secretGroup = 1
+keywords = ["api_key", "apikey", "api-key"]
+
+  [[rules.allowlists]]
+  description = "测试固件 key（全串锚定 + 限长，与全局同一口径）"
+  regexTarget = "secret"
+  regexes = [
+    '''^sk-(test|secret|other|branch|nobranch|different|con|fallback|revoked|leaked|healthy|rotated|caller|monkey|manual|auto|active|disabled|child|deepcopy|old|new|nonexistent|concurrent|named|elsewhere|0123456789)[a-z0-9-]{0,20}$''',
+    '''^(?i)(0123456789abcdef){4}$''',
+    # 模板里的占位符本身
+    '''^\{\{[A-Z_]+\}\}$''',
+    # 文档示例里的自述占位符（`-here` 结尾，全串锚定）
+    '''^sk-[a-z-]+-key-here$''',
+    # onboarding 重放测试的固件（sk-replay-test-key-…）
+    '''^sk-replay-test-key-[0-9]+$''',
+  ]
