@@ -21,12 +21,13 @@
 - 禁止提交真实 API Key、数据库密码等敏感信息；仅更新 `config.yaml.example`，实际值通过环境变量或本地未入库配置文件注入。
 - 修改与存储相关逻辑时，需同时在 SQLite（默认）和 PostgreSQL 场景下验证。
 
-## 在途机制：`model_vendor`「模型厂商」正交轴
+## `model_vendor`「模型厂商」正交轴
 
 - 受控词表真相源是 `internal/modelvendor`（stdlib-only 叶子包，不得 import 仓库内其它包）。code 进 wire 且被 rpdiag 消费，**一经发布不可复用于另一厂商**。
 - 取值链与 `Model`/`RequestModel` 同款（`config 行级 > template`），并与 `RequestModel` 一样参与父子继承。
-- ⚠️ **`CheckRuntimeModelVendors` 已实现但故意未接线，别顺手接到 `cmd/server/main.go`**——当前所有监测行与模板的 vendor 都是空的，接线即全站配置加载失败。须等回填完成后再接。
+- ⚠️ **别给 vendor 加 fail-closed 运行时闸**（曾有 `CheckRuntimeModelVendors`，Phase 3 已删）——它无法像 `model_id` 那样自动派生，加闸会让手写内联监测行的自托管用户升级即 crash-loop（v2.69.2 同类伤害）。覆盖靠「内置模板全部声明 vendor」，守卫是 `TestBundledTemplatesDeclareModelVendor`。
 - 禁止从 `request_model` 前缀反推 vendor；它是声明字段。
+- **native 模板族**（`<service>-native-*`，如 `cc-native-arith`）承接第一方厂商兼容端点，**厂商无关**：不声明 `model`/`request_model`/`model_vendor`，三者必须由监测行填。别给它加 vendor——行级漏填时会经回退链静默继承成错厂商。漏填只由 `validateFinal` 告警提示。
 - 前端（Phase 2 已落）：厂商列/筛选/图标/四语言已做。列显隐由 `showVendorColumn` 单一开关驱动，基于**未筛选**数据判定；通道级厂商要求**所有** layer 非空且同值，否则显示 `-`。未收录 code 原样显示 code，不猜名字。
 - 细节（校验挂载点为何是 `validateResolvedModelConstraints` 而非 `validate()`、「一个通道一个厂商」不变量）见 `CLAUDE.md`。
 

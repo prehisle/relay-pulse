@@ -7,8 +7,9 @@
 // 不变量：
 //   - code 是稳定标识符，一经发布不可复用于另一厂商——它会进入 /api/status wire，
 //     并作为跨产品契约的一部分被 rpdiag 消费（见 meta 仓 docs/contract-ranking-export.md）。
-//   - 空 code 合法（存量监测行全为空），由 config.CheckRuntimeModelVendors 在回填完成后收口，
-//     与 model_id 的宽松校验 / 运行时 fail-closed 闸同款分工。
+//   - 空 code 合法，且**没有** fail-closed 运行时闸（与 model_id 不同，理由见
+//     config.validateModelVendors 的注释）。我方生产的覆盖靠「内置探针模板全部声明 vendor」
+//     保证，自托管部署不关心厂商时留空即可。
 //   - 本包 stdlib-only，不依赖仓库内其它包（config 反向 import 它）。
 //
 // Label 是默认（中文）展示名，仅作后端下发的兜底；多语言本地化由前端负责，别在这里塞 i18n。

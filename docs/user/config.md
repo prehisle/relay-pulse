@@ -1425,6 +1425,15 @@ WHERE timestamp < strftime('%s', 'now', '-30 days');
   - 如果配置了 `parent`，则 `model` 为必填
 - **示例**: `"claude-sonnet-4-20250514"`, `"gpt-4o"`
 
+##### `model_vendor`
+- **类型**: string（受控词表，非自由文本）
+- **说明**: 模型厂商。`service` 表达的是**接入协议族**、`channel_type` 表达的是**线路性质**，两者都回答不了「这条通道跑的是谁家的模型」——第一方厂商开放 Anthropic / OpenAI 兼容端点后（用 Claude Code 的协议、跑厂商自家的模型），这成了独立的一根轴。
+- **可选值**: `anthropic`、`openai`、`google`、`zhipu`、`moonshot`、`minimax`、`deepseek`、`qwen`（词表在 `internal/modelvendor`；`/api/onboarding/meta` 会下发完整列表）
+- **取值链**: 与 `model`/`request_model` 同款——监测行显式值优先，为空时取 `template` 的声明；并与 `request_model` 一样参与父子继承（同一通道各层必属同一厂商）
+- **约束**: 同一 `provider + service + channel` 下**已填写**的 `model_vendor` 必须一致（聚合平台请按厂商拆成不同通道）
+- **留空**: 合法。留空只是前端厂商列显示为未知，不影响监测；私有部署不关心厂商时无需填写
+- **说明**: 内置模板均已声明厂商，套用模板即自动带上；只有 `<service>-native-*` 这族**厂商无关**的通用模板（用于第一方厂商兼容端点）需要在监测行里显式填写
+
 ##### `parent`
 - **类型**: string
 - **说明**: 父通道引用，格式为 `provider/service/channel`，用于建立父子继承关系

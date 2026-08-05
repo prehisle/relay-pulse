@@ -109,12 +109,15 @@ func (c *AppConfig) validateResolvedModelConstraints() error {
 //  2. 同一通道（PSC 三元组）下**均非空**的 vendor 必须一致——「一个通道一个厂商」不变量，
 //     它让 vendor 退化为通道级单值，前端列可排序/筛选，也给 rpdiag 干净的分组键。
 //
-// 只比较非空值是刻意的：回填期必然出现「同通道一行已填、一行还空」的中间态，
-// 若把空值也纳入比较，回填过程本身会把配置判成不一致。对当前全空的生产配置，
-// 本函数无非空值可比 → 恒过，是 provable no-op。
+// 只比较非空值是刻意的：既容忍「同通道一行已填、一行还空」的中间态，也容忍完全不关心
+// 厂商的自托管部署。
 //
-// 与 CheckRuntimeModelVendors 的分工，同 validateModelIDs / CheckRuntimeModelIDs：
-// 这里是配置语法不变量（一直生效），那里是「已回填」运行时不变量（回填完才接线）。
+// ⚠️ 与 model_id 不同，vendor **没有** fail-closed 运行时闸，将来也别加：它无法像
+// model_id 那样由 loader 自动派生（禁止从 request_model 前缀反推厂商——模型 ID 命名不稳、
+// 中转商可改写、同模型多别名，必然产生跨产品 join 漂移），加闸只会让自己手写内联监测行的
+// 自托管用户升级即 crash-loop（v2.69.2 修的正是 CheckRuntimeModelIDs 造成的同类伤害）。
+// 我方生产的覆盖靠「内置模板全部声明 vendor」保证，守卫见
+// TestBundledTemplatesDeclareModelVendor；native 模板那条唯一的例外由 validateFinal 告警兜。
 func (c *AppConfig) validateModelVendors() error {
 	// key = provider/service/channel，value = 该通道首个非空 vendor（已规范化）。
 	// 键的拼法与 validateMonitorUniqueness 的四元组键保持一致（PSC 各段的合法字符集
@@ -143,25 +146,6 @@ func (c *AppConfig) validateModelVendors() error {
 			continue
 		}
 		firstByChannel[key] = code
-	}
-	return nil
-}
-
-// CheckRuntimeModelVendors 运行时硬校验：所有监测行必须有非空 model_vendor。
-//
-// ⚠️ 目前**故意未接线**。与 validateModelVendors（允许空、回填前兼容）分开的理由，
-// 同 CheckRuntimeModelIDs 的注释：present 是「已回填」的运行时不变量，不是配置语法不变量。
-// 现阶段全部监测行与模板的 vendor 都还是空的，此刻接线会让整份配置加载失败——
-// v2.69.2 修的正是 CheckRuntimeModelIDs 让照官方 QUICKSTART 部署的新手 crash-loop。
-//
-// 接线时机：待 monitors.d/ 与模板全部回填完 vendor 之后，挂到 cmd/server/main.go 的
-// 启动校验与热更新回调两个调用点（与 CheckRuntimeModelIDs 并列），并删除锁死
-// 「未接线」状态的那条测试。
-func CheckRuntimeModelVendors(monitors []ServiceConfig) error {
-	for i, m := range monitors {
-		if strings.TrimSpace(m.ModelVendor) == "" {
-			return fmt.Errorf("monitor[%d] %s: 缺 model_vendor（模型厂商是通道展示与跨产品分组的必要字段）", i, modelIDLocation(m))
-		}
 	}
 	return nil
 }

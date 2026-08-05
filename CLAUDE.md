@@ -710,9 +710,12 @@ HTTP 响应
 
 - **受控词表单一真相源** = `internal/modelvendor`（stdlib-only 叶子包，`config` 反向 import 它，别在包内 import 仓库其它包）。code 一经发布**不可复用于另一厂商**——它进 `/api/status` wire，并作为跨产品契约被 rpdiag 消费。
 - **取值链与 `Model`/`RequestModel` 完全同款**：`config 行级 > template`（`lifecycle.go` 注入），且**与 `RequestModel` 一样参与父子继承**（`inheritCoreBehavior`）——注意与 `Model` 相反，`Model` 是父子的区分字段故刻意不继承，vendor 是通道内共享字段。
-- **两个校验函数分工**（与 `validateModelIDs` / `CheckRuntimeModelIDs` 一一对应）：
+- **只有一个校验函数，且刻意没有 fail-closed 运行时闸**（与 `model_id` 的双函数分工**不同**，别照搬）：
   - `validateModelVendors`（宽松，**一直生效**）：挂在 `validateResolvedModelConstraints` 里——**不是** `validate()`。因为 vendor 可能来自 template，挂在模板解析之前则模板声明的 vendor 永不过校验、同通道跨模板的厂商冲突也看不见。它顺带把合法值写回规范形式（小写 trim）。
-  - `CheckRuntimeModelVendors`（fail-closed，**已实现已测但故意未接线**）：⚠️ **别顺手接到 `cmd/server/main.go`**。当前 230 行监测行与 20 个模板的 vendor 全是空的，接线即全站配置加载失败——v2.69.2 修的正是 `CheckRuntimeModelIDs` 让照 QUICKSTART 部署的新手 crash-loop。须等回填完成后再接，届时锁死该状态的测试会先变红。
+  - ⚠️ **别加 fail-closed 运行时闸**。Phase 1 曾写过 `CheckRuntimeModelVendors`，Phase 3 已连同其测试一起删除。理由：vendor 无法像 `model_id` 那样由 loader 自动派生（`loader.go` 给内联行补 `md_<uuidv5>`；而从 `request_model` 前缀反推厂商是被明令禁止的），接闸会让任何自己手写内联监测行、不套内置模板的自托管用户升级即 crash-loop——正是 v2.69.2 修过的伤害类别。
+  - **我方生产的覆盖改由「内置模板全覆盖」保证**：`templates/` 下 20 个非 native 模板全部声明 vendor（`cc-*`→`anthropic`、`cx-*`→`openai`、`gm-*`→`google`；kiro 逆向线路跑的仍是 Claude 模型故同为 anthropic），而生产 `monitors.d/` 每一行都引用模板。守卫是 `TestBundledTemplatesDeclareModelVendor`（双向锁死，已 bite-test 验非真空）。
+- **native 模板族**（`<service>-native-*`：`cc-native-arith` / `cx-native-arith`）承接第一方厂商的 Anthropic Messages / OpenAI Responses 兼容端点，是**厂商无关**的：刻意不声明 `model`/`request_model`/`model_vendor`，三者必须由监测行按厂商填写。**别给它补 vendor**——行级漏填时会经 `config > template` 回退链静默继承成错误厂商（`isNativeProbeTemplate` 与守卫测试锁死这条）。请求形态与 `cc-haiku-arith`/`cx-gpt54-arith` 逐字一致（含 Claude Code / Codex CLI 私有 header 与身份串）：厂商开放兼容端点正是为承接这两个客户端，且保持严格形态使 native 模板**不构成** mock 回显作弊的宽松入口（spec 决策 D7 那条「宽松模板绝不回流给中转商通道」的硬规则因此无从触发；若某厂商确实不认某个头，另拆该厂商专用模板，别放宽通用模板）。行级漏填 vendor 时由 `validateFinal` 出一条**告警**（不阻断——挂 `validateFinal` 而非 `validateModelVendors` 是时序决定的：后者早于父子继承，在那里判空会误伤「vendor 只写父行、子行继承」）。
+- **收录来源**：`ChannelSourceCatalog` 的 `cc`/`cx` 各有一条 `nat`「厂商官方 API（自有模型）」（`Category=official` → 自动落 `O`）。`gm` 不加，Gemini 的 `api`（AI Studio）本身就是第一方入口。
 - **「一个通道一个厂商」不变量**：同一 PSC 三元组下**均非空**的 vendor 必须一致。只比非空值是刻意的——回填期必然出现同通道半填状态。聚合平台请按厂商拆成不同通道（复用 `channel_group`）。
 - **禁止从 `request_model` 前缀反推 vendor**（无论 relay-pulse 还是 rpdiag）：模型 ID 命名不稳、中转商可改写、同模型多别名，必然产生 join 漂移。vendor 是**声明**的，不是猜的。
 - **前端（Phase 2 已落）**：「模型厂商」列位于「模型」列右侧，可排序（sort key `modelVendor`，按 **code** 字典序、未声明厂商恒沉底）、可筛选（URL 参数 `vendor`）。三个渲染出口（桌面表 / 移动卡片 / grid `StatusCard`）共用同一个 `showVendorColumn` 开关。
@@ -721,7 +724,7 @@ HTTP 响应
   - 厂商展示名 `vendors.<code>` 四语言在前端，**词表本身仍只有后端一份**；未收录的 code 原样显示 code、不出图标，绝不猜名字。
   - 「服务」列表头加了 ⓘ 说明「服务=接入协议族，模型是谁家的看厂商列」——**与厂商列同生共死**（厂商列不在时该文案会指向一个看不见的列）。站长 2026-08-05 拍板：筛选下拉**保留客户端名**（`Claude Code (CC)`），不按 spec 字面改成协议名（用户是按「我用哪个客户端」找的）。
   - `channel_type=O` 文案已按 spec 改为「官方直连 / 官方转售」，措辞保持既有的不背书口径（「服务商声称/标记」）。
-- native 模板、`ChannelSourceCatalog` 来源项、接第一家厂商、接 fail-closed 闸属 Phase 3，未做。
+- **残**：接第一家真实厂商通道（需厂商 API key + 生产收录）尚未做，故当前生产每条通道的厂商仍是 anthropic/openai/google 三选一；`internal/api/meta.go` 的四语言 SSR 首页描述也因此**刻意仍不提**第一方厂商——一条第一方通道都没有就写「支持厂商自有模型」是空头承诺，等真接了再改。
 
 **模板占位符**: URL/headers/body 中的占位符在探测时由 `internal/monitor/probe.go` 的 `InjectVariables` 统一替换。支持：`{{BASE_URL}}`、`{{API_KEY}}`、`{{MODEL}}`（=`request_model`，为空回退 `model`）、`{{REQUEST_MODEL}}`、`{{USER_ID}}`、`{{USER_ID_HASH}}`、`{{USER_ACCOUNT_UUID}}`、`{{RAND_UUID}}`、`{{RAND_UUID2}}`、`{{PROMPT}}`、`{{EXPECTED_ANSWER}}`、`{{ARITH_A}}`、`{{ARITH_B}}`（同一次注入中两个 `{{RAND_UUID}}` 取同一值）。注意：`body` 按模板文件中的**原始字节**发送（仅 `TrimSpace`，不 re-marshal/不 compact），占位符按字符串替换；需与抓包字节一致时 body 要写成压缩单行、且不放占位符。
 
