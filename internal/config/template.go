@@ -13,6 +13,7 @@ import (
 type ProbeTemplate struct {
 	Model           string            // 模型系列名（展示/DB 键）
 	RequestModel    string            // 实际请求模型 ID（可选，为空时回退 Model）
+	ModelVendor     string            // 模型厂商受控 code（可选，见 internal/modelvendor；监测行可覆盖）
 	URL             string            // URL 模式，支持 {{BASE_URL}} 等占位符
 	Method          string            // HTTP 方法
 	Headers         map[string]string // 请求头，支持占位符
@@ -30,6 +31,7 @@ type ProbeTemplate struct {
 type probeTemplateFile struct {
 	Model        string            `json:"model"`
 	RequestModel string            `json:"request_model"`
+	ModelVendor  string            `json:"model_vendor"`
 	URL          string            `json:"url"`
 	Method       string            `json:"method"`
 	Headers      map[string]string `json:"headers"`
@@ -62,6 +64,7 @@ func LoadProbeTemplate(filePath string) (*ProbeTemplate, error) {
 	tmpl := &ProbeTemplate{
 		Model:           strings.TrimSpace(parsed.Model),
 		RequestModel:    strings.TrimSpace(parsed.RequestModel),
+		ModelVendor:     strings.TrimSpace(parsed.ModelVendor),
 		URL:             strings.TrimSpace(parsed.URL),
 		Method:          strings.TrimSpace(parsed.Method),
 		Headers:         parsed.Headers,

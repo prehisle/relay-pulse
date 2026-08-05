@@ -89,6 +89,11 @@ func inheritCoreBehavior(child, parent *ServiceConfig) {
 	if child.RequestModel == "" {
 		child.RequestModel = parent.RequestModel
 	}
+	// ModelVendor 跟随 RequestModel 一起继承：同一通道的各 model 层必属同一厂商。
+	// 与 Model 相反（Model 是父子的区分字段故刻意不继承，见本文件末尾说明）。
+	if child.ModelVendor == "" {
+		child.ModelVendor = parent.ModelVendor
+	}
 	// SuccessContains 是「当前 Body 应如何判成功」的语义条件，必须与 Body 同源
 	// （同一份请求定义「发什么」与「期望什么」）。仅当 Body 也继承自父项时，才继承
 	// 父项的 SuccessContains；若子项已有自己的 Body（来自不同模板或手写），其空

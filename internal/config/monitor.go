@@ -25,10 +25,15 @@ type ServiceConfig struct {
 	ModelID      string       `yaml:"model_id,omitempty" json:"model_id,omitempty"` // 监测行稳定唯一 id（md_<uuidv4>），系统生成、不可变；与 Model 一样不参与父子继承。Phase 1 起作内部存储键
 	ChannelID    string       `yaml:"-" json:"-"`                                   // 运行时注入：所属文件 channel_id 下沉到行（loadMonitorsDir），不持久化，经 MonitorResult.channel_id 暴露
 	RequestModel string       `yaml:"request_model,omitempty" json:"-"`             // 实际请求模型 ID（注入 {{MODEL}}/{{REQUEST_MODEL}}，为空时回退 Model）
-	Parent       string       `yaml:"parent" json:"parent,omitempty"`               // 父通道引用，格式 provider/service/channel
-	ChannelName  string       `yaml:"channel_name" json:"channel_name,omitempty"`   // Channel 显示名称（可选，未配置时回退到 channel）
-	ListedSince  string       `yaml:"listed_since,omitempty" json:"listed_since"`   // 收录日期（可选，格式 "2006-01-02"），用于计算收录天数
-	ExpiresAt    string       `yaml:"expires_at" json:"expires_at,omitempty"`       // 到期日期（可选，格式 "2006-01-02"），过期后赞助等级降为 pulse（板块由可用率决定，不随到期变动）
+	// ModelVendor 模型厂商受控 code（词表见 internal/modelvendor）。与 Model/RequestModel 一样
+	// 可由 template 提供、config 行级覆盖；与 RequestModel 一样参与父子继承——同一通道的各 model
+	// 层必属同一厂商（「一个通道一个厂商」不变量，见 validateModelVendors）。
+	// 注意它与 Model 的继承语义相反：Model 是父子的区分字段故不继承，vendor 是通道内共享字段。
+	ModelVendor string `yaml:"model_vendor,omitempty" json:"model_vendor,omitempty"`
+	Parent      string `yaml:"parent" json:"parent,omitempty"`             // 父通道引用，格式 provider/service/channel
+	ChannelName string `yaml:"channel_name" json:"channel_name,omitempty"` // Channel 显示名称（可选，未配置时回退到 channel）
+	ListedSince string `yaml:"listed_since,omitempty" json:"listed_since"` // 收录日期（可选，格式 "2006-01-02"），用于计算收录天数
+	ExpiresAt   string `yaml:"expires_at" json:"expires_at,omitempty"`     // 到期日期（可选，格式 "2006-01-02"），过期后赞助等级降为 pulse（板块由可用率决定，不随到期变动）
 	// Template 引用 templates/<name>.json 模板，定义完整的请求方式（url/method/headers/body/response）
 	Template string `yaml:"template" json:"template,omitempty"`
 

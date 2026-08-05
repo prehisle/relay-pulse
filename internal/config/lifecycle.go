@@ -121,6 +121,9 @@ func resolveTemplateForMonitor(m *ServiceConfig, configDir string) error {
 	if strings.TrimSpace(m.RequestModel) == "" && tmpl.RequestModel != "" {
 		m.RequestModel = tmpl.RequestModel
 	}
+	if strings.TrimSpace(m.ModelVendor) == "" && tmpl.ModelVendor != "" {
+		m.ModelVendor = tmpl.ModelVendor
+	}
 
 	// 仅填充为空的字段（config > template）
 	if m.Method == "" {
