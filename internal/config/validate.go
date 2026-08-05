@@ -221,6 +221,17 @@ func (c *AppConfig) validateFinal() []error {
 				i, m.Provider, m.Service, m.Channel))
 		}
 
+		// native 模板厂商无关（见 isNativeProbeTemplate），vendor 只能由监测行填写，没有模板兜底。
+		// 只告警不阻断：本仓库对 vendor 刻意不设 fail-closed 运行时闸（理由见
+		// TestBundledTemplatesDeclareModelVendor），且漏填的后果是前端厂商列显示「未知」——
+		// 是缺信息，不是错信息。
+		// 必须挂在 validateFinal 而非 validateModelVendors：后者跟在 resolveTemplates 里执行，
+		// 早于父子继承（normalize 第 7 步），在那里判空会误伤「vendor 只写父行、子行靠继承」。
+		if isNativeProbeTemplate(m.Template) && strings.TrimSpace(m.ModelVendor) == "" {
+			warns = append(warns, fmt.Errorf("monitor[%d] %s/%s/%s: 使用第一方厂商通用模板 %q 却未填 model_vendor，厂商列将显示为未知",
+				i, m.Provider, m.Service, m.Channel, m.Template))
+		}
+
 		// URL 安全告警：默认不允许探测目标直接指向私有网络 IP
 		if !c.AllowPrivateNetworks && !m.SkipURLValidation {
 			if err := validateNoPrivateIPURL(m.BaseURL, "base_url"); err != nil {
