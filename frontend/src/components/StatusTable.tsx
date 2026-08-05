@@ -20,6 +20,7 @@ import { shortenModelName } from '../utils/modelName';
 import { hasAnyAnnotation, hasAnyAnnotationInList } from '../utils/annotationUtils';
 import { formatPriceRatioStructured } from '../utils/format';
 import { getServiceIconComponent } from './ServiceIcon';
+import { VendorBadge } from './VendorBadge';
 import { lookupRpdiagScore } from '../hooks/useRpdiagScores';
 import type { ProcessedMonitorData, SortConfig } from '../types';
 import type { RpdiagModelScore, RpdiagScore, RpdiagScoresResponse } from '../types/monitor';
@@ -156,6 +157,10 @@ interface StatusTableProps {
   rpdiagEnabled?: boolean;
   /** runtime 价格列隐藏开关（meta.hide_price_column 派生）。默认 false（显示）。 */
   hidePriceColumn?: boolean;
+  /** 是否显示「模型厂商」列。由调用方基于**未筛选**的全量数据判定（见 App/ProviderPage），
+   *  刻意不在本组件内按已筛数据算——否则筛选一下列就会凭空出现/消失，表格布局抖动。
+   *  厂商全站未回填（Phase 3 之前）时恒 false，对用户完全无感。 */
+  showVendorColumn?: boolean;
 }
 
 // rpdiag 覆盖的可执行 service（gm 暂不采样）。
@@ -627,9 +632,10 @@ interface MobileRowProps {
   onBlockLeave: () => void;
   rpdiagScores?: RpdiagScoresResponse;
   rpdiagEnabled: boolean;
+  showVendorColumn: boolean;
 }
 
-function MobileRow({ index, style, data, slowLatencyMs, enableAnnotations, showProvider, showSponsor, useLatencyGradient, isFavorite, onToggleFavorite, onBlockHover, onBlockLeave, rpdiagScores, rpdiagEnabled }: RowComponentProps<MobileRowProps>) {
+function MobileRow({ index, style, data, slowLatencyMs, enableAnnotations, showProvider, showSponsor, useLatencyGradient, isFavorite, onToggleFavorite, onBlockHover, onBlockLeave, rpdiagScores, rpdiagEnabled, showVendorColumn }: RowComponentProps<MobileRowProps>) {
   const item = data[index];
   return (
     <div style={style}>
@@ -647,6 +653,7 @@ function MobileRow({ index, style, data, slowLatencyMs, enableAnnotations, showP
           onBlockLeave={onBlockLeave}
           rpdiagScore={rpdiagEnabled ? lookupRpdiagScore(rpdiagScores, [item.providerName, item.providerId], item.serviceType, item.channelName || item.channel, item.channelId) : undefined}
           rpdiagEnabled={rpdiagEnabled}
+          showVendorColumn={showVendorColumn}
         />
       </div>
     </div>
@@ -667,6 +674,7 @@ function MobileListItem({
   onBlockLeave,
   rpdiagScore,
   rpdiagEnabled = false,
+  showVendorColumn = false,
 }: {
   item: ProcessedMonitorData;
   slowLatencyMs: number;
@@ -680,6 +688,7 @@ function MobileListItem({
   onBlockLeave: () => void;
   rpdiagScore?: RpdiagScore;
   rpdiagEnabled?: boolean;
+  showVendorColumn?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const ServiceIcon = getCachedServiceIcon(item.serviceType);
@@ -790,6 +799,11 @@ function MobileListItem({
                   </span>
                 );
               })()}
+              {/* 厂商：紧跟模型名。移动端只出图标——这一行还挤着通道名/模型名/收录天数，
+                  加一段厂商名会把前两者一起挤成省略号（实测），全名走 title。 */}
+              {showVendorColumn && (
+                <VendorBadge vendor={item.modelVendor} compact iconOnly className="text-[10px] text-muted max-w-[70px]" />
+              )}
               {/* 收录时间 */}
               {item.listedDays != null && (
                 <span className="text-[10px] text-muted font-mono flex-shrink-0">
@@ -865,6 +879,7 @@ function MobileSortMenu({
   hidePriceColumn,
   rpdiagScoresLoaded,
   rpdiagEnabled,
+  showVendorColumn,
 }: {
   sortConfig: SortConfig;
   isInitialSort?: boolean;
@@ -872,6 +887,7 @@ function MobileSortMenu({
   hidePriceColumn: boolean;
   rpdiagScoresLoaded: boolean;
   rpdiagEnabled: boolean;
+  showVendorColumn: boolean;
 }) {
   const { t } = useTranslation();
 
@@ -880,6 +896,8 @@ function MobileSortMenu({
     { key: 'uptime', label: t('table.sorting.uptime') },
     { key: 'lastCheck', label: t('table.sorting.lastCheck') },
     { key: 'serviceType', label: t('table.sorting.service') },
+    // 厂商未回填时移动端不提供"按厂商排序"（与桌面端隐藏厂商列一致）
+    ...(showVendorColumn ? [{ key: 'modelVendor', label: t('table.sorting.modelVendor') }] : []),
     ...(hidePriceColumn ? [] : [{ key: 'priceRatio', label: t('table.sorting.priceRatio') }]),
     { key: 'listedDays', label: t('table.sorting.listedDays') },
     // rpdiag 关闭时移动端不提供"按质量排序"（与桌面端隐藏质量列一致）
@@ -941,6 +959,7 @@ function StatusTableComponent({
   rpdiagScoresLoaded = false,
   rpdiagEnabled = true,
   hidePriceColumn = false,
+  showVendorColumn = false,
 }: StatusTableProps) {
   const { t, i18n } = useTranslation();
   const [isMobile, setIsMobile] = useState(false);
@@ -986,6 +1005,7 @@ function StatusTableComponent({
           hidePriceColumn={hidePriceColumn}
           rpdiagScoresLoaded={rpdiagScoresLoaded}
           rpdiagEnabled={showQualityColumn}
+          showVendorColumn={showVendorColumn}
         />
         <List
           style={{ height: mobileListHeight, width: '100%' }}
@@ -993,7 +1013,7 @@ function StatusTableComponent({
           rowHeight={MOBILE_ROW_HEIGHT}
           overscanCount={3}
           rowComponent={MobileRow}
-          rowProps={{ data, slowLatencyMs, enableAnnotations, showProvider, showSponsor, useLatencyGradient, isFavorite, onToggleFavorite, onBlockHover, onBlockLeave, rpdiagScores, rpdiagEnabled: showQualityColumn }}
+          rowProps={{ data, slowLatencyMs, enableAnnotations, showProvider, showSponsor, useLatencyGradient, isFavorite, onToggleFavorite, onBlockHover, onBlockLeave, rpdiagScores, rpdiagEnabled: showQualityColumn, showVendorColumn }}
         />
       </div>
     );
@@ -1012,6 +1032,7 @@ function StatusTableComponent({
           <col className="w-px" /> {/* service */}
           <col className="w-px" /> {/* channel */}
           <col className="w-px" /> {/* model */}
+          {showVendorColumn && <col className="w-px" />} {/* modelVendor */}
           {!hidePriceColumn && <col className="w-px" />} {/* priceRatio */}
           <col className="w-px" /> {/* listedDays */}
           <col className="w-px" /> {/* uptime */}
@@ -1049,7 +1070,17 @@ function StatusTableComponent({
               role="button"
             >
               <div className="flex items-center">
-                {t('table.headers.service')} <SortIcon columnKey="serviceType" />
+                {t('table.headers.service')}
+                {/* 服务列的语义是**接入协议族**（用哪套 API / 哪个客户端），不是「模型是谁家的」。
+                    第一方厂商开放兼容端点后二者解耦（用 Claude 协议跑智谱模型），故在此点明，
+                    并把「谁家的模型」指向厂商列。ⓘ 与价格/质量列同款组件。
+                    与厂商列同生共死：厂商列不在时这段文案会指向一个看不见的列，反而更费解。 */}
+                {showVendorColumn && (
+                  <HeaderInfoPopover className="ml-1" align="center" widthClass="w-64">
+                    {t('table.headers.serviceTooltip')}
+                  </HeaderInfoPopover>
+                )}
+                <SortIcon columnKey="serviceType" />
               </div>
             </th>
             <th
@@ -1066,6 +1097,21 @@ function StatusTableComponent({
             <th className="px-1.5 py-3 font-medium whitespace-nowrap">
               {t('table.headers.model')}
             </th>
+            {/* 模型厂商列：紧邻模型列——两者一起回答「跑的是谁家的什么模型」，
+                与左边「服务=接入协议族」正交（服务列表头 ⓘ 解释了这层关系）。 */}
+            {showVendorColumn && (
+              <th
+                className="px-1.5 py-3 font-medium whitespace-nowrap cursor-pointer hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:outline-none"
+                onClick={() => onSort('modelVendor')}
+                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSort('modelVendor'))}
+                tabIndex={0}
+                role="button"
+              >
+                <div className="flex items-center">
+                  {t('table.headers.modelVendor')} <SortIcon columnKey="modelVendor" />
+                </div>
+              </th>
+            )}
             {!hidePriceColumn && (
               <th
                 className="px-1.5 py-3 font-medium whitespace-nowrap cursor-pointer hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:outline-none"
@@ -1305,6 +1351,13 @@ function StatusTableComponent({
                   );
                 })()}
               </td>
+              {showVendorColumn && (
+                <td className="px-1.5 py-1 text-secondary text-xs max-w-[9rem]">
+                  {item.modelVendor
+                    ? <VendorBadge vendor={item.modelVendor} />
+                    : <span className="text-muted">-</span>}
+                </td>
+              )}
               {!hidePriceColumn && (
                 <td className="px-1.5 py-1 font-mono text-xs whitespace-nowrap">
                   {(() => {

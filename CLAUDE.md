@@ -715,7 +715,13 @@ HTTP 响应
   - `CheckRuntimeModelVendors`（fail-closed，**已实现已测但故意未接线**）：⚠️ **别顺手接到 `cmd/server/main.go`**。当前 230 行监测行与 20 个模板的 vendor 全是空的，接线即全站配置加载失败——v2.69.2 修的正是 `CheckRuntimeModelIDs` 让照 QUICKSTART 部署的新手 crash-loop。须等回填完成后再接，届时锁死该状态的测试会先变红。
 - **「一个通道一个厂商」不变量**：同一 PSC 三元组下**均非空**的 vendor 必须一致。只比非空值是刻意的——回填期必然出现同通道半填状态。聚合平台请按厂商拆成不同通道（复用 `channel_group`）。
 - **禁止从 `request_model` 前缀反推 vendor**（无论 relay-pulse 还是 rpdiag）：模型 ID 命名不稳、中转商可改写、同模型多别名，必然产生 join 漂移。vendor 是**声明**的，不是猜的。
-- 前端厂商列/筛选/图标/四语言、native 模板、`ChannelSourceCatalog` 来源项均属后续阶段，Phase 1 用户完全无感。
+- **前端（Phase 2 已落）**：「模型厂商」列位于「模型」列右侧，可排序（sort key `modelVendor`，按 **code** 字典序、未声明厂商恒沉底）、可筛选（URL 参数 `vendor`）。三个渲染出口（桌面表 / 移动卡片 / grid `StatusCard`）共用同一个 `showVendorColumn` 开关。
+  - **列显隐是数据驱动的，且基于「未筛选」数据判定**（App 用 `rawData`、ProviderPage 用按本 provider 过滤的 `rawData`）：全站没有任何通道声明厂商时（回填前的现状）整列 + 筛选器 + 服务列 ⓘ 全部不渲染，对用户零变化；用已筛数据算会让「筛一下列就冒出来/消失」。
+  - **通道级厂商由 `deriveChannelVendor` 从各 layer 推导，规则严于后端校验**：后端只要求同通道**非空**值一致（回填期半填合法），前端要求**所有** layer 非空且同值，否则视为未知显示 `-`。半填状态显示成某厂商 = 用一半证据给出十成确定性，而厂商列的全部价值就是「别把 GLM 当成 Claude」。
+  - 厂商展示名 `vendors.<code>` 四语言在前端，**词表本身仍只有后端一份**；未收录的 code 原样显示 code、不出图标，绝不猜名字。
+  - 「服务」列表头加了 ⓘ 说明「服务=接入协议族，模型是谁家的看厂商列」——**与厂商列同生共死**（厂商列不在时该文案会指向一个看不见的列）。站长 2026-08-05 拍板：筛选下拉**保留客户端名**（`Claude Code (CC)`），不按 spec 字面改成协议名（用户是按「我用哪个客户端」找的）。
+  - `channel_type=O` 文案已按 spec 改为「官方直连 / 官方转售」，措辞保持既有的不背书口径（「服务商声称/标记」）。
+- native 模板、`ChannelSourceCatalog` 来源项、接第一家厂商、接 fail-closed 闸属 Phase 3，未做。
 
 **模板占位符**: URL/headers/body 中的占位符在探测时由 `internal/monitor/probe.go` 的 `InjectVariables` 统一替换。支持：`{{BASE_URL}}`、`{{API_KEY}}`、`{{MODEL}}`（=`request_model`，为空回退 `model`）、`{{REQUEST_MODEL}}`、`{{USER_ID}}`、`{{USER_ID_HASH}}`、`{{USER_ACCOUNT_UUID}}`、`{{RAND_UUID}}`、`{{RAND_UUID2}}`、`{{PROMPT}}`、`{{EXPECTED_ANSWER}}`、`{{ARITH_A}}`、`{{ARITH_B}}`（同一次注入中两个 `{{RAND_UUID}}` 取同一值）。注意：`body` 按模板文件中的**原始字节**发送（仅 `TrimSpace`，不 re-marshal/不 compact），占位符按字符串替换；需与抓包字节一致时 body 要写成压缩单行、且不放占位符。
 

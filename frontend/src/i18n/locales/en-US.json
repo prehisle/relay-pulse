@@ -56,7 +56,8 @@
       "categoryLabel": "Service category",
       "provider": "All providers",
       "service": "All services",
-      "channel": "All channels"
+      "channel": "All channels",
+      "vendor": "All vendors"
     },
     "categories": {
       "charity": "Charity",
@@ -150,8 +151,10 @@
       "provider": "Provider",
       "sponsor": "Sponsor",
       "service": "Service",
+      "serviceTooltip": "The Service column shows the API protocol family you connect with: CC is the Anthropic Messages API (Claude Code), CX the OpenAI API (Codex CLI), GM the Gemini API. Which vendor's model actually runs behind it is shown in the Vendor column.",
       "channel": "Channel",
       "model": "Model",
+      "modelVendor": "Vendor",
       "priceRatio": "Price",
       "priceRatioLine1": "Price",
       "priceRatioLine2": "¥/$",
@@ -172,6 +175,7 @@
       "uptime": "Uptime",
       "lastCheck": "Status/Latency",
       "service": "Service type",
+      "modelVendor": "Vendor",
       "priceRatio": "Price",
       "listedDays": "Listed",
       "quality": "Quality"
@@ -193,9 +197,10 @@
       "24h": "24h",
       "days": "{{count}}d"
     },
+    "modelVendorTooltip": "Model vendor: {{vendor}} ({{code}}). Whose model this channel actually runs — separate from the access protocol shown in the Service column.",
     "channelType": {
-      "official": "Official channel",
-      "officialDesc": "Provider claims to use official API",
+      "official": "Official direct / resale",
+      "officialDesc": "Provider claims a direct official endpoint or an official resale route (e.g. a cloud platform), and marks it as neither reverse-engineered nor mixed",
       "reverse": "Reverse channel",
       "reverseDesc": "Provider marks as reverse-engineered",
       "mixed": "Mixed channel",
@@ -882,5 +887,15 @@
       "confirmDelete": "Confirm Delete",
       "cancel": "Cancel"
     }
+  },
+  "vendors": {
+    "anthropic": "Anthropic",
+    "openai": "OpenAI",
+    "google": "Google",
+    "zhipu": "Zhipu AI",
+    "moonshot": "Moonshot AI",
+    "minimax": "MiniMax",
+    "deepseek": "DeepSeek",
+    "qwen": "Qwen"
   }
 }

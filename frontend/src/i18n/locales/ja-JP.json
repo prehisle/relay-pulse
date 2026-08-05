@@ -56,7 +56,8 @@
       "categoryLabel": "サービスカテゴリ",
       "provider": "すべてのプロバイダ",
       "service": "すべてのサービス",
-      "channel": "すべてのチャネル"
+      "channel": "すべてのチャネル",
+      "vendor": "すべてのベンダー"
     },
     "categories": {
       "charity": "チャリティサイト",
@@ -150,8 +151,10 @@
       "provider": "プロバイダ",
       "sponsor": "スポンサー",
       "service": "サービス",
+      "serviceTooltip": "「サービス」列が示すのは接続プロトコル系統です。CC は Anthropic Messages API（Claude Code）、CX は OpenAI API（Codex CLI）、GM は Gemini API。実際にどのベンダーのモデルが動いているかは「ベンダー」列を参照してください。",
       "channel": "チャネル",
       "model": "モデル",
+      "modelVendor": "ベンダー",
       "priceRatio": "価格",
       "priceRatioLine1": "価格",
       "priceRatioLine2": "¥/$",
@@ -172,6 +175,7 @@
       "uptime": "稼働率",
       "lastCheck": "状態/レイテンシ",
       "service": "サービス種別",
+      "modelVendor": "ベンダー",
       "priceRatio": "価格",
       "listedDays": "掲載",
       "quality": "品質"
@@ -193,9 +197,10 @@
       "24h": "24h",
       "days": "{{count}}d"
     },
+    "modelVendorTooltip": "モデルベンダー: {{vendor}}（{{code}}）。このチャネルで実際に動くモデルの提供元で、「サービス」列の接続プロトコルとは別の軸です。",
     "channelType": {
-      "official": "公式チャネル",
-      "officialDesc": "プロバイダが公式APIの使用を主張",
+      "official": "公式直結 / 公式リセール",
+      "officialDesc": "プロバイダがベンダー公式エンドポイントへの直結、または公式リセール（クラウド等）であり、リバースでも混合でもないと表記",
       "reverse": "リバースチャネル",
       "reverseDesc": "プロバイダがリバースエンジニアリングと表記",
       "mixed": "混合チャネル",
@@ -849,5 +854,15 @@
       "confirmDelete": "削除を確認",
       "cancel": "キャンセル"
     }
+  },
+  "vendors": {
+    "anthropic": "Anthropic",
+    "openai": "OpenAI",
+    "google": "Google",
+    "zhipu": "智譜AI",
+    "moonshot": "Moonshot AI",
+    "minimax": "MiniMax",
+    "deepseek": "DeepSeek",
+    "qwen": "Qwen"
   }
 }

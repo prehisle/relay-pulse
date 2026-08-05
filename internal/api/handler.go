@@ -382,6 +382,7 @@ type MonitorResult struct {
 	ChannelName       string              `json:"channel_name,omitempty"`        // Channel 显示名称
 	Model             string              `json:"model,omitempty"`               // 模型展示名
 	RequestModel      string              `json:"request_model,omitempty"`       // 实际请求模型 ID
+	ModelVendor       string              `json:"model_vendor,omitempty"`        // 模型厂商受控 code（词表见 internal/modelvendor），与 MonitorLayer 同源同义
 	Board             string              `json:"board"`                         // 板块：hot/cold
 	ColdReason        string              `json:"cold_reason,omitempty"`         // 冷板原因（仅 cold 有值）
 	BoardReason       string              `json:"board_reason,omitempty"`        // 移板机器码（如 "quality_hardfail"），前端本地化

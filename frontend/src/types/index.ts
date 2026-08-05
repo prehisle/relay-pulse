@@ -112,6 +112,7 @@ export interface MonitorResult {
   channel_name?: string;               // Channel 显示名称（可选）
   model?: string;                      // 模型展示名（可选）
   request_model?: string;              // 实际请求模型 ID（可选）
+  model_vendor?: string;               // 模型厂商受控 code（后端 internal/modelvendor 词表；未回填时缺失）
   board: BoardValue;                   // 板块：hot/secondary/cold
   cold_reason?: string;                // 冷板原因（仅 cold 有值）
   board_reason?: string;               // 移板机器码（如 "quality_hardfail"），前端本地化
@@ -180,6 +181,9 @@ export interface ProcessedMonitorData {
   channel?: string;                    // 业务通道标识
   channelName?: string;                // Channel 显示名称
   channelId?: string;                  // 通道稳定 id（跨产品 join 锚，Plan A 经 /api/status 暴露；旧后端/inline 缺失）
+  /** 通道级模型厂商 code（modelvendor 词表）。仅当该通道**所有** layer 都声明了同一厂商时才有值，
+   *  半填/冲突/未回填一律 undefined —— 见 monitorDataProcessor.deriveChannelVendor。 */
+  modelVendor?: string;
   board: BoardValue;                   // 板块：hot/secondary/cold
   coldReason?: string;                 // 冷板原因（仅 cold 有值）
   boardReason?: string;                // 移板机器码（如 "quality_hardfail"），前端本地化
@@ -302,6 +306,7 @@ export interface StatusPoint {
 export interface MonitorLayer {
   model: string;                  // 模型名称
   request_model?: string;         // 实际请求模型 ID（可选）
+  model_vendor?: string;          // 模型厂商受控 code（后端 internal/modelvendor 词表；未回填时缺失）
   layer_order: number;            // 层序号：0=父，1+=子
   current_status: StatusPoint;    // 当前状态点
   timeline: TimePoint[];          // 时间线数据

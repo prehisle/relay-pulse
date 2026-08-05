@@ -11,6 +11,7 @@ import { availabilityToColor, latencyToColor, sponsorLevelToCardBorderColor, spo
 import { formatPriceRatioStructured } from '../utils/format';
 import { aggregateHeatmap } from '../utils/heatmapAggregator';
 import { getServiceIconComponent } from './ServiceIcon';
+import { VendorBadge } from './VendorBadge';
 import { AnnotationCell } from './annotations';
 import { hasAnyAnnotation } from '../utils/annotationUtils';
 import type { ProcessedMonitorData } from '../types';
@@ -37,6 +38,9 @@ interface StatusCardProps {
   isFavorite?: (id: string) => boolean;  // 检查是否收藏
   onToggleFavorite?: (id: string) => void;  // 切换收藏状态
   hidePriceColumn?: boolean; // runtime 控制：是否隐藏价格列（meta.hide_price_column 派生，默认 false）
+  /** 是否展示模型厂商。与表格视图的厂商列同一个开关（调用方基于未筛数据判定），
+   *  三个渲染出口共用一个真相源，避免「桌面没有、卡片却有」的分叉。 */
+  showVendorColumn?: boolean;
   onBlockHover: (e: React.MouseEvent<HTMLDivElement>, point: HistoryPoint) => void;
   onBlockLeave: () => void;
 }
@@ -50,6 +54,7 @@ function StatusCardComponent({
   isFavorite,
   onToggleFavorite,
   hidePriceColumn = false,
+  showVendorColumn = false,
   onBlockHover,
   onBlockLeave
 }: StatusCardProps) {
@@ -130,6 +135,10 @@ function StatusCardComponent({
               >
                 {item.serviceType.toUpperCase()}
               </span>
+              {/* 厂商徽章紧跟服务徽章：一眼读成「用这套协议接入、跑这家的模型」 */}
+              {showVendorColumn && (
+                <VendorBadge vendor={item.modelVendor} compact className="text-[10px] text-secondary" />
+              )}
             </div>
             <div className="flex items-center gap-3 mt-1 text-xs font-mono flex-wrap">
               <span className="flex items-center gap-1">

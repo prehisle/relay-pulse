@@ -190,16 +190,16 @@ func getMetaContent(langCode string, slug string, providerName string, isProvide
 		switch langCode {
 		case "zh-CN":
 			title = "RelayPulse - 实时监测API中转服务可用性矩阵"
-			description = "RelayPulse - 实时监测全球 LLM 中转服务的可用性、延迟与赞助链路，帮助开发者快速评估服务商质量，发现最稳定的 API 提供商。支持 Claude、GPT 等主流模型的连通性监测。"
+			description = "RelayPulse - 实时监测全球 LLM 中转服务的可用性、延迟与赞助链路，帮助开发者快速评估服务商质量，发现最稳定的 API 提供商。支持 Claude、GPT、Gemini 等主流模型接口的连通性监测。"
 		case "en-US":
 			title = "RelayPulse - Real-time availability matrix for API relay services"
-			description = "RelayPulse - Real-time monitoring of LLM relay services worldwide for availability, latency, and sponsored routes, helping developers quickly evaluate provider quality and discover the most stable API providers. Supports connectivity checks for mainstream models such as Claude and GPT."
+			description = "RelayPulse - Real-time monitoring of LLM relay services worldwide for availability, latency, and sponsored routes, helping developers quickly evaluate provider quality and discover the most stable API providers. Supports connectivity checks for mainstream model APIs such as Claude, GPT and Gemini."
 		case "ru-RU":
 			title = "RelayPulse - Матрица мониторинга доступности API-ретрансляционных сервисов в реальном времени"
-			description = "RelayPulse - Мониторинг в реальном времени доступности, задержки и спонсорских маршрутов глобальных LLM-ретрансляционных сервисов, помогающий разработчикам быстро оценивать качество провайдеров и находить самых стабильных API-поставщиков. Поддерживается проверка соединения для популярных моделей, таких как Claude и GPT."
+			description = "RelayPulse - Мониторинг в реальном времени доступности, задержки и спонсорских маршрутов глобальных LLM-ретрансляционных сервисов, помогающий разработчикам быстро оценивать качество провайдеров и находить самых стабильных API-поставщиков. Поддерживается проверка подключения к API популярных моделей, таких как Claude, GPT и Gemini."
 		case "ja-JP":
 			title = "RelayPulse - API中継サービスの可用性マトリクスをリアルタイム監視"
-			description = "RelayPulse - 世界中のLLM中継サービスの可用性・レイテンシ・スポンサー経路をリアルタイムで監視。開発者がプロバイダの品質を素早く評価し、最も安定したAPIプロバイダを見つけられるよう支援します。Claude や GPT など主要モデルの接続性チェックに対応。"
+			description = "RelayPulse - 世界中のLLM中継サービスの可用性・レイテンシ・スポンサー経路をリアルタイムで監視。開発者がプロバイダの品質を素早く評価し、最も安定したAPIプロバイダを見つけられるよう支援します。Claude・GPT・Gemini など主要モデルのAPI接続性チェックに対応。"
 		}
 	}
 

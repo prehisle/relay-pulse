@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -100,5 +101,41 @@ func TestOnboardingMetaCarriesModelVendors(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"model_vendors"`) {
 		t.Error("wire 上缺 model_vendors 键")
+	}
+}
+
+// TestMonitorResultCarriesModelVendor 扁平监测项（无 model 的 legacy 行走这条路径）
+// 与分层的 MonitorLayer 同源同义地带上 vendor——否则「vendor 只在多模型通道上才有值」
+// 会成为消费方难以察觉的空洞。同样 omitempty，对存量全空配置逐字节无变化。
+func TestMonitorResultCarriesModelVendor(t *testing.T) {
+	empty, err := json.Marshal(MonitorResult{Channel: "vip"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(empty), "model_vendor") {
+		t.Fatalf("空 vendor 不该出现在 wire 上，实际 %s", empty)
+	}
+
+	filled, err := json.Marshal(MonitorResult{Channel: "vip", ModelVendor: "zhipu"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(filled), `"model_vendor":"zhipu"`) {
+		t.Fatalf("非空 vendor 未出现在 wire 上，实际 %s", filled)
+	}
+}
+
+// TestBuildMonitorResultFillsModelVendor 锁死扁平路径真的从配置读到了 vendor
+// （上一条只证明结构体能序列化，证明不了组装函数填了它）。
+func TestBuildMonitorResultFillsModelVendor(t *testing.T) {
+	h := NewHandler(nil, &config.AppConfig{}, nil)
+	task := config.ServiceConfig{
+		Provider: "acme", Service: "cc", Channel: "vip",
+		ModelVendor: "zhipu",
+	}
+
+	got := h.buildMonitorResult(task, nil, nil, time.Now(), "24h", 0.7, nil, false)
+	if got.ModelVendor != "zhipu" {
+		t.Fatalf("ModelVendor = %q, want %q", got.ModelVendor, "zhipu")
 	}
 }

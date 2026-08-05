@@ -23,6 +23,31 @@ function formatProviderLabel(value?: string): string {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
+// ─── 模型厂商 ───────────────────────────────────────────────
+
+/** 厂商 code 归一：trim + 转小写。后端 validateModelVendors 已写回规范形式，
+ *  这里再归一一次只是让展示层对任何来源（含旧 wire / 手工 mock）都稳定。 */
+export function canonicalVendor(value?: string): string {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+/**
+ * 由各 layer 的 model_vendor 推导通道级厂商。
+ *
+ * 配置侧的「一个通道一个厂商」不变量只校验**非空**值互相一致（回填期必然出现同通道
+ * 半填状态，见 spec 决策记录），因此「一行 zhipu、一行空」在后端是合法的。
+ * 展示层刻意更严：**所有** layer 都非空且同值才提升为通道级厂商，否则视为未知。
+ *
+ * 理由：厂商列的全部价值是「别把 GLM 误当成便宜的 Claude」。把半填状态显示成某个
+ * 厂商，等于用一半的证据给出十成的确定性——宁可显示「-」也不能显示错的那家。
+ */
+export function deriveChannelVendor(layers?: Array<{ model_vendor?: string }>): string | undefined {
+  if (!layers || layers.length === 0) return undefined;
+  const first = canonicalVendor(layers[0].model_vendor);
+  if (!first) return undefined;
+  return layers.every((layer) => canonicalVendor(layer.model_vendor) === first) ? first : undefined;
+}
+
 // ─── URL 校验 ───────────────────────────────────────────────
 
 function validateUrl(url: string | undefined): string | null {
@@ -373,6 +398,7 @@ export function convertLegacyDataToProcessedData(
     channel: item.channel || undefined,
     channelName: channelName || undefined,
     channelId: item.channel_id || undefined,
+    modelVendor: canonicalVendor(item.model_vendor) || undefined,
     board: item.board || 'hot',
     coldReason: item.cold_reason || undefined,
     boardReason: item.board_reason || undefined,
@@ -461,6 +487,7 @@ export function convertGroupToProcessedData(
     channel: group.channel || undefined,
     channelName: channelName || undefined,
     channelId: group.channel_id || undefined,
+    modelVendor: deriveChannelVendor(group.layers),
     board: group.board || 'hot',
     coldReason: group.cold_reason || undefined,
     boardReason: group.board_reason || undefined,

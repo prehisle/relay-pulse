@@ -27,6 +27,7 @@
 - 取值链与 `Model`/`RequestModel` 同款（`config 行级 > template`），并与 `RequestModel` 一样参与父子继承。
 - ⚠️ **`CheckRuntimeModelVendors` 已实现但故意未接线，别顺手接到 `cmd/server/main.go`**——当前所有监测行与模板的 vendor 都是空的，接线即全站配置加载失败。须等回填完成后再接。
 - 禁止从 `request_model` 前缀反推 vendor；它是声明字段。
+- 前端（Phase 2 已落）：厂商列/筛选/图标/四语言已做。列显隐由 `showVendorColumn` 单一开关驱动，基于**未筛选**数据判定；通道级厂商要求**所有** layer 非空且同值，否则显示 `-`。未收录 code 原样显示 code，不猜名字。
 - 细节（校验挂载点为何是 `validateResolvedModelConstraints` 而非 `validate()`、「一个通道一个厂商」不变量）见 `CLAUDE.md`。
 
 ## 技术指南

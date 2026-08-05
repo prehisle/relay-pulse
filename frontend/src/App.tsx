@@ -7,6 +7,7 @@ import { Header } from './components/Header';
 import { Controls } from './components/Controls';
 import { StatusTable } from './components/StatusTable';
 import { StatusCard } from './components/StatusCard';
+import { vendorLabel } from './components/VendorBadge';
 import { Tooltip } from './components/Tooltip';
 import { Footer } from './components/Footer';
 import { EmptyFavorites } from './components/EmptyFavorites';
@@ -19,6 +20,7 @@ import { useAnnouncements } from './hooks/useAnnouncements';
 import { useRpdiagScores } from './hooks/useRpdiagScores';
 import { createMediaQueryEffect } from './utils/mediaQuery';
 import { trackPeriodChange, trackServiceFilter, trackEvent } from './utils/analytics';
+import type { MultiSelectOption } from './components/MultiSelect';
 import type { TooltipState, ProcessedMonitorData, ChannelOption } from './types';
 
 // localStorage key for time align preference
@@ -77,6 +79,7 @@ function App() {
     filterService,
     filterChannel,
     filterCategory,
+    filterVendor,
     showFavoritesOnly,  // 仅显示收藏
     viewMode,
     sortConfig,
@@ -93,10 +96,12 @@ function App() {
     setFilterService,
     setFilterChannel,
     setFilterCategory,
+    setFilterVendor,
     setViewMode,
     setSortConfig,
     clearPriceRatioSort,
     clearQualityScoreSort,
+    clearModelVendorSort,
     enterFavoritesMode,  // 进入收藏模式（保存快照）
     exitFavoritesMode,   // 退出收藏模式（恢复快照）
   } = urlActions;
@@ -190,6 +195,7 @@ function App() {
     filterProvider,
     filterChannel,
     filterCategory,
+    filterVendor,
     sortConfig,
     isInitialSort,
     // 冷板数据不更新，禁用自动刷新以节省资源
@@ -258,6 +264,7 @@ function App() {
     providers.length > 0 && filterProvider.length > 0,
     filterService.length > 0,
     filterChannel.length > 0,
+    filterVendor.length > 0,
   ].filter(Boolean).length;
 
   // 基础数据：应用收藏筛选后的数据（如适用）
@@ -280,15 +287,18 @@ function App() {
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
     const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
 
     return baseData.filter(item => {
       if (providerSet && !providerSet.has(item.providerId)) return false;
       if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
       if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
       if (categorySet && !categorySet.has(item.category)) return false;
+      // 未声明厂商的通道在厂商筛选生效时排除（与 useMonitorData 的过滤口径逐字一致）
+      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
       return true;
     });
-  }, [baseData, filterProvider, filterService, filterChannel, filterCategory]);
+  }, [baseData, filterProvider, filterService, filterChannel, filterCategory, filterVendor]);
 
   // 收藏模式下重新计算状态统计（基于 filteredData 而非全板块数据）
   const effectiveStats = useMemo(() => {
@@ -304,6 +314,7 @@ function App() {
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
     const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
     const providerSet = new Set(filterProvider);
 
     // 1. 应用其他筛选条件（不包括 provider 自身）
@@ -311,6 +322,7 @@ function App() {
       if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
       if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
       if (categorySet && !categorySet.has(item.category)) return false;
+      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
       return true;
     });
 
@@ -341,7 +353,7 @@ function App() {
         value,
         label: count === 0 && providerSet.has(value) ? `${label} (0)` : label,
       }));
-  }, [optionsBaseData, filterService, filterChannel, filterCategory, filterProvider]);
+  }, [optionsBaseData, filterService, filterChannel, filterCategory, filterVendor, filterProvider]);
 
   // 动态 Service 选项：联动筛选 + 保留已选项
   const effectiveServices = useMemo(() => {
@@ -349,6 +361,7 @@ function App() {
     const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
     const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
     const serviceSet = new Set(filterService);
 
     // 1. 应用其他筛选条件（不包括 service 自身）
@@ -356,6 +369,7 @@ function App() {
       if (providerSet && !providerSet.has(item.providerId)) return false;
       if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
       if (categorySet && !categorySet.has(item.category)) return false;
+      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
       return true;
     });
 
@@ -379,7 +393,7 @@ function App() {
       .map(([value, count]) =>
         count === 0 && serviceSet.has(value) ? `${value} (0)` : value
       );
-  }, [optionsBaseData, filterProvider, filterChannel, filterCategory, filterService]);
+  }, [optionsBaseData, filterProvider, filterChannel, filterCategory, filterVendor, filterService]);
 
   // 动态 Channel 选项：联动筛选 + 保留已选项
   const effectiveChannels = useMemo<ChannelOption[]>(() => {
@@ -387,6 +401,7 @@ function App() {
     const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
     const channelSet = new Set(filterChannel);
 
     // 1. 应用其他筛选条件（不包括 channel 自身）
@@ -394,6 +409,7 @@ function App() {
       if (providerSet && !providerSet.has(item.providerId)) return false;
       if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
       if (categorySet && !categorySet.has(item.category)) return false;
+      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
       return true;
     });
 
@@ -432,7 +448,7 @@ function App() {
         value,
         label: count === 0 && channelSet.has(value) ? `${label} (0)` : label,
       }));
-  }, [optionsBaseData, filterProvider, filterService, filterCategory, filterChannel]);
+  }, [optionsBaseData, filterProvider, filterService, filterCategory, filterVendor, filterChannel]);
 
   // 动态 Category 选项：联动筛选 + 保留已选项
   const effectiveCategories = useMemo(() => {
@@ -440,6 +456,7 @@ function App() {
     const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
+    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
     const categorySet = new Set(filterCategory);
 
     // 1. 应用其他筛选条件（不包括 category 自身）
@@ -447,6 +464,7 @@ function App() {
       if (providerSet && !providerSet.has(item.providerId)) return false;
       if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
       if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
+      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
       return true;
     });
 
@@ -469,7 +487,61 @@ function App() {
       .map(([value, count]) =>
         count === 0 && categorySet.has(value) ? `${value} (0)` : value
       );
-  }, [optionsBaseData, filterProvider, filterService, filterChannel, filterCategory]);
+  }, [optionsBaseData, filterProvider, filterService, filterChannel, filterVendor, filterCategory]);
+
+  // 动态模型厂商选项：联动筛选 + 保留已选项。
+  // 与 provider 选项同款是 {value,label} 结构（value=受控 code，label=本地化厂商名），
+  // 按 label 排序——下拉里用户读的是名字；表格排序那侧按 code（见 sortMonitors）。
+  const effectiveVendors = useMemo<MultiSelectOption[]>(() => {
+    const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
+    const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
+    const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
+    const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const vendorSet = new Set(filterVendor);
+
+    // 1. 应用其他筛选条件（不包括 vendor 自身）
+    const filtered = optionsBaseData.filter(item => {
+      if (providerSet && !providerSet.has(item.providerId)) return false;
+      if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
+      if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
+      if (categorySet && !categorySet.has(item.category)) return false;
+      return true;
+    });
+
+    // 2. 收集当前可用的 vendor（带计数）
+    const availableMap = new Map<string, number>();
+    filtered.forEach(item => {
+      if (item.modelVendor) {
+        availableMap.set(item.modelVendor, (availableMap.get(item.modelVendor) || 0) + 1);
+      }
+    });
+
+    // 3. 确保已选的 vendor 始终可见
+    filterVendor.forEach(vendor => {
+      if (!availableMap.has(vendor)) availableMap.set(vendor, 0);
+    });
+
+    // 4. 转换为选项数组（本地化 label），标记无数据的已选项
+    return Array.from(availableMap.entries())
+      .map(([value, count]) => ({
+        value,
+        label: count === 0 && vendorSet.has(value) ? `${vendorLabel(t, value)} (0)` : vendorLabel(t, value),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+  }, [optionsBaseData, filterProvider, filterService, filterChannel, filterCategory, filterVendor, t]);
+
+  // 厂商列显隐：基于**未筛选**的全量数据判定，避免"筛一下列就冒出来/消失"的布局抖动。
+  // Phase 3 回填厂商前恒 false —— 整列与筛选器对用户完全不存在。
+  const showVendorColumn = useMemo(() => rawData.some(item => !!item.modelVendor), [rawData]);
+
+  // 同理：厂商列不可见时抹掉残留的 modelVendor_* URL 排序。
+  // ⚠️ 必须等 rawData 到货再判——首屏 rawData 为空时 showVendorColumn 恒 false，
+  // 不加这道闸会把用户带 ?sort=modelVendor_asc 的分享链接在数据到达前就清掉。
+  useEffect(() => {
+    if (rawData.length > 0 && !showVendorColumn) {
+      clearModelVendorSort();
+    }
+  }, [rawData.length, showVendorColumn, clearModelVendorSort]);
 
   // 收藏模式切换（使用事务性方法，保存/恢复筛选状态快照）
   const handleFavoritesModeChange = useCallback((enabled: boolean) => {
@@ -499,6 +571,13 @@ function App() {
       trackEvent('filter_channel', { channel: filterChannel.join(',') });
     }
   }, [filterChannel]);
+
+  // 追踪厂商筛选变化
+  useEffect(() => {
+    if (filterVendor.length > 0) {
+      trackEvent('filter_model_vendor', { vendor: filterVendor.join(',') });
+    }
+  }, [filterVendor]);
 
   // 追踪分类筛选变化
   useEffect(() => {
@@ -631,6 +710,7 @@ function App() {
               filterService={filterService}
               filterChannel={filterChannel}
               filterCategory={filterCategory}
+              filterVendor={filterVendor}
               showFavoritesOnly={showFavoritesOnly}
               favorites={favorites}
               favoritesCount={effectiveFavoritesCount}
@@ -646,6 +726,7 @@ function App() {
               providers={effectiveProviders}
               effectiveServices={effectiveServices}
               effectiveCategories={effectiveCategories}
+              effectiveVendors={effectiveVendors}
               isMobile={isMobile}
               showFilterDrawer={showFilterDrawer}
               onFilterDrawerClose={() => setShowFilterDrawer(false)}
@@ -653,6 +734,7 @@ function App() {
               onServiceChange={setFilterService}
               onChannelChange={setFilterChannel}
               onCategoryChange={setFilterCategory}
+              onVendorChange={setFilterVendor}
               onShowFavoritesOnlyChange={handleFavoritesModeChange}
               onTimeRangeChange={setTimeRange}
               onTimeAlignChange={setTimeAlign}
@@ -735,6 +817,7 @@ function App() {
                   rpdiagScoresLoaded={rpdiagScoresLoaded}
                   rpdiagEnabled={rpdiagEnabled}
                   hidePriceColumn={hidePriceColumn}
+                  showVendorColumn={showVendorColumn}
                 />
               )}
 

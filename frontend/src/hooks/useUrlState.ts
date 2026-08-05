@@ -25,6 +25,7 @@ interface UrlState {
   filterService: string[];   // 多选服务，空数组表示"全部"
   filterChannel: string[];   // 多选通道，空数组表示"全部"
   filterCategory: string[];  // 多选分类，空数组表示"全部"
+  filterVendor: string[];    // 多选模型厂商，空数组表示"全部"
   showFavoritesOnly: boolean; // 仅显示收藏
   viewMode: ViewMode;
   sortConfig: SortConfig;
@@ -39,6 +40,7 @@ interface UrlStateActions {
   setFilterService: (value: string[]) => void;   // 多选服务
   setFilterChannel: (value: string[]) => void;   // 多选通道
   setFilterCategory: (value: string[]) => void;  // 多选分类
+  setFilterVendor: (value: string[]) => void;    // 多选模型厂商
   setShowFavoritesOnly: (value: boolean) => void; // 仅显示收藏
   setViewMode: (value: ViewMode) => void;
   setSortConfig: (value: SortConfig) => void;
@@ -48,6 +50,8 @@ interface UrlStateActions {
   clearPriceRatioSort: () => void;
   /** 同 clearPriceRatioSort，但针对 qualityScore_* —— rpdiag 关闭（私有部署）后清理质量列旧排序链接。 */
   clearQualityScoreSort: () => void;
+  /** 同上，针对 modelVendor_* —— 数据里没有任何厂商声明时厂商列消失，清掉旧排序链接。 */
+  clearModelVendorSort: () => void;
   enterFavoritesMode: () => void;  // 进入收藏模式（保存快照并清空筛选）
   exitFavoritesMode: () => void;   // 退出收藏模式（恢复快照）
 }
@@ -61,6 +65,7 @@ const DEFAULTS = {
   filterService: [] as string[],   // 空数组表示"全部"
   filterChannel: [] as string[],   // 空数组表示"全部"
   filterCategory: [] as string[],  // 空数组表示"全部"
+  filterVendor: [] as string[],    // 空数组表示"全部"
   showFavoritesOnly: false,        // 默认显示全部
   viewMode: 'table' as ViewMode,
   sortKey: 'uptime',
@@ -79,6 +84,7 @@ const PARAM_KEYS = {
   filterService: 'service',
   filterChannel: 'channel',
   filterCategory: 'category',
+  filterVendor: 'vendor',
   showFavoritesOnly: 'fav',  // 仅显示收藏
   viewMode: 'view',
   sort: 'sort',
@@ -94,6 +100,43 @@ interface ListStateSnapshot {
   filterService: string[];
   filterChannel: string[];
   filterCategory: string[];
+  /** 2026-08 加入的厂商筛选。**故意留在 version 1**：上一会话存下的旧快照没有这个键，
+   *  升 version 会让那份快照整体作废（用户退出收藏模式时筛选凭空清空）。
+   *  解析走 parseListStateSnapshot，缺失/非法一律降级成空数组而不是整份丢弃。 */
+  filterVendor: string[];
+}
+
+/** 从 sessionStorage 原始值解析快照：结构不对返回 null；只有 filterVendor 这一新增键
+ *  允许缺失（旧会话快照），其余四个数组仍是必需——它们缺失说明这根本不是本结构。 */
+function parseListStateSnapshot(raw: string | null): ListStateSnapshot | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const candidate = parsed as Record<string, unknown>;
+  if (candidate.version !== 1) return null;
+
+  const asStringArray = (value: unknown): string[] | null =>
+    Array.isArray(value) && value.every((v) => typeof v === 'string') ? value : null;
+
+  const filterProvider = asStringArray(candidate.filterProvider);
+  const filterService = asStringArray(candidate.filterService);
+  const filterChannel = asStringArray(candidate.filterChannel);
+  const filterCategory = asStringArray(candidate.filterCategory);
+  if (!filterProvider || !filterService || !filterChannel || !filterCategory) return null;
+
+  return {
+    version: 1,
+    filterProvider,
+    filterService,
+    filterChannel,
+    filterCategory,
+    filterVendor: asStringArray(candidate.filterVendor) ?? [],
+  };
 }
 
 /**
@@ -217,6 +260,7 @@ export function useUrlState(): [UrlState, UrlStateActions] {
       filterService: parseArrayParam(PARAM_KEYS.filterService, normalizeLower),
       filterChannel: parseArrayParam(PARAM_KEYS.filterChannel, normalizePreserveCase),
       filterCategory: parseArrayParam(PARAM_KEYS.filterCategory, normalizeLower),
+      filterVendor: parseArrayParam(PARAM_KEYS.filterVendor, normalizeLower),
       showFavoritesOnly,
       viewMode,
       sortConfig: parseSortParam(rawSortParam),
@@ -301,6 +345,11 @@ export function useUrlState(): [UrlState, UrlStateActions] {
     setArrayParam(PARAM_KEYS.filterCategory, values, normalizeLower);
   }, [setArrayParam, normalizeLower]);
 
+  // 厂商 code 是机器标识符（小写受控词表），与 provider/service/category 同款归一
+  const setFilterVendor = useCallback((values: string[]) => {
+    setArrayParam(PARAM_KEYS.filterVendor, values, normalizeLower);
+  }, [setArrayParam, normalizeLower]);
+
   // 仅显示收藏 setter（true='1'，false=移除参数）
   const setShowFavoritesOnly = useCallback((value: boolean) => {
     setSearchParams((prev) => {
@@ -354,6 +403,8 @@ export function useUrlState(): [UrlState, UrlStateActions] {
   const clearPriceRatioSort = useCallback(() => clearSortForKey('priceRatio'), [clearSortForKey]);
   // rpdiag 关闭（私有部署）后清理质量列旧 URL 排序。
   const clearQualityScoreSort = useCallback(() => clearSortForKey('qualityScore'), [clearSortForKey]);
+  // 厂商列不可见（全站尚未回填 model_vendor）后清理厂商列旧 URL 排序。
+  const clearModelVendorSort = useCallback(() => clearSortForKey('modelVendor'), [clearSortForKey]);
 
   // 进入收藏模式：保存当前筛选状态快照，清空筛选器，启用收藏模式
   const enterFavoritesMode = useCallback(() => {
@@ -367,6 +418,7 @@ export function useUrlState(): [UrlState, UrlStateActions] {
       filterService: state.filterService,
       filterChannel: state.filterChannel,
       filterCategory: state.filterCategory,
+      filterVendor: state.filterVendor,
     };
     try {
       sessionStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
@@ -381,30 +433,20 @@ export function useUrlState(): [UrlState, UrlStateActions] {
       next.delete(PARAM_KEYS.filterService);
       next.delete(PARAM_KEYS.filterChannel);
       next.delete(PARAM_KEYS.filterCategory);
+      next.delete(PARAM_KEYS.filterVendor);
       next.set(PARAM_KEYS.showFavoritesOnly, '1');
       return next;
     }, { replace: true });
-  }, [state.showFavoritesOnly, state.filterProvider, state.filterService, state.filterChannel, state.filterCategory, setSearchParams]);
+  }, [state.showFavoritesOnly, state.filterProvider, state.filterService, state.filterChannel, state.filterCategory, state.filterVendor, setSearchParams]);
 
   // 退出收藏模式：恢复快照中的筛选状态，移除收藏模式标记
   const exitFavoritesMode = useCallback(() => {
     // 1. 尝试从 sessionStorage 恢复快照
     let snapshot: ListStateSnapshot | null = null;
     try {
-      const raw = sessionStorage.getItem(SNAPSHOT_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        // 校验快照结构
-        if (parsed?.version === 1 &&
-            Array.isArray(parsed.filterProvider) &&
-            Array.isArray(parsed.filterService) &&
-            Array.isArray(parsed.filterChannel) &&
-            Array.isArray(parsed.filterCategory)) {
-          snapshot = parsed;
-        }
-      }
+      snapshot = parseListStateSnapshot(sessionStorage.getItem(SNAPSHOT_KEY));
     } catch {
-      // 解析失败时使用默认值
+      // sessionStorage 不可用时使用默认值
     }
     // 无论成功与否都清理快照，避免残留
     try {
@@ -423,6 +465,7 @@ export function useUrlState(): [UrlState, UrlStateActions] {
       next.delete(PARAM_KEYS.filterService);
       next.delete(PARAM_KEYS.filterChannel);
       next.delete(PARAM_KEYS.filterCategory);
+      next.delete(PARAM_KEYS.filterVendor);
 
       // 恢复筛选器（如果快照存在）
       if (snapshot) {
@@ -437,6 +480,9 @@ export function useUrlState(): [UrlState, UrlStateActions] {
         }
         if (snapshot.filterCategory.length > 0) {
           next.set(PARAM_KEYS.filterCategory, snapshot.filterCategory.join(','));
+        }
+        if (snapshot.filterVendor.length > 0) {
+          next.set(PARAM_KEYS.filterVendor, snapshot.filterVendor.join(','));
         }
       }
       // 无快照时恢复为默认（空数组），即不设置参数
@@ -453,11 +499,13 @@ export function useUrlState(): [UrlState, UrlStateActions] {
     setFilterService,
     setFilterChannel,
     setFilterCategory,
+    setFilterVendor,
     setShowFavoritesOnly,
     setViewMode,
     setSortConfig,
     clearPriceRatioSort,
     clearQualityScoreSort,
+    clearModelVendorSort,
     enterFavoritesMode,
     exitFavoritesMode,
   };

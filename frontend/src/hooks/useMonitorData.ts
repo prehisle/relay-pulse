@@ -32,6 +32,7 @@ interface UseMonitorDataOptions {
   filterProvider: string[];  // 多选服务商，空数组表示"全部"
   filterChannel: string[];   // 多选通道，空数组表示"全部"
   filterCategory: string[];  // 多选分类，空数组表示"全部"
+  filterVendor: string[];    // 多选模型厂商，空数组表示"全部"
   sortConfig: SortConfig;
   isInitialSort: boolean;    // 是否为初始排序状态（用于赞助商置顶）
   autoRefresh?: boolean;     // 自动刷新开关，默认开启
@@ -50,6 +51,7 @@ export function useMonitorData({
   filterProvider,
   filterChannel,
   filterCategory,
+  filterVendor,
   sortConfig,
   isInitialSort,
   autoRefresh = true,
@@ -323,13 +325,16 @@ export function useMonitorData({
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
     const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
 
     const filtered = rawData.filter((item) => {
       const matchService = serviceSet === null || serviceSet.has(item.serviceType.toLowerCase());
       const matchProvider = providerSet === null || providerSet.has(item.providerId);
       const matchChannel = channelSet === null || (item.channel && channelSet.has(item.channel));
       const matchCategory = categorySet === null || (item.category && categorySet.has(item.category));
-      return matchService && matchProvider && matchChannel && matchCategory;
+      // 未声明厂商的通道在厂商筛选生效时一律排除（"未知"不属于任何一家）
+      const matchVendor = vendorSet === null || (!!item.modelVendor && vendorSet.has(item.modelVendor));
+      return matchService && matchProvider && matchChannel && matchCategory && matchVendor;
     });
 
     // 在排序前给每项注入 qualityScore（来自 rpdiag 三元组查表）。
@@ -345,7 +350,7 @@ export function useMonitorData({
 
     // 使用带置顶逻辑的排序函数
     return sortMonitorsWithPinning(enriched, sortConfig, sponsorPinConfig, isInitialSort);
-  }, [rawData, filterService, filterProvider, filterChannel, filterCategory, sortConfig, sponsorPinConfig, isInitialSort, rpdiagScores, rpdiagScoresLoaded, rpdiagEnabled]);
+  }, [rawData, filterService, filterProvider, filterChannel, filterCategory, filterVendor, sortConfig, sponsorPinConfig, isInitialSort, rpdiagScores, rpdiagScoresLoaded, rpdiagEnabled]);
 
   // 统计数据
   const stats = useMemo(() => {

@@ -56,7 +56,8 @@
       "categoryLabel": "服务分类",
       "provider": "所有服务商",
       "service": "所有服务",
-      "channel": "所有通道"
+      "channel": "所有通道",
+      "vendor": "所有厂商"
     },
     "categories": {
       "charity": "公益站",
@@ -150,8 +151,10 @@
       "provider": "服务商",
       "sponsor": "赞助者",
       "service": "服务",
+      "serviceTooltip": "服务列标的是接入协议族——用哪套 API、哪个客户端连上去：CC 是 Anthropic Messages 协议（Claude Code），CX 是 OpenAI 协议（Codex CLI），GM 是 Gemini 协议。跑的是谁家的模型，看右边的「厂商」列。",
       "channel": "通道",
       "model": "模型",
+      "modelVendor": "厂商",
       "priceRatio": "价格",
       "priceRatioLine1": "价格",
       "priceRatioLine2": "¥/$",
@@ -172,6 +175,7 @@
       "uptime": "可用率",
       "lastCheck": "状态/延迟",
       "service": "服务类型",
+      "modelVendor": "厂商",
       "priceRatio": "价格",
       "listedDays": "收录",
       "quality": "质量"
@@ -193,9 +197,10 @@
       "24h": "24h",
       "days": "{{count}}d"
     },
+    "modelVendorTooltip": "模型厂商：{{vendor}}（{{code}}）。指这条通道实际运行的模型出自哪家，与左侧「服务」列的接入协议是两回事。",
     "channelType": {
-      "official": "官方通道",
-      "officialDesc": "服务商声称使用官方正规渠道",
+      "official": "官方直连 / 官方转售",
+      "officialDesc": "服务商声称走厂商官方入口或官方转售（如云平台），并标记为既非逆向也非混合",
       "reverse": "逆向通道",
       "reverseDesc": "服务商标记为非原生支持、通过技术手段适配",
       "mixed": "混合通道",
@@ -885,5 +890,15 @@
       "confirmDelete": "确认删除",
       "cancel": "取消"
     }
+  },
+  "vendors": {
+    "anthropic": "Anthropic",
+    "openai": "OpenAI",
+    "google": "Google",
+    "zhipu": "智谱",
+    "moonshot": "月之暗面",
+    "minimax": "MiniMax",
+    "deepseek": "DeepSeek",
+    "qwen": "通义千问"
   }
 }

@@ -683,3 +683,35 @@ function createPinCandidate(
     annotations,
   });
 }
+
+// ─── modelVendor 排序（model_vendor 正交轴） ─────────────────
+describe('sortMonitors - modelVendor', () => {
+  it('按厂商 code 升序，未声明厂商的通道恒沉底', () => {
+    const data = [
+      createMockData({ id: 'unknown' }),
+      createMockData({ id: 'z', modelVendor: 'zhipu' }),
+      createMockData({ id: 'a', modelVendor: 'anthropic' }),
+    ];
+    const sorted = sortMonitors(data, { key: 'modelVendor', direction: 'asc' });
+    expect(sorted.map((d) => d.id)).toEqual(['a', 'z', 'unknown']);
+  });
+
+  it('降序时未声明厂商的通道**依然**沉底（null-sink 不受 direction 影响）', () => {
+    const data = [
+      createMockData({ id: 'unknown' }),
+      createMockData({ id: 'a', modelVendor: 'anthropic' }),
+      createMockData({ id: 'z', modelVendor: 'zhipu' }),
+    ];
+    const sorted = sortMonitors(data, { key: 'modelVendor', direction: 'desc' });
+    expect(sorted.map((d) => d.id)).toEqual(['z', 'a', 'unknown']);
+  });
+
+  it('同厂商时回落到二级排序（延迟升序）', () => {
+    const data = [
+      createMockData({ id: 'slow', modelVendor: 'zhipu', lastCheckLatency: 900 }),
+      createMockData({ id: 'fast', modelVendor: 'zhipu', lastCheckLatency: 100 }),
+    ];
+    const sorted = sortMonitors(data, { key: 'modelVendor', direction: 'asc' });
+    expect(sorted.map((d) => d.id)).toEqual(['fast', 'slow']);
+  });
+});

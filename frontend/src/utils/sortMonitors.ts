@@ -69,6 +69,8 @@ function comparePrimary(
     return comparePriceRatio(a.priceMin, a.priceMax, b.priceMin, b.priceMax, direction);
   } else if (key === 'qualityScore') {
     return compareQualityScore(a.qualityScore, b.qualityScore, direction);
+  } else if (key === 'modelVendor') {
+    return compareModelVendor(a.modelVendor, b.modelVendor, direction);
   } else if (key === 'listedDays') {
     return compareListedDays(a.listedDays, b.listedDays, direction);
   } else if (key === 'lastCheck') {
@@ -166,6 +168,31 @@ function compareQualityScore(
 
   if (aScore! < bScore!) return direction === 'asc' ? -1 : 1;
   if (aScore! > bScore!) return direction === 'asc' ? 1 : -1;
+  return 0;
+}
+
+/**
+ * modelVendor 特殊排序：未声明厂商的通道始终排最后（与 priceRatio/listedDays 的 null-sink 范式一致）。
+ *
+ * 比较的是**受控 code** 而不是本地化展示名：本文件刻意 i18n-free，且按 code 排序在
+ * 切换语言时顺序稳定、与后端契约/rpdiag 分组键同一口径。筛选器下拉那侧才按本地化
+ * label 排序（那里用户读的是名字）。
+ */
+function compareModelVendor(
+  aVendor: string | undefined,
+  bVendor: string | undefined,
+  direction: 'asc' | 'desc'
+): number {
+  const aHasData = !!aVendor;
+  const bHasData = !!bVendor;
+
+  // 无厂商的始终排最后
+  if (aHasData && !bHasData) return -1;
+  if (!aHasData && bHasData) return 1;
+  if (!aHasData && !bHasData) return 0;
+
+  if (aVendor! < bVendor!) return direction === 'asc' ? -1 : 1;
+  if (aVendor! > bVendor!) return direction === 'asc' ? 1 : -1;
   return 0;
 }
 

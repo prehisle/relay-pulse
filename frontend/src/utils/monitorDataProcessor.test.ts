@@ -11,6 +11,7 @@ import {
   canonicalize,
   convertGroupToProcessedData,
   convertLegacyDataToProcessedData,
+  deriveChannelVendor,
 } from './monitorDataProcessor';
 
 // ─── 测试工具 ───────────────────────────────────────────────
@@ -444,5 +445,73 @@ describe('monitorDataProcessor', () => {
         server_error: { 500: 3, 502: 3 },
       });
     });
+  });
+});
+
+// ─── 模型厂商（model_vendor 正交轴） ─────────────────────────
+
+describe('deriveChannelVendor', () => {
+  it('所有 layer 同一厂商 → 提升为通道级厂商', () => {
+    expect(deriveChannelVendor([
+      { model_vendor: 'zhipu' },
+      { model_vendor: 'zhipu' },
+    ])).toBe('zhipu');
+  });
+
+  it('单 layer 有厂商 → 直接采用', () => {
+    expect(deriveChannelVendor([{ model_vendor: 'moonshot' }])).toBe('moonshot');
+  });
+
+  it('大小写/空白差异归一后视为同一厂商', () => {
+    expect(deriveChannelVendor([
+      { model_vendor: ' Zhipu ' },
+      { model_vendor: 'zhipu' },
+    ])).toBe('zhipu');
+  });
+
+  // 这条是厂商列的核心安全性质：配置侧只校验非空值一致，半填是合法加载态，
+  // 展示层绝不能拿一半的证据给出十成的确定性。
+  it('半填（一行有一行空）→ undefined，不显示任何厂商', () => {
+    expect(deriveChannelVendor([
+      { model_vendor: 'zhipu' },
+      { model_vendor: '' },
+    ])).toBeUndefined();
+    expect(deriveChannelVendor([
+      { model_vendor: 'zhipu' },
+      {},
+    ])).toBeUndefined();
+  });
+
+  it('冲突（两家不同厂商）→ undefined', () => {
+    expect(deriveChannelVendor([
+      { model_vendor: 'zhipu' },
+      { model_vendor: 'moonshot' },
+    ])).toBeUndefined();
+  });
+
+  it('全空 / 空数组 / undefined → undefined', () => {
+    expect(deriveChannelVendor([{ model_vendor: '' }, {}])).toBeUndefined();
+    expect(deriveChannelVendor([])).toBeUndefined();
+    expect(deriveChannelVendor(undefined)).toBeUndefined();
+  });
+});
+
+describe('convert*ToProcessedData 的 modelVendor', () => {
+  it('分组路径：全 layer 一致时带上厂商', () => {
+    const result = convertGroupToProcessedData(
+      group({ layers: [layer({ model_vendor: 'zhipu' }), layer({ layer_order: 1, model_vendor: 'zhipu' })] }),
+      5000,
+    );
+    expect(result.modelVendor).toBe('zhipu');
+  });
+
+  it('分组路径：存量数据（无 vendor 键）→ undefined', () => {
+    const result = convertGroupToProcessedData(group({ layers: [layer()] }), 5000);
+    expect(result.modelVendor).toBeUndefined();
+  });
+
+  it('legacy 扁平路径：直接读 model_vendor 并归一', () => {
+    expect(convertLegacyDataToProcessedData(legacyItem({ model_vendor: ' QWEN ' }), 5000).modelVendor).toBe('qwen');
+    expect(convertLegacyDataToProcessedData(legacyItem({}), 5000).modelVendor).toBeUndefined();
   });
 });

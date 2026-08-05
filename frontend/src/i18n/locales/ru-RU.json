@@ -56,7 +56,8 @@
       "categoryLabel": "Категория сервиса",
       "provider": "Все провайдеры",
       "service": "Все сервисы",
-      "channel": "Все каналы"
+      "channel": "Все каналы",
+      "vendor": "Все вендоры"
     },
     "categories": {
       "charity": "Благотворительный",
@@ -150,8 +151,10 @@
       "provider": "Провайдер",
       "sponsor": "Спонсор",
       "service": "Сервис",
+      "serviceTooltip": "Столбец «Сервис» показывает семейство протоколов доступа: CC — это Anthropic Messages API (Claude Code), CX — OpenAI API (Codex CLI), GM — Gemini API. Чья модель на самом деле работает за каналом, указано в столбце «Вендор».",
       "channel": "Канал",
       "model": "Модель",
+      "modelVendor": "Вендор",
       "priceRatio": "Цена",
       "priceRatioLine1": "Цена",
       "priceRatioLine2": "¥/$",
@@ -172,6 +175,7 @@
       "uptime": "Доступность",
       "lastCheck": "Статус/Задержка",
       "service": "Тип сервиса",
+      "modelVendor": "Вендор",
       "priceRatio": "Цена",
       "listedDays": "Дней",
       "quality": "Качество"
@@ -193,9 +197,10 @@
       "24h": "24ч",
       "days": "{{count}}д"
     },
+    "modelVendorTooltip": "Вендор модели: {{vendor}} ({{code}}). Чья модель фактически работает в этом канале — это не то же самое, что протокол доступа в столбце «Сервис».",
     "channelType": {
-      "official": "Официальный канал",
-      "officialDesc": "Провайдер заявляет использование официального API",
+      "official": "Официальный прямой / реселл",
+      "officialDesc": "Провайдер заявляет прямое подключение к официальной точке вендора или официальный реселл (например, облачная платформа) и отмечает канал как не реверс и не смешанный",
       "reverse": "Реверс-канал",
       "reverseDesc": "Провайдер отмечает как реверс-инжиниринг",
       "mixed": "Смешанный канал",
@@ -849,5 +854,15 @@
       "confirmDelete": "Подтвердить удаление",
       "cancel": "Отмена"
     }
+  },
+  "vendors": {
+    "anthropic": "Anthropic",
+    "openai": "OpenAI",
+    "google": "Google",
+    "zhipu": "Zhipu AI",
+    "moonshot": "Moonshot AI",
+    "minimax": "MiniMax",
+    "deepseek": "DeepSeek",
+    "qwen": "Qwen"
   }
 }

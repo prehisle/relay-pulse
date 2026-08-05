@@ -15,6 +15,7 @@ interface ControlsProps {
   filterService: string[];   // 多选服务，空数组表示"全部"
   filterChannel: string[];   // 多选通道，空数组表示"全部"
   filterCategory: string[];  // 多选分类，空数组表示"全部"
+  filterVendor: string[];    // 多选模型厂商，空数组表示"全部"
   showFavoritesOnly: boolean; // 仅显示收藏
   favorites: Set<string>;     // 收藏项集合
   favoritesCount: number;     // 收藏数量
@@ -30,6 +31,10 @@ interface ControlsProps {
   providers: ProviderOption[];  // 服务商选项列表
   effectiveServices: string[];    // 动态服务选项（始终传递数组）
   effectiveCategories: string[];  // 动态分类选项（始终传递数组）
+  /** 动态模型厂商选项（{value:code,label:本地化名}，已按 label 排序）。
+   *  空数组 = 当前数据里没有任何通道声明了厂商 → 整个筛选器不渲染，
+   *  而不是给一个永远打不开的空下拉。Phase 3 回填前生产恒为空。 */
+  effectiveVendors: MultiSelectOption[];
   showCategoryFilter?: boolean; // 是否显示分类筛选器，默认 true（用于服务商专属页面）
   refreshCooldown?: boolean; // 刷新冷却中，显示提示
   autoRefresh?: boolean; // 自动刷新开关
@@ -41,6 +46,7 @@ interface ControlsProps {
   onServiceChange: (services: string[]) => void;    // 多选回调
   onChannelChange: (channels: string[]) => void;    // 多选回调
   onCategoryChange: (categories: string[]) => void; // 多选回调
+  onVendorChange: (vendors: string[]) => void;      // 多选回调
   onShowFavoritesOnlyChange: (value: boolean) => void; // 收藏筛选回调
   onTimeRangeChange: (range: string) => void;
   onTimeAlignChange: (align: string) => void;       // 切换时间对齐模式
@@ -56,6 +62,7 @@ export function Controls({
   filterService,
   filterChannel,
   filterCategory,
+  filterVendor,
   showFavoritesOnly,
   favorites,
   favoritesCount,
@@ -71,6 +78,7 @@ export function Controls({
   providers,
   effectiveServices,
   effectiveCategories,
+  effectiveVendors,
   showCategoryFilter = true,
   refreshCooldown = false,
   autoRefresh = true,
@@ -82,6 +90,7 @@ export function Controls({
   onServiceChange,
   onChannelChange,
   onCategoryChange,
+  onVendorChange,
   onShowFavoritesOnlyChange,
   onTimeRangeChange,
   onTimeAlignChange,
@@ -119,6 +128,9 @@ export function Controls({
   // 通道选项（已经是 ChannelOption[] 格式，直接转换为 MultiSelectOption[]）
   const channelOptions = useMemo<MultiSelectOption[]>(() => channels, [channels]);
 
+  // 厂商筛选器：数据里没有任何厂商声明时整个筛选器不渲染（Phase 3 回填前恒不可见）
+  const showVendorFilter = effectiveVendors.length > 0;
+
   // 统计激活的筛选器数量（仅计入可见的筛选器）
   const activeFiltersCount = [
     showFavoritesOnly,
@@ -126,6 +138,7 @@ export function Controls({
     providers.length > 0 && filterProvider.length > 0,
     filterService.length > 0,
     filterChannel.length > 0,
+    showVendorFilter && filterVendor.length > 0,
   ].filter(Boolean).length;
 
   // 筛选器组件（桌面和移动端共用）
@@ -170,6 +183,17 @@ export function Controls({
         placeholder={t('controls.filters.channel')}
         searchable={channels.length > 5}
       />
+
+      {/* 模型厂商筛选器 - 数据里出现过厂商声明才渲染 */}
+      {showVendorFilter && (
+        <MultiSelect
+          value={filterVendor}
+          options={effectiveVendors}
+          onChange={onVendorChange}
+          placeholder={t('controls.filters.vendor')}
+          searchable={effectiveVendors.length > 5}
+        />
+      )}
     </>
   );
 
@@ -472,6 +496,7 @@ export function Controls({
                     if (providers.length > 0) onProviderChange([]);
                     onServiceChange([]);
                     onChannelChange([]);
+                    if (showVendorFilter) onVendorChange([]);
                   }}
                   className="w-full py-3 bg-elevated text-secondary rounded-lg hover:bg-muted transition-colors font-medium focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:outline-none"
                 >

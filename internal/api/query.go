@@ -374,6 +374,7 @@ func (h *Handler) buildMonitorResult(task config.ServiceConfig, latest *storage.
 		ChannelName:       task.ChannelName,
 		Model:             task.Model,
 		RequestModel:      resolvedRequestModel(task),
+		ModelVendor:       task.ModelVendor,
 		Board:             task.Board,
 		ColdReason:        task.ColdReason,
 		BoardReason:       task.BoardReason,
