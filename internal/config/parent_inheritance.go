@@ -91,7 +91,9 @@ func inheritCoreBehavior(child, parent *ServiceConfig) {
 	}
 	// ModelVendor 跟随 RequestModel 一起继承：同一通道的各 model 层必属同一厂商。
 	// 与 Model 相反（Model 是父子的区分字段故刻意不继承，见本文件末尾说明）。
-	if child.ModelVendor == "" {
+	// 判空用 TrimSpace 与模板注入侧（resolveTemplateForMonitor）对齐：两处口径若一严一松，
+	// 只写空白的子行会既不被模板填、也不被父行填，留下一个既非空又非合法 code 的幽灵值。
+	if strings.TrimSpace(child.ModelVendor) == "" {
 		child.ModelVendor = parent.ModelVendor
 	}
 	// SuccessContains 是「当前 Body 应如何判成功」的语义条件，必须与 Body 同源

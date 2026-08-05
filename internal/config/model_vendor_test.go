@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -144,6 +145,18 @@ func TestInheritCoreBehavior_ChildVendorWins(t *testing.T) {
 	}
 }
 
+// TestInheritCoreBehavior_BlankChildVendorInherits 子行只写空白也应视为「未声明」而继承父值。
+// 与 lifecycle.go 的模板注入判空口径对齐——两处若一严一松，空白值会卡在中间既不被模板填、
+// 也不被父行填，最终留下一个既非空又非合法 code 的幽灵值。
+func TestInheritCoreBehavior_BlankChildVendorInherits(t *testing.T) {
+	parent := &ServiceConfig{ModelVendor: "zhipu"}
+	child := &ServiceConfig{ModelVendor: "   "}
+	inheritCoreBehavior(child, parent)
+	if child.ModelVendor != "zhipu" {
+		t.Fatalf("空白 vendor 的子行未继承父值，got %q want %q", child.ModelVendor, "zhipu")
+	}
+}
+
 // TestLoadProbeTemplate_TrimsModelVendor 模板 vendor 与 model/request_model 同款 trim。
 func TestLoadProbeTemplate_TrimsModelVendor(t *testing.T) {
 	dir := t.TempDir()
@@ -184,5 +197,225 @@ func TestLoad_NoVendorAnywhereIsNoOp(t *testing.T) {
 	}
 	if got := cfg.Monitors[0].ModelVendor; got != "" {
 		t.Fatalf("凭空冒出 vendor: %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// validateModelVendors（宽松校验，随 validateResolvedModelConstraints 一直生效）
+// ---------------------------------------------------------------------------
+
+// TestValidateModelVendors_AllEmptyIsNoError 全空恒过——这是对生产 provable no-op 的核心断言。
+// 当前 230 行监测行与 20 个模板一个都没有 vendor，这条一旦变红即说明本轮不是 no-op。
+func TestValidateModelVendors_AllEmptyIsNoError(t *testing.T) {
+	cfg := &AppConfig{Monitors: []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1"},
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M2"},
+		{Provider: "b", Service: "cx", Channel: "y", Model: "M3"},
+	}}
+	if err := cfg.validateModelVendors(); err != nil {
+		t.Fatalf("全空 vendor 必须无错，got %v", err)
+	}
+}
+
+func TestValidateModelVendors_UnknownCodeRejected(t *testing.T) {
+	cfg := &AppConfig{Monitors: []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "cohere"},
+	}}
+	err := cfg.validateModelVendors()
+	if err == nil {
+		t.Fatal("词表外的 vendor 必须被拒")
+	}
+	if !strings.Contains(err.Error(), "a/cc/x") {
+		t.Fatalf("错误信息应含 PSC 定位，实际 %q", err.Error())
+	}
+}
+
+// TestValidateModelVendors_SameChannelConflict 同一 PSC 下两行都非空且不同 → 拒。
+// 这是「一个通道一个厂商」不变量：聚合平台按厂商拆通道，混在一条里会把稳定性平均掉。
+func TestValidateModelVendors_SameChannelConflict(t *testing.T) {
+	cfg := &AppConfig{Monitors: []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "zhipu"},
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M2", ModelVendor: "moonshot"},
+	}}
+	err := cfg.validateModelVendors()
+	if err == nil {
+		t.Fatal("同一通道混填两个厂商必须被拒")
+	}
+	if !strings.Contains(err.Error(), "zhipu") || !strings.Contains(err.Error(), "moonshot") {
+		t.Fatalf("错误信息应同时含两个冲突值，实际 %q", err.Error())
+	}
+}
+
+// TestValidateModelVendors_PartialFillIsAllowed 同 PSC 一行有值一行空 → 放行。
+// Phase 3 要逐个模板/逐行回填 vendor，回填期必然出现半填状态，此时不能拒绝加载。
+func TestValidateModelVendors_PartialFillIsAllowed(t *testing.T) {
+	cfg := &AppConfig{Monitors: []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "zhipu"},
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M2"},
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M3", ModelVendor: "zhipu"},
+	}}
+	if err := cfg.validateModelVendors(); err != nil {
+		t.Fatalf("同通道部分填充必须放行，got %v", err)
+	}
+}
+
+// TestValidateModelVendors_DifferentChannelsIndependent 不同 PSC 各用各的厂商，互不干扰。
+func TestValidateModelVendors_DifferentChannelsIndependent(t *testing.T) {
+	cfg := &AppConfig{Monitors: []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "zhipu"},
+		{Provider: "a", Service: "cc", Channel: "y", Model: "M1", ModelVendor: "moonshot"},
+		{Provider: "b", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "deepseek"},
+	}}
+	if err := cfg.validateModelVendors(); err != nil {
+		t.Fatalf("不同通道用不同厂商是合法的，got %v", err)
+	}
+}
+
+// TestValidateModelVendors_WritesBackCanonicalForm 校验通过后写回规范形式，
+// 使下游（wire、跨产品 join）只需处理小写规范值。
+func TestValidateModelVendors_WritesBackCanonicalForm(t *testing.T) {
+	cfg := &AppConfig{Monitors: []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "  ZHIPU  "},
+		{Provider: "a", Service: "cc", Channel: "y", Model: "M1", ModelVendor: "   "},
+	}}
+	if err := cfg.validateModelVendors(); err != nil {
+		t.Fatalf("可规范化的值必须放行，got %v", err)
+	}
+	if got := cfg.Monitors[0].ModelVendor; got != "zhipu" {
+		t.Fatalf("未写回规范形式，got %q want %q", got, "zhipu")
+	}
+	if got := cfg.Monitors[1].ModelVendor; got != "" {
+		t.Fatalf("纯空白应规范为空串，got %q", got)
+	}
+}
+
+// TestValidateModelVendors_ConflictSurvivesCaseDifference 大小写不同的同一厂商不算冲突。
+func TestValidateModelVendors_ConflictSurvivesCaseDifference(t *testing.T) {
+	cfg := &AppConfig{Monitors: []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "ZHIPU"},
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M2", ModelVendor: "zhipu"},
+	}}
+	if err := cfg.validateModelVendors(); err != nil {
+		t.Fatalf("同一厂商仅大小写不同不应判冲突，got %v", err)
+	}
+}
+
+// TestLoad_TemplateVendorConflictWithinChannel 端到端：同一通道的两行引用了 vendor 不同的
+// 两个模板 → 加载失败。这一条正是把校验挂在模板解析之后（而非 validate() 里）才拦得住的情形。
+func TestLoad_TemplateVendorConflictWithinChannel(t *testing.T) {
+	cfgPath := newVendorFixture(t, `monitors:
+  - provider: "acme"
+    service: "cc"
+    channel: "o-max"
+    base_url: "https://api.acme.com"
+    template: "cc-vendor-a"
+    api_key: "sk-xxxxxxxx"
+  - provider: "acme"
+    service: "cc"
+    channel: "o-max"
+    parent: "acme/cc/o-max"
+    model: "Kimi"
+    template: "cc-vendor-b"
+`, func(tmplDir string) {
+		writeVendorTemplate(t, tmplDir, "cc-vendor-a", "GLM", "zhipu")
+		writeVendorTemplate(t, tmplDir, "cc-vendor-b", "Kimi", "moonshot")
+	})
+
+	if _, err := NewLoader().Load(cfgPath); err == nil {
+		t.Fatal("同一通道两行经模板拿到不同 vendor，必须加载失败")
+	}
+}
+
+// TestLoad_UnknownTemplateVendorRejected 端到端：模板里写了词表外的 vendor → 加载失败。
+// 挂在 validate()（模板解析之前）时这条拦不住，未知 code 会静默流到 wire 与跨产品契约上。
+func TestLoad_UnknownTemplateVendorRejected(t *testing.T) {
+	cfgPath := newVendorFixture(t, `monitors:
+  - provider: "acme"
+    service: "cc"
+    channel: "o-max"
+    base_url: "https://api.acme.com"
+    template: "cc-bogus"
+    api_key: "sk-xxxxxxxx"
+`, func(tmplDir string) {
+		writeVendorTemplate(t, tmplDir, "cc-bogus", "GLM", "cohere")
+	})
+
+	if _, err := NewLoader().Load(cfgPath); err == nil {
+		t.Fatal("模板声明词表外 vendor 必须加载失败")
+	}
+}
+
+// TestLoad_WritesBackCanonicalVendorEndToEnd 端到端确认规范化写回落到最终运行配置上。
+func TestLoad_WritesBackCanonicalVendorEndToEnd(t *testing.T) {
+	cfgPath := newVendorFixture(t, `monitors:
+  - provider: "acme"
+    service: "cc"
+    channel: "o-max"
+    base_url: "https://api.acme.com"
+    template: "cc-vendor-a"
+    model_vendor: "  ZhiPu "
+    api_key: "sk-xxxxxxxx"
+`, func(tmplDir string) {
+		writeVendorTemplate(t, tmplDir, "cc-vendor-a", "GLM", "zhipu")
+	})
+
+	cfg, err := NewLoader().Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := cfg.Monitors[0].ModelVendor; got != "zhipu" {
+		t.Fatalf("运行配置里的 vendor 未规范化，got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CheckRuntimeModelVendors（fail-closed 闸，Phase 1 写好但不接线）
+// ---------------------------------------------------------------------------
+
+func TestCheckRuntimeModelVendors_EmptyRejected(t *testing.T) {
+	monitors := []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "zhipu"},
+		{Provider: "b", Service: "cx", Channel: "y", Model: "M2"},
+	}
+	err := CheckRuntimeModelVendors(monitors)
+	if err == nil {
+		t.Fatal("存在空 vendor 时运行时闸必须报错")
+	}
+	if !strings.Contains(err.Error(), "b/cx/y") {
+		t.Fatalf("错误信息应含 PSC 定位，实际 %q", err.Error())
+	}
+}
+
+func TestCheckRuntimeModelVendors_AllPresentPasses(t *testing.T) {
+	monitors := []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "zhipu"},
+		{Provider: "b", Service: "cx", Channel: "y", Model: "M2", ModelVendor: "openai"},
+	}
+	if err := CheckRuntimeModelVendors(monitors); err != nil {
+		t.Fatalf("全部非空时运行时闸应放行，got %v", err)
+	}
+}
+
+// TestCheckRuntimeModelVendors_BlankIsEmpty 只写空白等同于缺失，别让空白骗过闸。
+func TestCheckRuntimeModelVendors_BlankIsEmpty(t *testing.T) {
+	monitors := []ServiceConfig{
+		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "   "},
+	}
+	if err := CheckRuntimeModelVendors(monitors); err == nil {
+		t.Fatal("纯空白 vendor 必须被运行时闸判为缺失")
+	}
+}
+
+// TestCheckRuntimeModelVendors_NotWiredYet 固化「Phase 1 不接线」这一决定：
+// 生产 230 行监测行全空，闸一旦接线全站加载失败（v2.69.2 被 CheckRuntimeModelIDs 坑过一次）。
+// 接线时会先看到这条测试变红，逼实施者确认回填已完成。
+func TestCheckRuntimeModelVendors_NotWiredYet(t *testing.T) {
+	root, err := os.ReadFile(filepath.Join("..", "..", "cmd", "server", "main.go"))
+	if err != nil {
+		t.Fatalf("读取 cmd/server/main.go 失败: %v", err)
+	}
+	if strings.Contains(string(root), "CheckRuntimeModelVendors") {
+		t.Fatal("CheckRuntimeModelVendors 已被接线到 cmd/server/main.go——" +
+			"这一步须等所有监测行回填完 vendor 之后再做（Phase 3），并同时删除本测试")
 	}
 }

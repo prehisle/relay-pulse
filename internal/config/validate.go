@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"monitor/internal/logger"
+	"monitor/internal/modelvendor"
 )
 
 // validateContext 承载 Validate() 过程中的中间数据
@@ -91,8 +92,77 @@ func (c *AppConfig) validateResolvedModelConstraints() error {
 	if err := c.validateNoCycles(ctx); err != nil {
 		return err
 	}
+	// vendor 与 model 同属「可能来自 monitor 行、也可能来自 template」的字段，故与四元组唯一性
+	// 一样必须等模板解析完才校验得全——放在 validate() 里则模板声明的 vendor 永远不过校验。
+	if err := c.validateModelVendors(); err != nil {
+		return err
+	}
 
 	c.warnMultipleParentLayers()
+	return nil
+}
+
+// validateModelVendors 宽松校验模型厂商，并把合法值写回规范形式。
+//
+// 两条规则：
+//  1. 非空值必须是受控词表内的 code（见 internal/modelvendor）；空值放行。
+//  2. 同一通道（PSC 三元组）下**均非空**的 vendor 必须一致——「一个通道一个厂商」不变量，
+//     它让 vendor 退化为通道级单值，前端列可排序/筛选，也给 rpdiag 干净的分组键。
+//
+// 只比较非空值是刻意的：回填期必然出现「同通道一行已填、一行还空」的中间态，
+// 若把空值也纳入比较，回填过程本身会把配置判成不一致。对当前全空的生产配置，
+// 本函数无非空值可比 → 恒过，是 provable no-op。
+//
+// 与 CheckRuntimeModelVendors 的分工，同 validateModelIDs / CheckRuntimeModelIDs：
+// 这里是配置语法不变量（一直生效），那里是「已回填」运行时不变量（回填完才接线）。
+func (c *AppConfig) validateModelVendors() error {
+	// key = provider/service/channel，value = 该通道首个非空 vendor（已规范化）。
+	// 键的拼法与 validateMonitorUniqueness 的四元组键保持一致（PSC 各段的合法字符集
+	// 已由 validateMonitorFields 在更早阶段限定为小写，故无需再额外归一化）。
+	firstByChannel := make(map[string]string, len(c.Monitors))
+	for i := range c.Monitors {
+		m := &c.Monitors[i]
+
+		code, err := modelvendor.Normalize(m.ModelVendor)
+		if err != nil {
+			return fmt.Errorf("monitor[%d] %s: %w", i, modelIDLocation(*m), err)
+		}
+		// 写回规范形式，使下游（/api/status wire、跨产品 join）只需处理规范值。
+		m.ModelVendor = code
+		if code == "" {
+			continue
+		}
+
+		key := fmt.Sprintf("%s/%s/%s", m.Provider, m.Service, m.Channel)
+		if first, seen := firstByChannel[key]; seen {
+			if first != code {
+				return fmt.Errorf("monitor[%d] %s: 同一通道 %s 内 model_vendor 不一致（已有 %q，本行 %q）——"+
+					"一个通道只能属于一个厂商，聚合平台请按厂商拆成不同通道（channel_group）",
+					i, modelIDLocation(*m), key, first, code)
+			}
+			continue
+		}
+		firstByChannel[key] = code
+	}
+	return nil
+}
+
+// CheckRuntimeModelVendors 运行时硬校验：所有监测行必须有非空 model_vendor。
+//
+// ⚠️ 目前**故意未接线**。与 validateModelVendors（允许空、回填前兼容）分开的理由，
+// 同 CheckRuntimeModelIDs 的注释：present 是「已回填」的运行时不变量，不是配置语法不变量。
+// 现阶段全部监测行与模板的 vendor 都还是空的，此刻接线会让整份配置加载失败——
+// v2.69.2 修的正是 CheckRuntimeModelIDs 让照官方 QUICKSTART 部署的新手 crash-loop。
+//
+// 接线时机：待 monitors.d/ 与模板全部回填完 vendor 之后，挂到 cmd/server/main.go 的
+// 启动校验与热更新回调两个调用点（与 CheckRuntimeModelIDs 并列），并删除锁死
+// 「未接线」状态的那条测试。
+func CheckRuntimeModelVendors(monitors []ServiceConfig) error {
+	for i, m := range monitors {
+		if strings.TrimSpace(m.ModelVendor) == "" {
+			return fmt.Errorf("monitor[%d] %s: 缺 model_vendor（模型厂商是通道展示与跨产品分组的必要字段）", i, modelIDLocation(m))
+		}
+	}
 	return nil
 }
 
