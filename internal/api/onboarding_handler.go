@@ -9,6 +9,7 @@ import (
 
 	"monitor/internal/config"
 	"monitor/internal/logger"
+	"monitor/internal/modelvendor"
 	"monitor/internal/onboarding"
 	"monitor/internal/probe"
 )
@@ -25,6 +26,11 @@ type OnboardingMetaResponse struct {
 	ChannelGroupRule             ChannelGroupRule     `json:"channel_group_rule"`
 	TestTypes                    []OnboardingTestType `json:"test_types"`
 	ContactInfo                  string               `json:"contact_info"`
+	// ModelVendors: 模型厂商受控词表，供前端展示厂商名与图标。真相源在后端
+	// （internal/modelvendor），前端不自建一份，避免两边漂移。
+	// 注意自助收录表单**不含**该字段——行级 vendor 只对管理员开放，与 request_model 同口径，
+	// 避免用户自填 anthropic/openai 蹭官方印象。
+	ModelVendors []modelvendor.Vendor `json:"model_vendors"`
 }
 
 // ChannelGroupRule 下发给前端的 channel_group 同步校验规则。
@@ -112,8 +118,9 @@ func (h *Handler) GetOnboardingMeta(c *gin.Context) {
 			Default:   groupDefault,
 			MaxLength: groupMaxLength,
 		},
-		TestTypes:   testTypes,
-		ContactInfo: contactInfo,
+		TestTypes:    testTypes,
+		ContactInfo:  contactInfo,
+		ModelVendors: modelvendor.Options(),
 	}
 
 	c.JSON(http.StatusOK, resp)
