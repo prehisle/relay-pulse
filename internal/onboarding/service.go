@@ -56,6 +56,14 @@ type ChannelSourceOption struct {
 // ChannelSourceCatalog 是后端校验与前端 meta 下发共用的唯一「通道来源」词表，按 service_type 划分。
 // 人工新增/调整来源时只改这里，避免 Submit 校验、/meta 下发、前端选项三处漂移。
 // 约束：每个 Value 必须满足 channelSourcePattern（2-5 位小写字母/数字）。
+//
+// cc/cx 的 nat 是第一方厂商（智谱 GLM / 月之暗面 Kimi / MiniMax / DeepSeek / Qwen 等）
+// 用自家模型开放的 Anthropic Messages / OpenAI Responses 兼容端点——协议是那两家的，
+// 模型是厂商自己的，两者由 model_vendor 正交轴分别表达。不复用 api：那两条的 Label
+// 明确写着 Anthropic Console / OpenAI Platform，指的是那两家自己的官方入口。
+// gm 不加：Gemini 的 api（AI Studio）本身就是第一方入口。
+// Category=official 使其自动落入 channelTypeAllowedCategories 的 O（官方直连 / 官方转售），
+// 那张映射表无需改动。
 var ChannelSourceCatalog = map[string][]ChannelSourceOption{
 	"cc": {
 		{Value: "pro", Label: "Claude Pro 订阅", Category: "subscription"},
@@ -63,6 +71,7 @@ var ChannelSourceCatalog = map[string][]ChannelSourceOption{
 		{Value: "team", Label: "Claude Team", Category: "subscription"},
 		{Value: "ent", Label: "Claude Enterprise", Category: "subscription"},
 		{Value: "api", Label: "Anthropic Console API", Category: "official"},
+		{Value: "nat", Label: "厂商官方 API（自有模型）", Category: "official"},
 		{Value: "aws", Label: "AWS Bedrock", Category: "cloud"},
 		{Value: "azr", Label: "Azure AI Foundry", Category: "cloud"},
 		{Value: "gcp", Label: "Google Vertex AI", Category: "cloud"},
@@ -77,6 +86,7 @@ var ChannelSourceCatalog = map[string][]ChannelSourceOption{
 		{Value: "biz", Label: "ChatGPT Business", Category: "subscription"},
 		{Value: "ent", Label: "ChatGPT Enterprise", Category: "subscription"},
 		{Value: "api", Label: "OpenAI Platform API", Category: "official"},
+		{Value: "nat", Label: "厂商官方 API（自有模型）", Category: "official"},
 		{Value: "mix", Label: "混合 / 多上游", Category: "mixed"},
 	},
 	"gm": {
