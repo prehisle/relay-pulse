@@ -7,8 +7,9 @@ import { ClaudeIcon, GeminiIcon, OpenAIIcon } from './ServiceIcon';
  * 故图标独立于 ServiceIcon 一份映射——只是 anthropic/openai/google 三家的厂商标识
  * 与其协议图标本就是同一个标志，直接复用 ServiceIcon 的三个组件，不重复维护第二份 path。
  *
- * 国内五家的单色 path 取自开源图标集 @lobehub/icons-static-svg（MIT），24x24 viewBox +
- * currentColor，与仓库既有图标同款尺寸口径；各商标归属其权利人。
+ * 国内六家的单色 path 取自开源图标集 @lobehub/icons-static-svg（MIT），24x24 viewBox +
+ * currentColor，与仓库既有图标同款尺寸口径；各商标归属其权利人。字节用 bytedance 而非
+ * doubao 的图标：vendor 轴认的是厂商，豆包只是其当前模型品牌。
  *
  * code → 组件的映射键是后端受控词表（internal/modelvendor）的 code，前端**不自建词表**：
  * 未收录 code 一律返回 null，由调用方降级为纯文字，绝不猜图标。
@@ -16,6 +17,24 @@ import { ClaudeIcon, GeminiIcon, OpenAIIcon } from './ServiceIcon';
 
 interface VendorIconProps {
   className?: string;
+}
+
+export function ByteDanceIcon({ className = 'w-5 h-5' }: VendorIconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      fill="currentColor"
+      fillRule="evenodd"
+      aria-hidden="true"
+    >
+      <path d="M14.944 18.587l-1.704-.445V10.01l1.824-.462c1-.254 1.84-.461 1.88-.453.032 0 .056 2.235.056 4.972v4.973l-.176-.008c-.104 0-.952-.207-1.88-.446z" />
+      <path d="M7 16.542c0-2.736.024-4.98.064-4.98.032-.008.872.2 1.88.454l1.816.461-.016 4.05-.024 4.049-1.632.422c-.896.23-1.736.445-1.856.469L7 21.523v-4.98z" />
+      <path d="M19.24 12.477c0-9.03.008-9.515.144-9.475.072.024.784.207 1.576.406.792.207 1.576.405 1.744.445l.296.08-.016 8.56-.024 8.568-1.624.414c-.888.23-1.728.437-1.856.47l-.24.055v-9.523z" />
+      <path d="M1 12.509c0-4.678.024-8.505.064-8.505.032 0 .872.207 1.872.454l1.824.461v7.582c0 4.16-.016 7.574-.032 7.574-.024 0-.872.215-1.88.47L1 21.013v-8.505z" />
+    </svg>
+  );
 }
 
 export function ZhipuIcon({ className = 'w-5 h-5' }: VendorIconProps) {
@@ -101,6 +120,7 @@ const VENDOR_ICON_MAP: Record<string, VendorIconComponent> = {
   anthropic: ClaudeIcon,
   openai: OpenAIIcon,
   google: GeminiIcon,
+  bytedance: ByteDanceIcon,
   zhipu: ZhipuIcon,
   moonshot: MoonshotIcon,
   minimax: MiniMaxIcon,

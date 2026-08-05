@@ -27,7 +27,9 @@
 - 取值链与 `Model`/`RequestModel` 同款（`config 行级 > template`），并与 `RequestModel` 一样参与父子继承。
 - ⚠️ **别给 vendor 加 fail-closed 运行时闸**（曾有 `CheckRuntimeModelVendors`，Phase 3 已删）——它无法像 `model_id` 那样自动派生，加闸会让手写内联监测行的自托管用户升级即 crash-loop（v2.69.2 同类伤害）。覆盖靠「内置模板全部声明 vendor」，守卫是 `TestBundledTemplatesDeclareModelVendor`。
 - 禁止从 `request_model` 前缀反推 vendor；它是声明字段。
-- **native 模板族**（`<service>-native-*`，如 `cc-native-arith`）承接第一方厂商兼容端点，**厂商无关**：不声明 `model`/`request_model`/`model_vendor`，三者必须由监测行填。别给它加 vendor——行级漏填时会经回退链静默继承成错厂商。漏填只由 `validateFinal` 告警提示。
+- **native 模板族**（`<service>-native-*`，如 `cc-native-arith`）承接第一方厂商兼容端点，**厂商无关**：不声明 `model`/`request_model`/`model_vendor`，三者必须由监测行填。别给它加 vendor——行级漏填时会经回退链静默继承成错厂商。漏填只由 `validateFinal` 告警提示。判定见 `isNativeProbeTemplate`（`SplitN(name,"-",3)`，故四段名如 `cc-native-arith-nothink` 同样算 native）。
+- native 族现有 5 个，选型看厂商模型的思考行为（均经真端点实测，别凭猜换）：`cc-native-arith`（`max_tokens:20`，不开思考的模型）／`cc-native-arith-nothink`（`thinking.disabled`+64，**默认开思考且认这个开关**的模型，首选）／`cc-native-arith-512`（仅放大预算，**默认开思考却不认 thinking 开关**的模型，如 kimi）／`cx-native-arith`（`{{BASE_URL}}/v1/responses`）／`cx-native-arith-noreason`（`{{BASE_URL}}/responses` + 无 `reasoning` 字段）。⚠️ 两个 cx 模板的 **base_url 契约相反**：前者要求 base **不含**版本段、后者要求**已含**（如火山方舟 `…/api/coding/v3`）；填错只会在探测时变红，加载期无校验，选模板时先对齐 base_url 形态。
+- 给带思考的模型套 `max_tokens:20` 会让 thinking 吃光预算、`stop_reason=max_tokens` 正文为空 → 内容校验判红。这是接第一方厂商最容易踩的坑。
 - 前端（Phase 2 已落）：厂商列/筛选/图标/四语言已做。列显隐由 `showVendorColumn` 单一开关驱动，基于**未筛选**数据判定；通道级厂商要求**所有** layer 非空且同值，否则显示 `-`。未收录 code 原样显示 code，不猜名字。
 - 细节（校验挂载点为何是 `validateResolvedModelConstraints` 而非 `validate()`、「一个通道一个厂商」不变量）见 `CLAUDE.md`。
 

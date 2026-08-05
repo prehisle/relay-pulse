@@ -1,0 +1,39 @@
+{
+	"_comment": "第一方厂商 Anthropic Messages 兼容端点通用模板·大 token 预算版（给不认 thinking 开关的厂商模型）。与 cc-native-arith 的唯一差异是 max_tokens 20→512，刻意不加 thinking 字段——留给模型自己的默认行为。用途：某些厂商模型默认开深度思考，却既不接受 thinking.disabled（实测火山方舟的 kimi-k2.7-code 直接 400）、又会把小 max_tokens 全用在 thinking 上导致正文为空；只能把预算放大到思考完还有余量输出答案（实测 kimi 2.4s）。能关思考的模型请优先用 cc-native-arith-nothink，它更快更省。刻意不声明 model / request_model / model_vendor —— 这三项必须由监测行按厂商填写：模板是厂商无关的，若在此声明 vendor，行级漏填时会经 config > template 回退链静默继承成错误厂商。放大 max_tokens 不放宽 header 集、不放宽响应校验（题面仍是随机算术、仍按 RP_ANSWER= 精确子串判定），故不构成 mock 回显作弊的入口；与 native 族其余成员一样，本模板绝不回流给中转商通道。",
+	"url": "{{BASE_URL}}/v1/messages",
+	"method": "POST",
+	"headers": {
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"Anthropic-Version": "2023-06-01",
+		"User-Agent": "claude-cli/2.1.76 (external, cli)",
+		"Anthropic-Beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14",
+		"Anthropic-Dangerous-Direct-Browser-Access": "true",
+		"X-App": "cli"
+	},
+	"body": {
+		"model": "{{MODEL}}",
+		"max_tokens": 512,
+		"stream": true,
+		"metadata": {
+			"user_id": "{{USER_ID}}"
+		},
+		"system": [{
+			"text": "You are Claude Code, Anthropic's official CLI for Claude.",
+			"type": "text"
+		}],
+		"messages": [{
+			"role": "user",
+			"content": [{ "text": "{{PROMPT}}", "type": "text" }]
+		}],
+		"tools": []
+	},
+	"response": {
+		"success_contains": "{{EXPECTED_ANSWER}}"
+	},
+	"probe": {
+		"slow_latency": "5s",
+		"timeout": "10s",
+		"retry": 0
+	}
+}

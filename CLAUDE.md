@@ -713,8 +713,21 @@ HTTP 响应
 - **只有一个校验函数，且刻意没有 fail-closed 运行时闸**（与 `model_id` 的双函数分工**不同**，别照搬）：
   - `validateModelVendors`（宽松，**一直生效**）：挂在 `validateResolvedModelConstraints` 里——**不是** `validate()`。因为 vendor 可能来自 template，挂在模板解析之前则模板声明的 vendor 永不过校验、同通道跨模板的厂商冲突也看不见。它顺带把合法值写回规范形式（小写 trim）。
   - ⚠️ **别加 fail-closed 运行时闸**。Phase 1 曾写过 `CheckRuntimeModelVendors`，Phase 3 已连同其测试一起删除。理由：vendor 无法像 `model_id` 那样由 loader 自动派生（`loader.go` 给内联行补 `md_<uuidv5>`；而从 `request_model` 前缀反推厂商是被明令禁止的），接闸会让任何自己手写内联监测行、不套内置模板的自托管用户升级即 crash-loop——正是 v2.69.2 修过的伤害类别。
-  - **我方生产的覆盖改由「内置模板全覆盖」保证**：`templates/` 下 20 个非 native 模板全部声明 vendor（`cc-*`→`anthropic`、`cx-*`→`openai`、`gm-*`→`google`；kiro 逆向线路跑的仍是 Claude 模型故同为 anthropic），而生产 `monitors.d/` 每一行都引用模板。守卫是 `TestBundledTemplatesDeclareModelVendor`（双向锁死，已 bite-test 验非真空）。
-- **native 模板族**（`<service>-native-*`：`cc-native-arith` / `cx-native-arith`）承接第一方厂商的 Anthropic Messages / OpenAI Responses 兼容端点，是**厂商无关**的：刻意不声明 `model`/`request_model`/`model_vendor`，三者必须由监测行按厂商填写。**别给它补 vendor**——行级漏填时会经 `config > template` 回退链静默继承成错误厂商（`isNativeProbeTemplate` 与守卫测试锁死这条）。请求形态与 `cc-haiku-arith`/`cx-gpt54-arith` 逐字一致（含 Claude Code / Codex CLI 私有 header 与身份串）：厂商开放兼容端点正是为承接这两个客户端，且保持严格形态使 native 模板**不构成** mock 回显作弊的宽松入口（spec 决策 D7 那条「宽松模板绝不回流给中转商通道」的硬规则因此无从触发；若某厂商确实不认某个头，另拆该厂商专用模板，别放宽通用模板）。行级漏填 vendor 时由 `validateFinal` 出一条**告警**（不阻断——挂 `validateFinal` 而非 `validateModelVendors` 是时序决定的：后者早于父子继承，在那里判空会误伤「vendor 只写父行、子行继承」）。
+  - **我方生产的覆盖改由「内置模板全覆盖」保证**：`templates/` 下所有非 native 模板全部声明 vendor（`cc-*`→`anthropic`、`cx-*`→`openai`、`gm-*`→`google`；kiro 逆向线路跑的仍是 Claude 模型故同为 anthropic），而生产 `monitors.d/` 每一行都引用模板。**唯一例外是 native 族**（厂商无关、由监测行填 vendor），故套 native 模板的行必须行级写 `model_vendor`。守卫是 `TestBundledTemplatesDeclareModelVendor`（双向锁死，已 bite-test 验非真空）。
+- **native 模板族**（`<service>-native-*`：`cc-native-arith` / `cx-native-arith`）承接第一方厂商的 Anthropic Messages / OpenAI Responses 兼容端点，是**厂商无关**的：刻意不声明 `model`/`request_model`/`model_vendor`，三者必须由监测行按厂商填写。**别给它补 vendor**——行级漏填时会经 `config > template` 回退链静默继承成错误厂商（`isNativeProbeTemplate` 与守卫测试锁死这条）。请求形态与 `cc-haiku-arith`/`cx-gpt54-arith` 逐字一致（含 Claude Code / Codex CLI 私有 header 与身份串）：厂商开放兼容端点正是为承接这两个客户端，且保持严格形态使 native 模板**不构成** mock 回显作弊的宽松入口（spec 决策 D7 那条「宽松模板绝不回流给中转商通道」的硬规则因此无从触发；若某厂商确实不认某个头，另拆该厂商专用模板，别放宽通用模板）。行级漏填 vendor 时由 `validateFinal` 出一条**告警**（不阻断——挂 `validateFinal` 而非 `validateModelVendors` 是时序决定的：后者早于父子继承，在那里判空会误伤「vendor 只写父行、子行继承」）。判定函数是 `SplitN(name,"-",3)`，故**四段名同样算 native**（`cc-native-arith-nothink` → `["cc","native","arith-nothink"]`）。
+
+  **族内现有 5 个，按厂商模型的思考行为选型（全部经真端点实测得出，别凭猜换）**：
+
+  | 模板 | 形态差异 | 适用 |
+  |------|----------|------|
+  | `cc-native-arith` | `max_tokens:20` | 不开思考的模型 |
+  | `cc-native-arith-nothink` | 加 `thinking.disabled`、`max_tokens:64` | 默认开思考**且认这个开关**的模型（**首选**：最快最省） |
+  | `cc-native-arith-512` | 仅 `max_tokens:512`，不碰 thinking | 默认开思考**却不认 thinking 开关**的模型（实测 kimi-k2.7-code 对 `thinking.disabled` 返 400） |
+  | `cx-native-arith` | `{{BASE_URL}}/v1/responses` + `reasoning` 字段 | base_url **不含**版本段的端点 |
+  | `cx-native-arith-noreason` | `{{BASE_URL}}/responses`、删 `reasoning` | base_url **已含**版本段的端点（如火山方舟 `…/api/coding/v3`）；某些模型对 `reasoning` 返 400 |
+
+  ⚠️ **两个 cx 模板的 base_url 契约相反**（一个要求含版本段、一个要求不含），填错只在探测时变红、加载期没有校验——选模板前先对齐 base_url 形态。契约写在各自 `_comment` 里，但 admin 模板下拉只显示文件名不显示注释，属已知运维限制。
+  ⚠️ **接第一方厂商最容易踩的坑**：给默认开思考的模型套 `max_tokens:20`，thinking 会吃光预算 → `stop_reason=max_tokens`、正文一个字都没有 → 内容校验判红。症状是「HTTP 200 却恒红 content_mismatch」。
 - **收录来源**：`ChannelSourceCatalog` 的 `cc`/`cx` 各有一条 `nat`「厂商官方 API（自有模型）」（`Category=official` → 自动落 `O`）。`gm` 不加，Gemini 的 `api`（AI Studio）本身就是第一方入口。
 - **「一个通道一个厂商」不变量**：同一 PSC 三元组下**均非空**的 vendor 必须一致。只比非空值是刻意的——回填期必然出现同通道半填状态。聚合平台请按厂商拆成不同通道（复用 `channel_group`）。
 - **禁止从 `request_model` 前缀反推 vendor**（无论 relay-pulse 还是 rpdiag）：模型 ID 命名不稳、中转商可改写、同模型多别名，必然产生 join 漂移。vendor 是**声明**的，不是猜的。

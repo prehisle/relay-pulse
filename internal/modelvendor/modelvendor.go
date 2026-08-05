@@ -44,6 +44,7 @@ var catalog = []Vendor{
 	{Code: "anthropic", Label: "Anthropic", IconKey: "anthropic"},
 	{Code: "openai", Label: "OpenAI", IconKey: "openai"},
 	{Code: "google", Label: "Google", IconKey: "google"},
+	{Code: "bytedance", Label: "字节跳动", IconKey: "bytedance"},
 	{Code: "zhipu", Label: "智谱", IconKey: "zhipu"},
 	{Code: "moonshot", Label: "月之暗面", IconKey: "moonshot"},
 	{Code: "minimax", Label: "MiniMax", IconKey: "minimax"},

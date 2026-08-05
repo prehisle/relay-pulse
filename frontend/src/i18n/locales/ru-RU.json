@@ -859,6 +859,7 @@
     "anthropic": "Anthropic",
     "openai": "OpenAI",
     "google": "Google",
+    "bytedance": "ByteDance",
     "zhipu": "Zhipu AI",
     "moonshot": "Moonshot AI",
     "minimax": "MiniMax",
