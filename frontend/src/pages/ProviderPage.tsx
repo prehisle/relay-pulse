@@ -601,6 +601,7 @@ export default function ProviderPage() {
                       isFavorite={isFavorite}
                       onToggleFavorite={toggleFavorite}
                       hidePriceColumn={hidePriceColumn}
+                      showVendorColumn={showVendorColumn}
                       onBlockHover={handleBlockHover}
                       onBlockLeave={handleBlockLeave}
                     />

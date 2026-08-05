@@ -59,9 +59,11 @@ type probeTemplateFile struct {
 // 以文件名判定而非模板内新增字段，是沿用本仓库既有的「模板文件名 load-bearing」约定
 // （internal/api/monitor_handler.go 就按 service_type + "-" 前缀过滤 admin 模板列表）。
 // 判定集中在此一处，避免前缀字符串散落各调用点。
+// 要求恰好三段且首尾非空：`cc-native` / `cc-native-` 不符合约定，判它们为 native 会让
+// 一个命名不规范的模板悄悄套上「必须行级填厂商」的语义。
 func isNativeProbeTemplate(templateName string) bool {
 	segments := strings.SplitN(strings.TrimSpace(templateName), "-", 3)
-	return len(segments) >= 2 && segments[1] == "native"
+	return len(segments) == 3 && segments[0] != "" && segments[1] == "native" && segments[2] != ""
 }
 
 // LoadProbeTemplate 从 JSON 文件加载探测模板

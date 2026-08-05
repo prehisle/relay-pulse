@@ -82,7 +82,12 @@ func TestIsNativeProbeTemplate(t *testing.T) {
 			t.Errorf("%q 应判为 native 模板", name)
 		}
 	}
-	for _, name := range []string{"", "cc-haiku-arith", "cx-gpt54-arith", "cc-kiro-native-arith", "native-cc-arith", "cc"} {
+	for _, name := range []string{
+		"", "cc-haiku-arith", "cx-gpt54-arith", "cc-kiro-native-arith", "native-cc-arith", "cc",
+		"cc-native",  // 缺后缀：不符合 <service>-native-<suffix> 约定
+		"cc-native-", // 后缀为空：同上
+		"-native-x",  // 缺 service 段
+	} {
 		if isNativeProbeTemplate(name) {
 			t.Errorf("%q 不应判为 native 模板", name)
 		}

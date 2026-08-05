@@ -39,8 +39,10 @@ interface StatusCardProps {
   onToggleFavorite?: (id: string) => void;  // 切换收藏状态
   hidePriceColumn?: boolean; // runtime 控制：是否隐藏价格列（meta.hide_price_column 派生，默认 false）
   /** 是否展示模型厂商。与表格视图的厂商列同一个开关（调用方基于未筛数据判定），
-   *  三个渲染出口共用一个真相源，避免「桌面没有、卡片却有」的分叉。 */
-  showVendorColumn?: boolean;
+   *  三个渲染出口共用一个真相源，避免「桌面有、卡片没有」的分叉。
+   *  **刻意设为必填**：它曾是可选带 false 默认值，两个 grid 调用点都忘了传，
+   *  卡片视图便永远不显示厂商——把它交给类型系统而不是人的记性。 */
+  showVendorColumn: boolean;
   onBlockHover: (e: React.MouseEvent<HTMLDivElement>, point: HistoryPoint) => void;
   onBlockLeave: () => void;
 }
@@ -54,7 +56,7 @@ function StatusCardComponent({
   isFavorite,
   onToggleFavorite,
   hidePriceColumn = false,
-  showVendorColumn = false,
+  showVendorColumn,
   onBlockHover,
   onBlockLeave
 }: StatusCardProps) {
