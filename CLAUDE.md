@@ -689,7 +689,7 @@ HTTP 响应
 | 身份标识 | `provider`、`service`、`channel`、`provider_slug`、`provider_url` | PSC 三元组 + URL slug |
 | 显示名称 | `provider_name`、`service_name`、`channel_name` | UI 显示名称（可选，未配置时回退到标识字段） |
 | 业务属性 | `category`（commercial/public）、`sponsor`、`sponsor_url`、`sponsor_level`、`price_min`、`price_max`、`listed_since`、`expires_at` | 分类、赞助与倍率 |
-| 多模型 | `model`（模型名称）、`parent`（格式 `provider/service/channel`） | 父子通道继承体系 |
+| 多模型 | `model`（模型名称）、`parent`（格式 `provider/service/channel`）、`model_vendor`（模型厂商受控 code） | 父子通道继承体系 + 厂商正交轴 |
 | 生命周期 | `disabled`/`disabled_reason`、`hidden`/`hidden_reason`、`board`（hot/secondary/cold）、`cold_reason`、`auto_cold_exempt` | 停用/隐藏/板块控制 |
 | 模板配置 | `template`、`base_url`、`url_pattern` | 模板引用 + 基础地址（新格式，推荐） |
 | 探测配置 | `url`、`method`、`headers`、`body`、`success_contains`、`api_key`、`proxy`、`env_var_name` | HTTP 探测参数（传统格式或模板自动填充） |
@@ -705,6 +705,17 @@ HTTP 响应
 - **取舍（无免费午餐）**：`model` 带版本号 → 能并排比多版本但每次升版断历史；`model` 不带版本（version-less，把版本放 `request_model`）→ 历史跨版本连续，但同通道不能并存两版本（撞业务键），且无法回溯历史版本。
 - 因 `{{MODEL}}`=`request_model`回退`model`，只要模板/monitor 显式设了 `request_model`，改 `model` 展示名不影响 body 发出的真实模型——这是“给 monitor 加 `model: X` 覆盖展示名而不打红”的前提。
 - **换模板想保历史**：保持 `model` 串不变、版本只改 `request_model`；若必须改名，需配套 SQL 把旧 model 的历史行 relabel 到新名（`service_states` 因 PK 含 model 要先 dedup）。详见 `/rpmigrate` skill。
+
+**⚠️ `model_vendor`「模型厂商」正交轴（Phase 1 机制层已落，当前全站为空）**：第一方厂商（智谱/月之暗面/MiniMax/DeepSeek/Qwen 等）开放 Anthropic `/v1/messages` 与 OpenAI 兼容端点后，「用 Claude 的协议跑别家的模型」使 `service`（协议族）与 `channel_type`（线路性质）都回答不了「这条通道跑的是谁家的模型」，故抽成独立第三根轴。
+
+- **受控词表单一真相源** = `internal/modelvendor`（stdlib-only 叶子包，`config` 反向 import 它，别在包内 import 仓库其它包）。code 一经发布**不可复用于另一厂商**——它进 `/api/status` wire，并作为跨产品契约被 rpdiag 消费。
+- **取值链与 `Model`/`RequestModel` 完全同款**：`config 行级 > template`（`lifecycle.go` 注入），且**与 `RequestModel` 一样参与父子继承**（`inheritCoreBehavior`）——注意与 `Model` 相反，`Model` 是父子的区分字段故刻意不继承，vendor 是通道内共享字段。
+- **两个校验函数分工**（与 `validateModelIDs` / `CheckRuntimeModelIDs` 一一对应）：
+  - `validateModelVendors`（宽松，**一直生效**）：挂在 `validateResolvedModelConstraints` 里——**不是** `validate()`。因为 vendor 可能来自 template，挂在模板解析之前则模板声明的 vendor 永不过校验、同通道跨模板的厂商冲突也看不见。它顺带把合法值写回规范形式（小写 trim）。
+  - `CheckRuntimeModelVendors`（fail-closed，**已实现已测但故意未接线**）：⚠️ **别顺手接到 `cmd/server/main.go`**。当前 230 行监测行与 20 个模板的 vendor 全是空的，接线即全站配置加载失败——v2.69.2 修的正是 `CheckRuntimeModelIDs` 让照 QUICKSTART 部署的新手 crash-loop。须等回填完成后再接，届时锁死该状态的测试会先变红。
+- **「一个通道一个厂商」不变量**：同一 PSC 三元组下**均非空**的 vendor 必须一致。只比非空值是刻意的——回填期必然出现同通道半填状态。聚合平台请按厂商拆成不同通道（复用 `channel_group`）。
+- **禁止从 `request_model` 前缀反推 vendor**（无论 relay-pulse 还是 rpdiag）：模型 ID 命名不稳、中转商可改写、同模型多别名，必然产生 join 漂移。vendor 是**声明**的，不是猜的。
+- 前端厂商列/筛选/图标/四语言、native 模板、`ChannelSourceCatalog` 来源项均属后续阶段，Phase 1 用户完全无感。
 
 **模板占位符**: URL/headers/body 中的占位符在探测时由 `internal/monitor/probe.go` 的 `InjectVariables` 统一替换。支持：`{{BASE_URL}}`、`{{API_KEY}}`、`{{MODEL}}`（=`request_model`，为空回退 `model`）、`{{REQUEST_MODEL}}`、`{{USER_ID}}`、`{{USER_ID_HASH}}`、`{{USER_ACCOUNT_UUID}}`、`{{RAND_UUID}}`、`{{RAND_UUID2}}`、`{{PROMPT}}`、`{{EXPECTED_ANSWER}}`、`{{ARITH_A}}`、`{{ARITH_B}}`（同一次注入中两个 `{{RAND_UUID}}` 取同一值）。注意：`body` 按模板文件中的**原始字节**发送（仅 `TrimSpace`，不 re-marshal/不 compact），占位符按字符串替换；需与抓包字节一致时 body 要写成压缩单行、且不放占位符。
 

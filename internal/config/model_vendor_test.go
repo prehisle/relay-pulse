@@ -321,8 +321,15 @@ func TestLoad_TemplateVendorConflictWithinChannel(t *testing.T) {
 		writeVendorTemplate(t, tmplDir, "cc-vendor-b", "Kimi", "moonshot")
 	})
 
-	if _, err := NewLoader().Load(cfgPath); err == nil {
+	_, err := NewLoader().Load(cfgPath)
+	if err == nil {
 		t.Fatal("同一通道两行经模板拿到不同 vendor，必须加载失败")
+	}
+	// 只断言「加载失败」不够——四元组重复、父图校验等都会让 Load 失败，
+	// 那样这条测试会在 vendor 校验被摘掉后依然假绿。断言到 vendor 专属错误文案。
+	if !strings.Contains(err.Error(), "model_vendor 不一致") ||
+		!strings.Contains(err.Error(), "zhipu") || !strings.Contains(err.Error(), "moonshot") {
+		t.Fatalf("失败原因必须是 vendor 冲突，实际 %v", err)
 	}
 }
 
@@ -340,8 +347,12 @@ func TestLoad_UnknownTemplateVendorRejected(t *testing.T) {
 		writeVendorTemplate(t, tmplDir, "cc-bogus", "GLM", "cohere")
 	})
 
-	if _, err := NewLoader().Load(cfgPath); err == nil {
+	_, err := NewLoader().Load(cfgPath)
+	if err == nil {
 		t.Fatal("模板声明词表外 vendor 必须加载失败")
+	}
+	if !strings.Contains(err.Error(), "model_vendor 未知") || !strings.Contains(err.Error(), "cohere") {
+		t.Fatalf("失败原因必须是 vendor 不在词表内，实际 %v", err)
 	}
 }
 

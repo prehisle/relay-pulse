@@ -21,6 +21,14 @@
 - 禁止提交真实 API Key、数据库密码等敏感信息；仅更新 `config.yaml.example`，实际值通过环境变量或本地未入库配置文件注入。
 - 修改与存储相关逻辑时，需同时在 SQLite（默认）和 PostgreSQL 场景下验证。
 
+## 在途机制：`model_vendor`「模型厂商」正交轴
+
+- 受控词表真相源是 `internal/modelvendor`（stdlib-only 叶子包，不得 import 仓库内其它包）。code 进 wire 且被 rpdiag 消费，**一经发布不可复用于另一厂商**。
+- 取值链与 `Model`/`RequestModel` 同款（`config 行级 > template`），并与 `RequestModel` 一样参与父子继承。
+- ⚠️ **`CheckRuntimeModelVendors` 已实现但故意未接线，别顺手接到 `cmd/server/main.go`**——当前所有监测行与模板的 vendor 都是空的，接线即全站配置加载失败。须等回填完成后再接。
+- 禁止从 `request_model` 前缀反推 vendor；它是声明字段。
+- 细节（校验挂载点为何是 `validateResolvedModelConstraints` 而非 `validate()`、「一个通道一个厂商」不变量）见 `CLAUDE.md`。
+
 ## 技术指南
 
 构建命令、代码风格、测试规范、提交与 PR 约定等详细技术指南，请参考 `CLAUDE.md` 和 `CONTRIBUTING.md`，此处不再重复。
