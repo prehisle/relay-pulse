@@ -1,6 +1,7 @@
 {
 	"model": "GPT-5.4",
 	"request_model": "gpt-5.4",
+	"model_vendor": "openai",
 	"url": "{{BASE_URL}}/v1/responses",
 	"method": "POST",
 	"headers": {

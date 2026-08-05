@@ -49,6 +49,21 @@ type probeTemplateFile struct {
 	} `json:"probe"`
 }
 
+// isNativeProbeTemplate 判定模板是否属于「第一方厂商通用模板」族（命名约定 <service>-native-*，
+// 如 cc-native-arith / cx-native-arith）。
+//
+// 这族模板服务于厂商自家模型的 Anthropic/OpenAI 兼容端点，是**厂商无关**的：它们刻意不声明
+// model / request_model / model_vendor，三者都必须由监测行按厂商填写。若模板声明了 vendor，
+// 行级漏填时会经 resolveTemplateForMonitor 的 config > template 回退链静默继承成错误厂商。
+//
+// 以文件名判定而非模板内新增字段，是沿用本仓库既有的「模板文件名 load-bearing」约定
+// （internal/api/monitor_handler.go 就按 service_type + "-" 前缀过滤 admin 模板列表）。
+// 判定集中在此一处，避免前缀字符串散落各调用点。
+func isNativeProbeTemplate(templateName string) bool {
+	segments := strings.SplitN(strings.TrimSpace(templateName), "-", 3)
+	return len(segments) >= 2 && segments[1] == "native"
+}
+
 // LoadProbeTemplate 从 JSON 文件加载探测模板
 func LoadProbeTemplate(filePath string) (*ProbeTemplate, error) {
 	content, err := os.ReadFile(filePath)

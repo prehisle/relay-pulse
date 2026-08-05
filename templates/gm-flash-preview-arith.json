@@ -1,6 +1,7 @@
 {
 	"model": "Flash Preview",
 	"request_model": "gemini-3-flash-preview",
+	"model_vendor": "google",
 	"url": "{{BASE_URL}}/v1beta/models/{{MODEL}}:generateContent",
 	"method": "POST",
 	"headers": {

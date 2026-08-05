@@ -1,6 +1,7 @@
 {
 	"model": "Opus",
 	"request_model": "claude-opus-4-7",
+	"model_vendor": "anthropic",
 	"url": "{{BASE_URL}}/v1/messages",
 	"method": "POST",
 	"headers": {

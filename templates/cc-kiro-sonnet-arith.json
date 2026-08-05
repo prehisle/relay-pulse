@@ -1,6 +1,7 @@
 {
 	"model": "Sonnet",
 	"request_model": "claude-sonnet-4-6",
+	"model_vendor": "anthropic",
 	"url": "{{BASE_URL}}/v1/messages",
 	"method": "POST",
 	"headers": {
