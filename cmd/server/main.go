@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,6 +27,13 @@ import (
 	"monitor/internal/scheduler"
 	"monitor/internal/storage"
 )
+
+// errConfigReloadFailed 是热更新加载失败时暴露到 /ready 的**固定脱敏文案**。
+// 原始 loader 错误可能含 yaml 路径与解析细节，而 /ready 无鉴权，故只把它写进服务端日志；
+// 端点侧只回答"热更新自何时起、失败了几次"，定位细节去日志里取。
+// （运行时 model_id 闸的错误只含 provider/service/channel/model + 固定文案，已知可公开，
+// 仍按原样透传。）
+var errConfigReloadFailed = errors.New("配置热更新失败，保持旧配置；详情见服务端日志")
 
 // buildModelIDMappings 从配置构建 model_id 回填映射（含已禁用监测项——其历史也需重键；跳过未填 model_id 的行）
 func buildModelIDMappings(monitors []config.ServiceConfig) []storage.ModelIDMigrationMapping {
@@ -578,6 +586,12 @@ func main() {
 	if err != nil {
 		logger.Warn("main", "配置监听器创建失败，热更新功能不可用", "error", err)
 	} else {
+		// 配置加载/校验失败（坏 yaml、model_id 重复等）会保留旧配置继续服务，此前只有日志。
+		// 与下方运行时闸共用同一 recorder，使 /ready 的 config_reload 覆盖两条静默失败路径。
+		watcher.SetOnReloadError(func(error) {
+			reloadRecorder.RecordSkip(errConfigReloadFailed)
+		})
+
 		if err := watcher.Start(ctx); err != nil {
 			logger.Warn("main", "配置监听器启动失败，热更新功能不可用", "error", err)
 		} else {

@@ -15,13 +15,16 @@ import (
 
 // Watcher 配置文件监听器
 type Watcher struct {
-	loader       *Loader
-	filename     string
-	watcher      *fsnotify.Watcher
-	onReload     func(*AppConfig)
-	debounceTime time.Duration
-	watchMu      sync.Mutex
-	watchedDirs  map[string]struct{}
+	loader   *Loader
+	filename string
+	watcher  *fsnotify.Watcher
+	onReload func(*AppConfig)
+	// onReloadError 在配置加载/校验失败、保留旧配置时被调用（可为 nil）。
+	// 只在 Start 之前由 SetOnReloadError 写入，之后仅由 reload goroutine 读，故无需加锁。
+	onReloadError func(error)
+	debounceTime  time.Duration
+	watchMu       sync.Mutex
+	watchedDirs   map[string]struct{}
 }
 
 // NewWatcher 创建配置监听器
@@ -38,6 +41,14 @@ func NewWatcher(loader *Loader, filename string, onReload func(*AppConfig)) (*Wa
 		onReload:     onReload,
 		debounceTime: 200 * time.Millisecond, // 防抖延迟
 	}, nil
+}
+
+// SetOnReloadError 注册配置热更新失败回调（保留旧配置那条路径）。
+// 必须在 Start 之前调用；传 nil 表示不接收失败通知。
+// 与 onReload 分开而不是塞进构造函数：失败通知是可选的运维观测面，
+// 私有部署不接也应照常工作。
+func (w *Watcher) SetOnReloadError(callback func(error)) {
+	w.onReloadError = callback
 }
 
 // Start 启动监听（监听父目录以兼容不同编辑器）
@@ -154,6 +165,11 @@ func (w *Watcher) reload() {
 	newConfig, err := w.loader.loadOrRollback(w.filename)
 	if err != nil {
 		logger.Error("config", "重载失败", "error", err)
+		// 这条路径此前只有日志：磁盘配置坏掉后运行态靠旧配置续命、admin 写入返回 200，
+		// 却没有任何健康端点体现，只能靠人翻日志发现。通知调用方以便信息化暴露。
+		if w.onReloadError != nil {
+			w.onReloadError(err)
+		}
 		return
 	}
 

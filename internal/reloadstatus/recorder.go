@@ -1,6 +1,8 @@
-// Package reloadstatus 记录配置热更新被 fail-closed 闸静默跳过的运行时状态，
-// 供只读健康端点（/ready）信息化暴露。它是一个无反向依赖的叶子包：生产者
-// （main 的热更新回调）与消费者（api 层）都依赖它，彼此不直接耦合。
+// Package reloadstatus 记录配置热更新未被应用的运行时状态，供只读健康端点（/ready）
+// 信息化暴露。覆盖两条静默失败路径：配置加载/校验失败后保留旧配置（config.Watcher），
+// 以及加载成功但被 fail-closed 运行时闸拒绝（main 的热更新回调）。二者都表现为
+// "admin 保存返回 200、运行态却没变"。它是一个无反向依赖的叶子包：生产者与消费者
+// （api 层）都依赖它，彼此不直接耦合。
 package reloadstatus
 
 import (
@@ -18,8 +20,8 @@ type Status struct {
 }
 
 // Recorder 线程安全地记录热更新跳过状态。
-// 写入来自已被 runtimeMu 串行化的热更新回调（低频），读取来自并发的 /ready
-// HTTP 处理器（高频），故用 RWMutex 读写分离。
+// 写入来自 watcher 的 reload goroutine 与已被 runtimeMu 串行化的热更新回调（均低频），
+// 读取来自并发的 /ready HTTP 处理器（高频），故用 RWMutex 读写分离。
 type Recorder struct {
 	mu     sync.RWMutex
 	status Status
