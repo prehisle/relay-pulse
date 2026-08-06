@@ -145,6 +145,14 @@ type AppConfig struct {
 	// 不需要重建镜像或重启容器。
 	HidePriceColumn bool `yaml:"hide_price_column" json:"hide_price_column"`
 
+	// 是否在公开列表中隐藏「分类」筛选器（公益站/商业站）。默认 false（显示）。
+	// 运行时配置：改 yaml 即触发热更新，前端通过 /api/status meta 拿到新值，
+	// 不需要重建镜像或重启容器。
+	// 注意这里隐藏的只是筛选入口，category 字段本身仍照常下发。
+	// 开关打开时，前端把 URL 里残留的 ?category= 视为未选中（不再过滤数据），
+	// 但**不删除该参数**——关掉开关后用户原来的选择自动恢复。
+	HideCategoryFilter bool `yaml:"hide_category_filter" json:"hide_category_filter"`
+
 	// 热板/冷板功能配置（默认禁用，保持向后兼容）
 	// 启用后可通过 monitor.board 字段控制监测项归属
 	Boards BoardsConfig `yaml:"boards" json:"boards"`

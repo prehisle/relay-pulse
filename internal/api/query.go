@@ -37,6 +37,7 @@ func (h *Handler) queryAndSerialize(ctx context.Context, period, align string, t
 	annotationRules := h.config.AnnotationRules
 	globalInterval := h.config.IntervalDuration
 	hidePriceColumn := h.config.HidePriceColumn
+	hideCategoryFilter := h.config.HideCategoryFilter
 	h.cfgMu.RUnlock()
 
 	// 应用自动移板 override（运行时覆盖 board/sponsor_level 字段，不修改配置；
@@ -127,13 +128,14 @@ func (h *Handler) queryAndSerialize(ctx context.Context, period, align string, t
 
 	// 序列化为 JSON
 	meta := gin.H{
-		"period":             period,
-		"timeline_mode":      timelineMode,
-		"count":              len(response),
-		"slow_latency_ms":    slowLatencyMs,
-		"enable_annotations": enableAnnotations,
-		"hide_price_column":  hidePriceColumn,
-		"rpdiag_enabled":     h.rpdiagEnabled(), // 质量列/diag 入口总开关；私有部署未接 rpdiag 时为 false
+		"period":               period,
+		"timeline_mode":        timelineMode,
+		"count":                len(response),
+		"slow_latency_ms":      slowLatencyMs,
+		"enable_annotations":   enableAnnotations,
+		"hide_price_column":    hidePriceColumn,
+		"hide_category_filter": hideCategoryFilter,
+		"rpdiag_enabled":       h.rpdiagEnabled(), // 质量列/diag 入口总开关；私有部署未接 rpdiag 时为 false
 		"sponsor_pin": gin.H{
 			"enabled":    sponsorPin.IsEnabled(),
 			"max_pinned": sponsorPin.MaxPinned,

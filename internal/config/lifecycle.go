@@ -277,7 +277,9 @@ func (c *AppConfig) clone() *AppConfig {
 		PublicBaseURL:           c.PublicBaseURL,
 		DisabledProviders:       make([]disabledProviderConfig, len(c.DisabledProviders)),
 		HiddenProviders:         make([]hiddenProviderConfig, len(c.HiddenProviders)),
+		AllowPrivateNetworks:    c.AllowPrivateNetworks,
 		HidePriceColumn:         c.HidePriceColumn,
+		HideCategoryFilter:      c.HideCategoryFilter,
 		Boards:                  c.Boards, // Boards 是值类型（含 AutoMove），直接复制
 		ExposeChannelDetails:    exposeChannelDetailsPtr,
 		ChannelDetailsProviders: make([]channelDetailsProviderConfig, len(c.ChannelDetailsProviders)),

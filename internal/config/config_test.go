@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -841,5 +842,37 @@ func TestKeyTypeRemoveOnly(t *testing.T) {
 
 	if a := findAnnotationByID(cfg.Monitors[0].Annotations, "key_type"); a != nil {
 		t.Errorf("key_type annotation should have been removed by rule, but found: %+v", *a)
+	}
+}
+
+// TestClone_PreservesAllTopLevelBoolFlags 守卫 clone() 的显式字段复制不漏抄开关位。
+//
+// clone() 是一张手写的字段清单，加一个 bool 开关而忘了往清单里补，编译器一声不吭、
+// 克隆出来的配置静默丢开关——这类漏抄发生过（AllowPrivateNetworks 就长期没被复制，
+// 补 HideCategoryFilter 时才顺带发现）。所以这里守的是**整类**问题而不是某个字段：
+// 用反射把所有顶层 bool 置 true，clone 后逐个核对，新增开关自动纳入。
+//
+// 只覆盖顶层 bool：嵌套结构体（Boards/Storage 等）是值类型整体复制，不属于这个 bug 类别。
+func TestClone_PreservesAllTopLevelBoolFlags(t *testing.T) {
+	cfg := &AppConfig{}
+	v := reflect.ValueOf(cfg).Elem()
+	typ := v.Type()
+
+	var flags []string
+	for i := 0; i < typ.NumField(); i++ {
+		if typ.Field(i).Type.Kind() == reflect.Bool {
+			v.Field(i).SetBool(true)
+			flags = append(flags, typ.Field(i).Name)
+		}
+	}
+	if len(flags) == 0 {
+		t.Fatal("AppConfig 顶层一个 bool 字段都没扫到，反射逻辑失效（测试会假绿）")
+	}
+
+	clone := reflect.ValueOf(cfg.clone()).Elem()
+	for _, name := range flags {
+		if !clone.FieldByName(name).Bool() {
+			t.Errorf("clone() 丢了 bool 开关 %s —— 在 lifecycle.go 的字段清单里补上它", name)
+		}
 	}
 }

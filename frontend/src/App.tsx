@@ -186,7 +186,7 @@ function App() {
 
   const { scores: rpdiagScores, loaded: rpdiagScoresLoaded } = useRpdiagScores();
 
-  const { loading, error, data, rawData, stats, providers, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, boardCounts, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, rpdiagEnabled, refetch } = useMonitorData({
+  const { loading, error, data, rawData, stats, providers, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, boardCounts, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, hideCategoryFilter, effectiveFilterCategory, rpdiagEnabled, refetch } = useMonitorData({
     timeRange,
     timeAlign,
     timeFilter,
@@ -260,7 +260,7 @@ function App() {
   // 统计激活的筛选器数量（用于移动端 Header 显示）
   const activeFiltersCount = [
     showFavoritesOnly,
-    filterCategory.length > 0,
+    effectiveFilterCategory.length > 0,
     providers.length > 0 && filterProvider.length > 0,
     filterService.length > 0,
     filterChannel.length > 0,
@@ -286,7 +286,7 @@ function App() {
     const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
-    const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
     const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
 
     return baseData.filter(item => {
@@ -298,7 +298,7 @@ function App() {
       if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
       return true;
     });
-  }, [baseData, filterProvider, filterService, filterChannel, filterCategory, filterVendor]);
+  }, [baseData, filterProvider, filterService, filterChannel, effectiveFilterCategory, filterVendor]);
 
   // 收藏模式下重新计算状态统计（基于 filteredData 而非全板块数据）
   const effectiveStats = useMemo(() => {
@@ -313,7 +313,7 @@ function App() {
     // 预构建 Set 优化查询性能
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
-    const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
     const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
     const providerSet = new Set(filterProvider);
 
@@ -353,14 +353,14 @@ function App() {
         value,
         label: count === 0 && providerSet.has(value) ? `${label} (0)` : label,
       }));
-  }, [optionsBaseData, filterService, filterChannel, filterCategory, filterVendor, filterProvider]);
+  }, [optionsBaseData, filterService, filterChannel, effectiveFilterCategory, filterVendor, filterProvider]);
 
   // 动态 Service 选项：联动筛选 + 保留已选项
   const effectiveServices = useMemo(() => {
     // 预构建 Set 优化查询性能
     const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
-    const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
     const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
     const serviceSet = new Set(filterService);
 
@@ -393,14 +393,14 @@ function App() {
       .map(([value, count]) =>
         count === 0 && serviceSet.has(value) ? `${value} (0)` : value
       );
-  }, [optionsBaseData, filterProvider, filterChannel, filterCategory, filterVendor, filterService]);
+  }, [optionsBaseData, filterProvider, filterChannel, effectiveFilterCategory, filterVendor, filterService]);
 
   // 动态 Channel 选项：联动筛选 + 保留已选项
   const effectiveChannels = useMemo<ChannelOption[]>(() => {
     // 预构建 Set 优化查询性能
     const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
-    const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
     const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
     const channelSet = new Set(filterChannel);
 
@@ -448,7 +448,7 @@ function App() {
         value,
         label: count === 0 && channelSet.has(value) ? `${label} (0)` : label,
       }));
-  }, [optionsBaseData, filterProvider, filterService, filterCategory, filterVendor, filterChannel]);
+  }, [optionsBaseData, filterProvider, filterService, effectiveFilterCategory, filterVendor, filterChannel]);
 
   // 动态 Category 选项：联动筛选 + 保留已选项
   const effectiveCategories = useMemo(() => {
@@ -457,7 +457,7 @@ function App() {
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
     const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
-    const categorySet = new Set(filterCategory);
+    const categorySet = new Set(effectiveFilterCategory);
 
     // 1. 应用其他筛选条件（不包括 category 自身）
     const filtered = optionsBaseData.filter(item => {
@@ -475,7 +475,7 @@ function App() {
     });
 
     // 3. 确保已选的 category 始终可见
-    filterCategory.forEach(category => {
+    effectiveFilterCategory.forEach(category => {
       if (!availableMap.has(category)) {
         availableMap.set(category, 0);
       }
@@ -487,7 +487,7 @@ function App() {
       .map(([value, count]) =>
         count === 0 && categorySet.has(value) ? `${value} (0)` : value
       );
-  }, [optionsBaseData, filterProvider, filterService, filterChannel, filterVendor, filterCategory]);
+  }, [optionsBaseData, filterProvider, filterService, filterChannel, filterVendor, effectiveFilterCategory]);
 
   // 动态模型厂商选项：联动筛选 + 保留已选项。
   // 与 provider 选项同款是 {value,label} 结构（value=受控 code，label=本地化厂商名），
@@ -496,7 +496,7 @@ function App() {
     const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
-    const categorySet = filterCategory.length > 0 ? new Set(filterCategory) : null;
+    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
     const vendorSet = new Set(filterVendor);
 
     // 1. 应用其他筛选条件（不包括 vendor 自身）
@@ -528,7 +528,7 @@ function App() {
         label: count === 0 && vendorSet.has(value) ? `${vendorLabel(t, value)} (0)` : vendorLabel(t, value),
       }))
       .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
-  }, [optionsBaseData, filterProvider, filterService, filterChannel, filterCategory, filterVendor, t]);
+  }, [optionsBaseData, filterProvider, filterService, filterChannel, effectiveFilterCategory, filterVendor, t]);
 
   // 厂商列显隐：基于**未筛选**的全量数据判定，避免"筛一下列就冒出来/消失"的布局抖动。
   // Phase 3 回填厂商前恒 false —— 整列与筛选器对用户完全不存在。
@@ -581,10 +581,10 @@ function App() {
 
   // 追踪分类筛选变化
   useEffect(() => {
-    if (filterCategory.length > 0) {
-      trackEvent('filter_category', { category: filterCategory.join(',') });
+    if (effectiveFilterCategory.length > 0) {
+      trackEvent('filter_category', { category: effectiveFilterCategory.join(',') });
     }
-  }, [filterCategory]);
+  }, [effectiveFilterCategory]);
 
   // 追踪视图模式切换（使用实际显示的视图模式）
   useEffect(() => {
@@ -709,7 +709,7 @@ function App() {
               filterProvider={filterProvider}
               filterService={filterService}
               filterChannel={filterChannel}
-              filterCategory={filterCategory}
+              filterCategory={effectiveFilterCategory}
               filterVendor={filterVendor}
               showFavoritesOnly={showFavoritesOnly}
               favorites={favorites}
@@ -727,6 +727,7 @@ function App() {
               effectiveServices={effectiveServices}
               effectiveCategories={effectiveCategories}
               effectiveVendors={effectiveVendors}
+              showCategoryFilter={!hideCategoryFilter}
               isMobile={isMobile}
               showFilterDrawer={showFilterDrawer}
               onFilterDrawerClose={() => setShowFilterDrawer(false)}
