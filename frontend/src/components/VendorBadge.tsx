@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { getVendorIconComponent } from './VendorIcon';
+import { getVendorIconComponent, getVendorIconColorClass } from './VendorIcon';
 
 /**
  * 厂商 code → 本地化展示名。
@@ -32,6 +32,7 @@ export function VendorBadge({ vendor, compact = false, iconOnly = false, classNa
   if (!vendor) return null;
 
   const Icon = getVendorIconComponent(vendor);
+  const iconColorClass = getVendorIconColorClass(vendor);
   const label = vendorLabel(t, vendor);
   const showText = !iconOnly || !Icon;
 
@@ -41,7 +42,9 @@ export function VendorBadge({ vendor, compact = false, iconOnly = false, classNa
       title={t('table.modelVendorTooltip', { vendor: label, code: vendor })}
       aria-label={iconOnly ? label : undefined}
     >
-      {Icon && <Icon className={`${compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} flex-shrink-0`} />}
+      {/* 品牌色只套在 svg 上、不套在整个徽章上——外层着色会连带把厂商名染成品牌色，
+          那是卡片视图既有的文字样式，不该被这次改动波及。 */}
+      {Icon && <Icon className={`${compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} flex-shrink-0 ${iconColorClass}`} />}
       {showText && <span className="truncate">{label}</span>}
     </span>
   );

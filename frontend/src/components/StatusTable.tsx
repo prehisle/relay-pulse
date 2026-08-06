@@ -1353,10 +1353,12 @@ function StatusTableComponent({
                   );
                 })()}
               </td>
+              {/* 厂商列只出图标不出厂商名：表头已给出列语义，商标本身就是最省宽度的厂商信号，
+                  全名留在 title/aria-label 里。未收录 code 无图标时 VendorBadge 自动退回文字。 */}
               {showVendorColumn && (
-                <td className="px-1.5 py-1 text-secondary text-xs max-w-[9rem]">
+                <td className="px-1.5 py-1 text-secondary text-xs">
                   {item.modelVendor
-                    ? <VendorBadge vendor={item.modelVendor} />
+                    ? <VendorBadge vendor={item.modelVendor} iconOnly />
                     : <span className="text-muted">-</span>}
                 </td>
               )}

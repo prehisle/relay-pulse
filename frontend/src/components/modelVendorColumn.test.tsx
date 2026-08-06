@@ -104,7 +104,7 @@ describe('模型厂商列', () => {
     expect(vendorIdx).toBe(modelIdx + 1);
   });
 
-  it('有厂商的行渲染本地化厂商名 + 图标；无厂商的行渲染 "-"', () => {
+  it('有厂商的行只渲染图标（全名走 aria-label）；无厂商的行渲染 "-"', () => {
     const container = renderTable(
       [monitor({ id: 'a', modelVendor: 'zhipu' }), monitor({ id: 'b' })],
       true,
@@ -115,11 +115,32 @@ describe('模型厂商列', () => {
     const vendorIdx = headers.findIndex((h) => h.includes('厂商'));
 
     const withVendor = rows[0].querySelectorAll('td')[vendorIdx];
-    expect(withVendor.textContent).toContain('智谱');
     expect(withVendor.querySelector('svg')).not.toBeNull();
+    // 桌面表也走 iconOnly：宽度是这张表最稀缺的资源，厂商名不占版面
+    expect(withVendor.textContent?.trim()).toBe('');
+    // 但语义不能丢——屏幕阅读器与 hover 仍拿得到全名
+    expect(withVendor.querySelector('[aria-label]')?.getAttribute('aria-label')).toBe('智谱');
 
     const withoutVendor = rows[1].querySelectorAll('td')[vendorIdx];
     expect(withoutVendor.textContent?.trim()).toBe('-');
+  });
+
+  it('图标着色：品牌色类只套在 svg 上，不套在徽章外层（否则会连带染厂商名）', () => {
+    const container = renderTable([monitor({ modelVendor: 'zhipu' })], true);
+    const badge = container.querySelector('tbody [aria-label="智谱"]');
+    expect(badge).not.toBeNull();
+    expect(badge!.className).not.toContain('text-vendor-');
+
+    const svg = badge!.querySelector('svg');
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute('class')).toContain('text-vendor-zhipu');
+  });
+
+  it('自带 fill 的商标（anthropic）不被品牌色类覆盖', () => {
+    const container = renderTable([monitor({ modelVendor: 'anthropic' })], true);
+    const svg = container.querySelector('tbody svg');
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute('class')).not.toContain('text-vendor-');
   });
 
   it('词表外的 code 原样显示 code，不猜名字也不崩', () => {

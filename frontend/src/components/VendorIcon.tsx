@@ -133,3 +133,34 @@ export function getVendorIconComponent(vendorCode?: string): VendorIconComponent
   if (!vendorCode) return null;
   return VENDOR_ICON_MAP[vendorCode.trim().toLowerCase()] ?? null;
 }
+
+/**
+ * 厂商图标的着色类（图标 path 是 currentColor，套在 svg 上即生效）。
+ *
+ * 走 class + CSS 变量而非内联 style：与仓库"语义化类、不硬编码颜色"的主题约定一致，
+ * 且暗色主题的品牌色微调能留在 CSS 层（见 themes/index.css），组件不必知道当前是哪套主题。
+ *
+ * 三类处理，别合并：
+ *   ① 有品牌色的五家 → `.text-vendor-*`（暗色下字节另有提亮值）；
+ *   ② openai / moonshot 的品牌标识**本就是单色黑白**，没有"品牌色"可用（其 COLOR_PRIMARY 是纯黑，
+ *      在暗色主题上对比度 1.0 等于不可见），故跟随主题前景色——这是商标本身的用法，不是降级；
+ *   ③ anthropic / google 不在表内：ClaudeIcon 自带 #D97757、GeminiIcon 自带四色渐变，
+ *      它们不吃 currentColor，返回空串让调用方别去覆盖。
+ *
+ * 未收录的 code 同样返回空串（继承上下文文字色），与"不猜图标"同一条原则。
+ */
+const VENDOR_ICON_COLOR_CLASS: Record<string, string> = {
+  openai: 'text-primary',
+  moonshot: 'text-primary',
+  bytedance: 'text-vendor-bytedance',
+  zhipu: 'text-vendor-zhipu',
+  minimax: 'text-vendor-minimax',
+  deepseek: 'text-vendor-deepseek',
+  qwen: 'text-vendor-qwen',
+};
+
+/** 按厂商 code 取图标着色类；无需着色（自带 fill 或未收录）时返回空串。 */
+export function getVendorIconColorClass(vendorCode?: string): string {
+  if (!vendorCode) return '';
+  return VENDOR_ICON_COLOR_CLASS[vendorCode.trim().toLowerCase()] ?? '';
+}

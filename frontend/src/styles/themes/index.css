@@ -13,6 +13,34 @@
 @import './light-cool.css';
 @import './light-warm.css';
 
+/**
+ * 模型厂商品牌色（厂商列图标着色）
+ *
+ * 这些不是主题令牌而是**品牌常量**，四套主题共用同一份定义，故写在入口而非各 theme 文件里。
+ * 取值来自图标出处 @lobehub/icons-static-svg 的 COLOR_PRIMARY，与 path 同源，避免自造一套色。
+ *
+ * 单色商标（openai / moonshot 的 COLOR_PRIMARY 分别是纯黑与 #16191E）不在此列：
+ * 它们在暗色主题上对比度只有 1.0，本就该跟随主题前景色，见 VendorIcon.getVendorIconColor。
+ * anthropic / google 的图标自带 fill（橙色 / 四色渐变），不经这套变量。
+ */
+:root {
+  --vendor-bytedance: #325ab4;
+  --vendor-zhipu: #3859ff;
+  --vendor-minimax: #f23f5d;
+  --vendor-deepseek: #4d6bfe;
+  --vendor-qwen: #615ced;
+}
+
+/**
+ * 暗色主题的品牌色微调：字节的 #325AB4 在 bg-surface(L=10%) 上对比度仅 2.77，
+ * 低于图形元素 3:1 的可读下限（同色系提亮到 #5B87E8 后为 5.18）。
+ * 其余五家原色在四套主题下均 ≥3.2，不做覆盖——能不改就不改，色准优先。
+ */
+:root[data-theme='default-dark'],
+:root[data-theme='night-dark'] {
+  --vendor-bytedance: #5b87e8;
+}
+
 /* 语义化工具类 */
 @layer utilities {
   /* 背景色 */
@@ -30,6 +58,13 @@
   .bg-elevated\/60 { background-color: hsl(var(--bg-elevated) / 0.6); }
   .bg-elevated\/80 { background-color: hsl(var(--bg-elevated) / 0.8); }
   .bg-muted\/50 { background-color: hsl(var(--bg-muted) / 0.5); }
+
+  /* 模型厂商品牌色（只用于厂商图标；变量定义与暗色微调见本文件顶部） */
+  .text-vendor-bytedance { color: var(--vendor-bytedance); }
+  .text-vendor-zhipu { color: var(--vendor-zhipu); }
+  .text-vendor-minimax { color: var(--vendor-minimax); }
+  .text-vendor-deepseek { color: var(--vendor-deepseek); }
+  .text-vendor-qwen { color: var(--vendor-qwen); }
 
   /* 文字色 */
   .text-primary { color: hsl(var(--text-primary)); }

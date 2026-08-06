@@ -137,9 +137,10 @@ function StatusCardComponent({
               >
                 {item.serviceType.toUpperCase()}
               </span>
-              {/* 厂商徽章紧跟服务徽章：一眼读成「用这套协议接入、跑这家的模型」 */}
+              {/* 厂商徽章紧跟服务徽章：一眼读成「用这套协议接入、跑这家的模型」。
+                  与表格、移动端行一致只出彩色商标，全名走 title/aria-label。 */}
               {showVendorColumn && (
-                <VendorBadge vendor={item.modelVendor} compact className="text-[10px] text-secondary" />
+                <VendorBadge vendor={item.modelVendor} compact iconOnly className="text-[10px] text-secondary" />
               )}
             </div>
             <div className="flex items-center gap-3 mt-1 text-xs font-mono flex-wrap">
