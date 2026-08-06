@@ -171,16 +171,17 @@ make ci
 
 ### 后端架构
 
-Go 后端遵循**分层架构**，核心包 16 个 + 独立通知子模块：
+Go 后端遵循**分层架构**，`internal/` 下 20 个包 + 独立通知子模块（下方树只展开主要包，叶子工具包列在末尾）：
 
 ```
 cmd/
 ├── server/main.go         → 应用入口，依赖注入
-├── verify/main.go         → 单项验证 CLI
-└── migrate/main.go        → config.yaml → monitors.d/ 迁移工具
+├── verify/main.go         → 单项验证 CLI（逻辑内联在 cmd 下，无 internal/verifier 包）
+├── migrate/main.go        → config.yaml → monitors.d/ 迁移工具
+└── backfillids/main.go    → 给存量 monitors.d 文件回填 channel_id / model_id 的幂等 CLI
 
 internal/
-├── config/                → 配置管理（21 源文件 + 7 测试，按职责拆分）
+├── config/                → 配置管理（25 源文件 + 19 测试，按职责拆分）
 │   ├── app_config.go     → AppConfig 全局设置
 │   ├── monitor.go        → ServiceConfig 监测项字段
 │   ├── storage_config.go → StorageConfig / RetentionConfig / ArchiveConfig
@@ -191,7 +192,8 @@ internal/
 │   ├── enums.go          → SponsorLevel
 │   ├── parent_inheritance.go → 父子通道配置继承
 │   ├── template.go       → 模板加载（templates/*.json → ServiceConfig）
-│   ├── monitor_store.go  → monitors.d/ 目录 CRUD（MonitorStore）
+│   ├── monitor_store.go  → monitors.d/ 目录 CRUD（MonitorStore；写路径两不变量见下方 monitors.d 小节）
+│   ├── identity.go       → channel_id/model_id 生成·回填·唯一性校验（BackfillFileIDs / ValidateFileModelIDsUnique）
 │   ├── normalize*.go     → 归一化与默认值填充
 │   ├── validate.go       → 校验规则
 │   ├── loader.go         → YAML 解析 + .env 加载 + monitors.d/ 合并
@@ -254,9 +256,7 @@ internal/
 │   └── store_pgx.go      → PostgreSQL 实现
 ├── identity/              → 用户标识生成（{{USER_ID}} 占位符，从 config/ 迁出）
 │   └── userid.go
-├── verifier/              → 单项验证 CLI 逻辑
-│   └── verifier.go
-└── api/                   → HTTP API 层（14 源文件 + 测试）
+└── api/                   → HTTP API 层（15 源文件 + 测试）
     ├── server.go         → Gin 服务器、中间件、CORS、安全头
     ├── handler.go        → /api/status 主处理器、缓存、singleflight
     ├── status_query_handler.go → /api/status/query + POST /api/status/batch
@@ -268,6 +268,13 @@ internal/
     ├── monitor_groups.go → 多模型分组构建（parent/child 层级）
     ├── meta.go           → SSR meta 标签注入（SEO）
     └── *_test.go         → 多个测试文件
+
+（以下为单文件叶子工具包，被上面的包依赖、自身无反向依赖）
+├── displayname/           → provider_name / channel_name 展示名安全校验单一真相源
+├── modelvendor/           → model_vendor 受控词表（stdlib-only；code 进 wire，被 rpdiag 消费）
+├── urlutil/               → SameHostPort（proof host/port 一致性判定单一真相源）
+├── reloadstatus/          → 热更新未被应用的运行时状态记录，供 /ready 信息化
+└── rpdiag/                → 消费 rpdiag 排名导出（质量列 + 质量信号）
 
 notifier/                  → 独立通知子模块（独立 go.mod）
 ├── cmd/notifier/main.go  → 通知服务入口
@@ -681,6 +688,11 @@ HTTP 响应
 - 管理后台（`/api/admin/monitors/*`）可通过 API 进行 CRUD 操作
 - 删除为软删除（归档到 `monitors.d/.archive/`）
 - 热更新同时监听 config.yaml 和 monitors.d/ 目录变化
+- ⚠️ **写路径两不变量（动 `monitor_store.go` 前必读，v2.77.0 起）**：
+  1. **子行合并一对一**——既有子行被某个 updated 行认领即移出候选（`claimed` 数组 + `claimExistingChild`），匹配不到的行走 `BackfillFileIDs` 铸新 id。**绝不允许一个既有行的 `model_id` 被复制给多行**：模板驱动子行的展示名来自模板、行里不写 `model`，磁盘上是空串，多对一会让新加的空 model 子行集体撞同一个 id。两个 pass 是**两个完整循环**（不是行内二级 fallback），保证全局 `model_id` 匹配优先于展示名兜底；副作用是 updated 数组顺序不再决定归属冲突，**稳定 id 恒胜出**（已被测试固定）。
+  2. **写盘前 `ValidateFileModelIDsUnique` fail-loud**——一对一只杜绝「复制既有 id」，客户端 payload 自带的重复非空 id 仍会原样落盘（`BackfillFileIDs` 只补空值、绝不覆盖既有 id）。重复即拒、不写盘、不递增 revision；api 层用 `errors.As(&config.DuplicateModelIDError)` 映射 400（toggle 路径刻意保持 5xx：payload 只有 disabled/hidden，重复必来自磁盘历史坏文件=服务端状态问题）。
+  - 边界：**不主动修复历史坏行**（自动决定保留哪个 id 有误接历史数据的风险）；跨文件重复仍由 loader 全局 `validateModelIDs` 兜底；`cmd/migrate` 直接调 `BackfillFileIDs`+`AtomicWriteYAML`、不经 MonitorStore，故不受守卫 2 覆盖。
+  - 回归测试在 `monitor_store_test.go` 的「子行一对一认领」段，改动前先跑。
 
 ### AppConfig 全局设置
 
@@ -912,7 +924,8 @@ vim config.yaml
   - `internal/config/disabled_test.go` - 禁用逻辑
   - `internal/config/proxy_test.go` - 代理配置
   - `internal/config/url_security_test.go` - URL 安全校验
-  - `internal/config/monitor_store_test.go` - monitors.d/ CRUD
+  - `internal/config/monitor_store_test.go` - monitors.d/ CRUD + 子行一对一认领 + 写盘前 model_id 唯一性
+  - `internal/config/watcher_reload_error_test.go` - 热更新失败回调（直连 reload()，不起 fsnotify）
   - `internal/monitor/probe_test.go` - 探测逻辑
   - `internal/events/detector_test.go` - 事件检测
   - `internal/events/channel_detector_test.go` - 通道级事件检测
