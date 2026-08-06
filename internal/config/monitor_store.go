@@ -221,6 +221,12 @@ func (s *MonitorStore) Create(file *MonitorFile) error {
 	// 生成缺失的稳定 id（幂等：已有则不动）。与回填 CLI 共用同一生成逻辑。
 	BackfillFileIDs(file)
 
+	// 写盘前 fail-loud：payload 自带的重复 model_id 不会被 BackfillFileIDs 覆盖，
+	// 落盘即造出一份 loader 拒绝加载的坏文件。
+	if err := ValidateFileModelIDsUnique(file); err != nil {
+		return err
+	}
+
 	if err := AtomicWriteYAML(path, file); err != nil {
 		return err
 	}
@@ -245,34 +251,69 @@ func preserveAdminHiddenFields(updated, existing *MonitorFile) {
 	}
 
 	// child 按双通道匹配：model_id 优先，展示名兜底（zero regression for legacy children without id）。
-	existingByID := make(map[string]*ServiceConfig, len(existing.Monitors))    // parent + NUL + model_id
-	existingByModel := make(map[string]*ServiceConfig, len(existing.Monitors)) // parent + NUL + model（展示名）
-	for i := range existing.Monitors {
-		if strings.TrimSpace(existing.Monitors[i].Parent) == "" {
-			continue
-		}
-		if key, ok := childMatchKeyByModelID(existing.Monitors[i]); ok {
-			existingByID[key] = &existing.Monitors[i]
-		}
-		existingByModel[childMatchKeyByModel(existing.Monitors[i])] = &existing.Monitors[i]
-	}
+	//
+	// **匹配必须一对一**：既有子行一旦被某个 updated 行认领即移出候选，后续行匹配不到就
+	// 走 BackfillFileIDs 铸新 id。多对一会直接造出重复 model_id——模板驱动的子行展示名来自
+	// 模板、行里不写 model，磁盘上 model 是空串，于是新加的空 model 子行会集体命中同一个既有
+	// 子行、被 copyAdminHiddenFields 复制走同一个 id，写出一份 loader 拒绝加载的坏文件
+	// （admin 返回 200、热更新 fail-closed 保住旧配置，但容器重启即崩）。
+	//
+	// 两个 pass 是两个完整循环而非行内二级 fallback：保证**全局** model_id 匹配优先于展示名
+	// 兜底，否则排在前面的无 id 行可能先按展示名抢走某个既有行，而后面本该按 id 配到它的行
+	// 反倒落空。代价是 updated 数组顺序不再决定 id/展示名冲突时的归属——稳定 id 恒胜出。
+	//
+	// 子行数量是个位数，线性扫描（O(U×E)）比双索引队列更易审计，且两个 pass 天然共享同一份
+	// 认领状态。
+	claimed := make([]bool, len(existing.Monitors))
+	matched := make([]bool, len(updated.Monitors))
+
+	// Pass 1: 按 model_id 匹配（跨展示名改名保留 hidden fields）
 	for i := range updated.Monitors {
 		if strings.TrimSpace(updated.Monitors[i].Parent) == "" {
 			continue
 		}
-		// Pass 1: 按 model_id 匹配（跨展示名改名保留 hidden fields）
-		if key, ok := childMatchKeyByModelID(updated.Monitors[i]); ok {
-			if src, hit := existingByID[key]; hit {
-				copyAdminHiddenFields(&updated.Monitors[i], src)
-				continue
-			}
+		key, ok := childMatchKeyByModelID(updated.Monitors[i])
+		if !ok {
+			continue
 		}
-		// Pass 2: 按展示名匹配（legacy 无 id / id 未命中时的兜底）
-		if src, ok := existingByModel[childMatchKeyByModel(updated.Monitors[i])]; ok {
+		if src := claimExistingChild(existing.Monitors, claimed, func(m ServiceConfig) bool {
+			existingKey, ok := childMatchKeyByModelID(m)
+			return ok && existingKey == key
+		}); src != nil {
+			copyAdminHiddenFields(&updated.Monitors[i], src)
+			matched[i] = true
+		}
+	}
+
+	// Pass 2: 按展示名匹配（legacy 无 id / id 未命中时的兜底）
+	for i := range updated.Monitors {
+		if matched[i] || strings.TrimSpace(updated.Monitors[i].Parent) == "" {
+			continue
+		}
+		key := childMatchKeyByModel(updated.Monitors[i])
+		if src := claimExistingChild(existing.Monitors, claimed, func(m ServiceConfig) bool {
+			return childMatchKeyByModel(m) == key
+		}); src != nil {
 			copyAdminHiddenFields(&updated.Monitors[i], src)
 		}
-		// 新增 child（无匹配）不继承，删除 child（不在 updated 中）自然消失
 	}
+	// 新增 child（无匹配）不继承，删除 child（不在 updated 中）自然消失
+}
+
+// claimExistingChild 返回第一个满足 match 且尚未被认领的既有子行，并就地标记为已认领；
+// 无候选时返回 nil。按 existing 的文件顺序扫描，使同键多行的分配结果确定可复现。
+func claimExistingChild(existing []ServiceConfig, claimed []bool, match func(ServiceConfig) bool) *ServiceConfig {
+	for j := range existing {
+		if claimed[j] || strings.TrimSpace(existing[j].Parent) == "" {
+			continue
+		}
+		if !match(existing[j]) {
+			continue
+		}
+		claimed[j] = true
+		return &existing[j]
+	}
+	return nil
 }
 
 // findRootMonitor 返回第一个无 parent 字段的监测项指针。
@@ -360,6 +401,12 @@ func (s *MonitorStore) Update(key string, file *MonitorFile, expectedRevision in
 	// 共用同一幂等逻辑，已有 id 绝不覆盖。缺这步时，经 admin 编辑新增的子通道行会无 model_id，
 	// 触发 CheckRuntimeModelIDs fail-closed 跳过整份配置热更新（admin 保存返回 200，运行态却静默不变）。
 	BackfillFileIDs(file)
+
+	// 写盘前 fail-loud：一对一合并已杜绝"复制既有 id"，但 payload 自带的重复 id 仍会原样落盘。
+	// 拒绝时磁盘文件与 revision 均不改动。
+	if err := ValidateFileModelIDsUnique(file); err != nil {
+		return err
+	}
 
 	file.Metadata.Revision = expectedRevision + 1
 	file.Metadata.CreatedAt = existing.Metadata.CreatedAt // 保留创建时间

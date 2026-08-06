@@ -89,6 +89,41 @@ func collectModelIDsInto(seen map[string]string, monitors []ServiceConfig) error
 	return nil
 }
 
+// DuplicateModelIDError 表示一份监测文件内出现了重复的 model_id。
+// 独立类型而非裸 error：monitors.d 写路径据此 fail-loud 拒绝落盘，api 层用 errors.As
+// 把它映射成 4xx 可操作提示（与 InvalidProviderSlugError 同一模式），不必按错误文本子串猜。
+type DuplicateModelIDError struct {
+	Err error
+}
+
+// Error 对零值实例也安全：错误类型被 errors.As 当作 target 使用，调用方拿到的
+// 可能是自己声明的空指针/零值，不该因此 panic。
+func (e *DuplicateModelIDError) Error() string {
+	if e == nil || e.Err == nil {
+		return "model_id 重复"
+	}
+	return e.Err.Error()
+}
+
+func (e *DuplicateModelIDError) Unwrap() error { return e.Err }
+
+// ValidateFileModelIDsUnique 校验单份监测文件内所有非空 model_id 互不相同。
+//
+// 这是 monitors.d 写路径的最后一道闸：一对一的子行合并已杜绝"从既有行复制出重复 id"，
+// 但客户端 payload 自带的两条相同非空 model_id 仍会原样落盘（BackfillFileIDs 只补空值、
+// 绝不覆盖既有 id）。重复 id 会让 loader 整份配置校验失败——运行中的旧配置虽被 fail-closed
+// 保住，磁盘文件却已损坏、容器重启即加载失败。故在写盘前显式拒绝，绝不先污染磁盘再指望
+// 加载期发现。跨文件重复由 loader 的全局 validateModelIDs 兜底（store 不读其它文件）。
+func ValidateFileModelIDsUnique(file *MonitorFile) error {
+	if file == nil {
+		return nil
+	}
+	if err := collectModelIDsInto(make(map[string]string, len(file.Monitors)), file.Monitors); err != nil {
+		return &DuplicateModelIDError{Err: err}
+	}
+	return nil
+}
+
 // modelIDLocation 给出监测行的人类可读定位串，用于重复/校验报错。
 func modelIDLocation(m ServiceConfig) string {
 	return fmt.Sprintf("%s/%s/%s/%s", m.Provider, m.Service, m.Channel, m.Model)

@@ -20,6 +20,7 @@
 ## 配置与安全提示
 - 禁止提交真实 API Key、数据库密码等敏感信息；仅更新 `config.yaml.example`，实际值通过环境变量或本地未入库配置文件注入。
 - 修改与存储相关逻辑时，需同时在 SQLite（默认）和 PostgreSQL 场景下验证。
+- **动 monitors.d 写路径（`internal/config/monitor_store.go`）必守两条不变量**：① 子行合并**一对一**——既有行被认领即移出候选，绝不允许一个既有行的 `model_id` 被复制给多个 updated 行（模板驱动子行的 `model` 在磁盘上是空串，多对一会集体撞同一个 id）；② 写盘前跑 `ValidateFileModelIDsUnique` **fail-loud**——重复 `model_id` 落盘即造出 loader 拒绝加载的坏文件（admin 返回 200、热更新 fail-closed 保住旧配置，容器重启才崩，极难归因）。回归测试见 `monitor_store_test.go` 的「子行一对一认领」段，改动前先跑。
 
 ## `model_vendor`「模型厂商」正交轴
 

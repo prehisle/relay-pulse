@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -30,6 +31,7 @@ func newAdminMonitorTestHandler(t *testing.T) *gin.Engine {
 	r := gin.New()
 	r.POST("/api/admin/monitors", h.AdminCreateMonitor)
 	r.GET("/api/admin/monitors/:key", h.AdminGetMonitor)
+	r.PUT("/api/admin/monitors/:key", h.AdminUpdateMonitor)
 	return r
 }
 
@@ -85,5 +87,75 @@ func TestAdminCreateMonitorGeneratesAndExposesIDs(t *testing.T) {
 	}
 	if !strings.Contains(w2.Body.String(), `"channel_id"`) {
 		t.Errorf("get response wire missing channel_id field: %s", w2.Body.String())
+	}
+}
+
+// TestAdminMonitorDuplicateModelIDMapsTo400 锁死错误映射：payload 自带重复 model_id 是
+// 客户端可修正的请求问题，必须回 400 + 可操作错误文本，而不是笼统的 500。
+// （映射走 errors.As 认 *config.DuplicateModelIDError，不依赖错误文案子串。）
+func TestAdminMonitorDuplicateModelIDMapsTo400(t *testing.T) {
+	r := newAdminMonitorTestHandler(t)
+
+	const dupID = "md_66666666-6666-4666-8666-666666666666"
+
+	// 先建一个干净通道，供后续 PUT 使用。
+	createBody := `{"monitors":[{"provider":"acme","service":"cc","channel":"vip","model":"Opus","base_url":"https://x.com"}]}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/api/admin/monitors", strings.NewReader(createBody))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("准备阶段创建失败：status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var created struct {
+		Monitor config.MonitorFile `json:"monitor"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal create resp: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "create",
+			method: http.MethodPost,
+			path:   "/api/admin/monitors",
+			body: `{"monitors":[` +
+				`{"provider":"acme","service":"cc","channel":"dup","model":"A","model_id":"` + dupID + `","base_url":"https://x.com"},` +
+				`{"parent":"acme/cc/dup","model":"B","model_id":"` + dupID + `"}]}`,
+		},
+		{
+			name:   "update",
+			method: http.MethodPut,
+			path:   "/api/admin/monitors/acme--cc--vip",
+			// 两条**新增**子行携带同一个 model_id：既有行的 id 会被 copyAdminHiddenFields
+			// 强制还原（id 不可变），故只有新行能把 payload 里的重复值带到盘上。
+			body: `{"revision":` + strconv.FormatInt(created.Monitor.Metadata.Revision, 10) + `,"monitor":{"monitors":[` +
+				`{"provider":"acme","service":"cc","channel":"vip","model":"Opus","base_url":"https://x.com"},` +
+				`{"parent":"acme/cc/vip","model":"A","model_id":"` + dupID + `"},` +
+				`{"parent":"acme/cc/vip","model":"B","model_id":"` + dupID + `"}]}}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("Authorization", "Bearer test-token")
+			req.Header.Set("Content-Type", "application/json")
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body = %s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), dupID) {
+				t.Errorf("响应应含重复的 model_id 以便定位，got %s", w.Body.String())
+			}
+		})
 	}
 }

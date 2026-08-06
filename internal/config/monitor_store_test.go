@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1067,5 +1068,249 @@ func TestUpdateTreatsIDsAsImmutable(t *testing.T) {
 	}
 	if got.Monitors[0].ModelID != origModelID {
 		t.Errorf("model_id must be immutable: got %q want %q", got.Monitors[0].ModelID, origModelID)
+	}
+}
+
+// --- Update: 子行一对一认领（2026-08-06 生产事故回归） ---
+
+// modelIDsOf 收集监测行的 model_id，供唯一性断言使用。
+func modelIDsOf(monitors []ServiceConfig) []string {
+	ids := make([]string, 0, len(monitors))
+	for _, m := range monitors {
+		ids = append(ids, m.ModelID)
+	}
+	return ids
+}
+
+// assertModelIDsUniqueAndNonEmpty 断言所有 model_id 非空且互不相同——
+// 这正是 loader 的 fail-closed 闸所要求的不变量，破坏它即导致整份配置热更新被拒。
+func assertModelIDsUniqueAndNonEmpty(t *testing.T, monitors []ServiceConfig) {
+	t.Helper()
+	seen := make(map[string]int, len(monitors))
+	for i, m := range monitors {
+		if m.ModelID == "" {
+			t.Fatalf("monitors[%d] 的 model_id 为空：%v", i, modelIDsOf(monitors))
+		}
+		if prev, dup := seen[m.ModelID]; dup {
+			t.Fatalf("model_id 重复：monitors[%d] 与 monitors[%d] 同为 %q；全量=%v",
+				prev, i, m.ModelID, modelIDsOf(monitors))
+		}
+		seen[m.ModelID] = i
+	}
+}
+
+// TestUpdate_AddingTemplateChildrenToChannelWithExistingChild 复刻 2026-08-06 生产事故：
+// 给一个**已有子行**的通道追加模板驱动子行（展示名来自模板、行里不写 model，故磁盘上
+// model 为空串）时，旧的多对一兜底匹配会让每个新行都命中同一个既有子行、复制走它的
+// model_id，写出一份 model_id 重复的坏文件——admin 返回 200，热更新却 fail-closed 跳过，
+// 且容器重启即加载失败。修复后新行必须各自铸新 id。
+func TestUpdate_AddingTemplateChildrenToChannelWithExistingChild(t *testing.T) {
+	configDir, _ := setupTestMonitorsDir(t)
+	store := NewMonitorStore(filepath.Join(configDir, MonitorsDirName))
+
+	const existingChildID = "md_11111111-1111-4111-8111-111111111111"
+	writeTestMonitorFile(t, configDir, "saiai--cx--o-web", strings.Join([]string{
+		"metadata:",
+		"  source: admin",
+		"  revision: 1",
+		"  channel_id: ch_22222222-2222-4222-8222-222222222222",
+		"  created_at: \"2026-08-01T00:00:00Z\"",
+		"  updated_at: \"2026-08-01T00:00:00Z\"",
+		"monitors:",
+		"  - provider: saiai",
+		"    service: cx",
+		"    channel: o-web",
+		"    model_id: md_33333333-3333-4333-8333-333333333333",
+		"    base_url: https://api.example.com",
+		"  - parent: saiai/cx/o-web",
+		"    template: cx-gpt-arith",
+		"    model_id: " + existingChildID,
+		"    env_var_name: SAIAI_CX_KEY",
+	}, "\n"))
+
+	// admin round-trip：既有行带回自己的 model_id，两条新子行只有 template、无 model/无 id。
+	updated := &MonitorFile{
+		Monitors: []ServiceConfig{
+			{Provider: "saiai", Service: "cx", Channel: "o-web", BaseURL: "https://api.example.com"},
+			{Parent: "saiai/cx/o-web", Template: "cx-gpt-arith", ModelID: existingChildID},
+			{Parent: "saiai/cx/o-web", Template: "cx-gpt56terra-arith"},
+			{Parent: "saiai/cx/o-web", Template: "cx-gpt56luna-arith"},
+		},
+	}
+
+	if err := store.Update("saiai--cx--o-web", updated, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Get("saiai--cx--o-web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Monitors) != 4 {
+		t.Fatalf("len(Monitors) = %d, want 4", len(got.Monitors))
+	}
+	assertModelIDsUniqueAndNonEmpty(t, got.Monitors)
+
+	// 既有子行的身份与隐藏字段必须原样保住（一对一认领不能退化成"全都不匹配"）。
+	if got.Monitors[1].ModelID != existingChildID {
+		t.Errorf("既有子行 model_id = %q, want %q（id 不可变）", got.Monitors[1].ModelID, existingChildID)
+	}
+	if got.Monitors[1].EnvVarName != "SAIAI_CX_KEY" {
+		t.Errorf("既有子行 EnvVarName = %q, want 保留", got.Monitors[1].EnvVarName)
+	}
+	// 新增子行不继承既有子行的隐藏字段。
+	for _, i := range []int{2, 3} {
+		if got.Monitors[i].EnvVarName != "" {
+			t.Errorf("新增子行 monitors[%d].EnvVarName = %q, want 空", i, got.Monitors[i].EnvVarName)
+		}
+	}
+}
+
+// TestPreserveHiddenFields_ExistingChildClaimedOnlyOnce 是上面事故的函数级最小复现：
+// 多个展示名同为空的 updated 子行竞争同一个既有子行时，只有第一个能认领到它。
+func TestPreserveHiddenFields_ExistingChildClaimedOnlyOnce(t *testing.T) {
+	existing := &MonitorFile{Monitors: []ServiceConfig{
+		{Provider: "P", Service: "cx", Channel: "c"},
+		{Parent: "P/cx/c", ModelID: "md_a", EnvVarName: "FIRST"},
+	}}
+	updated := &MonitorFile{Monitors: []ServiceConfig{
+		{Provider: "P", Service: "cx", Channel: "c"},
+		{Parent: "P/cx/c"},
+		{Parent: "P/cx/c"},
+	}}
+
+	preserveAdminHiddenFields(updated, existing)
+
+	if updated.Monitors[1].ModelID != "md_a" || updated.Monitors[1].EnvVarName != "FIRST" {
+		t.Errorf("第一个子行应认领既有行，got id=%q env=%q",
+			updated.Monitors[1].ModelID, updated.Monitors[1].EnvVarName)
+	}
+	if updated.Monitors[2].ModelID != "" || updated.Monitors[2].EnvVarName != "" {
+		t.Errorf("第二个子行不应复制既有行，got id=%q env=%q",
+			updated.Monitors[2].ModelID, updated.Monitors[2].EnvVarName)
+	}
+}
+
+// TestPreserveHiddenFields_IDMatchWinsOverEarlierNameMatch 固定「全局 model_id 匹配
+// 整体优先于展示名兜底」这一顺序语义：无 id 的行即使排在前面、展示名恰好相同，
+// 也不能抢走另一条带 model_id 的行所对应的既有子行。
+func TestPreserveHiddenFields_IDMatchWinsOverEarlierNameMatch(t *testing.T) {
+	existing := &MonitorFile{Monitors: []ServiceConfig{
+		{Provider: "P", Service: "cc", Channel: "c"},
+		{Parent: "P/cc/c", Model: "B", ModelID: "md_y", EnvVarName: "HB"},
+	}}
+	updated := &MonitorFile{Monitors: []ServiceConfig{
+		{Provider: "P", Service: "cc", Channel: "c"},
+		{Parent: "P/cc/c", Model: "B"},                  // 无 id，展示名与既有行相同
+		{Parent: "P/cc/c", Model: "A", ModelID: "md_y"}, // 带 id：既有行其实是被改名到 A
+	}}
+
+	preserveAdminHiddenFields(updated, existing)
+
+	if updated.Monitors[2].EnvVarName != "HB" {
+		t.Errorf("带 model_id 的行应认领既有行，got %q", updated.Monitors[2].EnvVarName)
+	}
+	if updated.Monitors[1].EnvVarName != "" || updated.Monitors[1].ModelID != "" {
+		t.Errorf("同名无 id 行不应再匹配到已被认领的既有行，got env=%q id=%q",
+			updated.Monitors[1].EnvVarName, updated.Monitors[1].ModelID)
+	}
+}
+
+// TestPreserveHiddenFields_DuplicateExistingChildrenMatchedInFileOrder 覆盖历史坏文件：
+// 既有文件里本就有多个同键（同 parent、同空展示名）子行时，按文件顺序一对一分配，
+// 多出来的 updated 行不再复制任何既有身份。
+func TestPreserveHiddenFields_DuplicateExistingChildrenMatchedInFileOrder(t *testing.T) {
+	existing := &MonitorFile{Monitors: []ServiceConfig{
+		{Provider: "P", Service: "cx", Channel: "c"},
+		{Parent: "P/cx/c", ModelID: "md_1", EnvVarName: "E1"},
+		{Parent: "P/cx/c", ModelID: "md_2", EnvVarName: "E2"},
+	}}
+	updated := &MonitorFile{Monitors: []ServiceConfig{
+		{Provider: "P", Service: "cx", Channel: "c"},
+		{Parent: "P/cx/c"},
+		{Parent: "P/cx/c"},
+		{Parent: "P/cx/c"},
+	}}
+
+	preserveAdminHiddenFields(updated, existing)
+
+	if got := updated.Monitors[1].EnvVarName; got != "E1" {
+		t.Errorf("monitors[1].EnvVarName = %q, want E1", got)
+	}
+	if got := updated.Monitors[2].EnvVarName; got != "E2" {
+		t.Errorf("monitors[2].EnvVarName = %q, want E2", got)
+	}
+	if got := updated.Monitors[3].EnvVarName; got != "" {
+		t.Errorf("monitors[3].EnvVarName = %q, want 空（无未认领候选）", got)
+	}
+}
+
+// --- 写盘前 model_id 唯一性 fail-loud ---
+
+// TestUpdate_RejectsDuplicateModelIDInPayload 覆盖一对一认领也堵不住的另一条路径：
+// 客户端 payload 自带两条相同的非空 model_id（BackfillFileIDs 只补空值、不会覆盖它们）。
+// 这类请求必须在写盘前被拒，磁盘文件与 revision 都不得改动。
+func TestUpdate_RejectsDuplicateModelIDInPayload(t *testing.T) {
+	configDir, _ := setupTestMonitorsDir(t)
+	store := NewMonitorStore(filepath.Join(configDir, MonitorsDirName))
+
+	writeTestMonitorFile(t, configDir, "acme--cc--vip", validMonitorYAML("acme", "cc", "vip", 1))
+
+	const dupID = "md_44444444-4444-4444-8444-444444444444"
+	updated := &MonitorFile{
+		Monitors: []ServiceConfig{
+			{Provider: "acme", Service: "cc", Channel: "vip"},
+			{Parent: "acme/cc/vip", Model: "m1", ModelID: dupID},
+			{Parent: "acme/cc/vip", Model: "m2", ModelID: dupID},
+		},
+	}
+
+	err := store.Update("acme--cc--vip", updated, 1)
+	if err == nil {
+		t.Fatal("Update 应因 model_id 重复而失败")
+	}
+	if !strings.Contains(err.Error(), dupID) {
+		t.Errorf("错误信息应含重复的 model_id，got %q", err.Error())
+	}
+	var dup *DuplicateModelIDError
+	if !errors.As(err, &dup) {
+		t.Errorf("错误应可被 errors.As 识别为 *DuplicateModelIDError，got %T", err)
+	}
+
+	got, getErr := store.Get("acme--cc--vip")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if got.Metadata.Revision != 1 {
+		t.Errorf("revision = %d, want 1（拒绝的写入不得改动磁盘）", got.Metadata.Revision)
+	}
+	if len(got.Monitors) != 1 {
+		t.Errorf("len(Monitors) = %d, want 1（拒绝的写入不得改动磁盘）", len(got.Monitors))
+	}
+}
+
+// TestCreate_RejectsDuplicateModelIDInPayload 与 Update 对称：创建路径同样 fail-loud。
+func TestCreate_RejectsDuplicateModelIDInPayload(t *testing.T) {
+	configDir, _ := setupTestMonitorsDir(t)
+	store := NewMonitorStore(filepath.Join(configDir, MonitorsDirName))
+
+	const dupID = "md_55555555-5555-4555-8555-555555555555"
+	file := &MonitorFile{
+		Monitors: []ServiceConfig{
+			{Provider: "acme", Service: "cc", Channel: "new", ModelID: dupID},
+			{Parent: "acme/cc/new", Model: "m1", ModelID: dupID},
+		},
+	}
+
+	err := store.Create(file)
+	if err == nil {
+		t.Fatal("Create 应因 model_id 重复而失败")
+	}
+	var dup *DuplicateModelIDError
+	if !errors.As(err, &dup) {
+		t.Errorf("错误应可被 errors.As 识别为 *DuplicateModelIDError，got %T", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(configDir, MonitorsDirName, "acme--cc--new.yaml")); !os.IsNotExist(statErr) {
+		t.Errorf("被拒绝的 Create 不得落盘，stat err = %v", statErr)
 	}
 }

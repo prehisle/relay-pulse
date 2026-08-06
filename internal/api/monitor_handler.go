@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -316,6 +317,10 @@ func (h *Handler) AdminCreateMonitor(c *gin.Context) {
 			apiError(c, http.StatusConflict, ErrCodeInvalidParam, errMsg)
 			return
 		}
+		if isDuplicateModelIDError(err) {
+			apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, errMsg)
+			return
+		}
 		if strings.Contains(errMsg, "无效") || strings.Contains(errMsg, "不能") {
 			apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, errMsg)
 			return
@@ -328,6 +333,16 @@ func (h *Handler) AdminCreateMonitor(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"monitor": file,
 	})
+}
+
+// isDuplicateModelIDError 判定 store 写路径是否因 payload 内 model_id 重复被拒。
+// 这是客户端可修正的请求问题（4xx），与 5xx 的服务端故障区分开；用 errors.As 而非
+// 错误文本子串，避免文案调整时静默退化成 500。
+// 注意 toggle 路径刻意不映射：那里的 payload 只有 disabled/hidden，重复 id 必然来自磁盘
+// 上的历史坏文件，属服务端状态问题，保持 5xx + 日志更诚实。
+func isDuplicateModelIDError(err error) bool {
+	var dup *config.DuplicateModelIDError
+	return errors.As(err, &dup)
 }
 
 // AdminUpdateMonitor 更新监测项
@@ -369,7 +384,7 @@ func (h *Handler) AdminUpdateMonitor(c *gin.Context) {
 			apiError(c, http.StatusConflict, ErrCodeInvalidParam, errMsg)
 			return
 		}
-		if strings.Contains(errMsg, "不可变更") || strings.Contains(errMsg, "无效") {
+		if strings.Contains(errMsg, "不可变更") || strings.Contains(errMsg, "无效") || isDuplicateModelIDError(err) {
 			apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, errMsg)
 			return
 		}
