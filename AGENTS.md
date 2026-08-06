@@ -33,6 +33,14 @@
 - 前端（Phase 2 已落）：厂商列/筛选/图标/四语言已做。列显隐由 `showVendorColumn` 单一开关驱动，基于**未筛选**数据判定；通道级厂商要求**所有** layer 非空且同值，否则显示 `-`。未收录 code 原样显示 code，不猜名字。
 - 细节（校验挂载点为何是 `validateResolvedModelConstraints` 而非 `validate()`、「一个通道一个厂商」不变量）见 `CLAUDE.md`。
 
+## 探针模板硬约束（改 `templates/` 前必读）
+
+- **`cc-*-ping-*` 带 `x-anthropic-billing-header`，其中 `cch` 是整个 body 的 attestation**（saiai 一类网关严格校验）。**body 改一个字节就必须重算** `cc_version` 后缀与 `cch`（算法在 `/workspace/zdy/saiai/saiai-server/backend`，`go run ./cmd/claudebilling -in body.json -replace-body`）。
+- ⚠️ **随机题面与整包 attestation 数学上互斥** → **arith 族永远不能带 billing header**；Claude 5 的 arith 版只能照 `cc-opus-arith` 改 `request_model` + 加 `thinking.disabled` + 删 `context_management` + 调 `max_tokens`，别照 ping 模板做。也**别把 arith 通道换成 ping**：ping 只验 `pong`、抓不到 mock 回显作弊，arith 的随机题面才是那道反作弊闸。
+- **Claude 5 世代**：`thinking` 默认开且 `max_tokens` 是「思考+正文」总预算，不关思考必 200 却恒红；关思考（仅 effort ≤ high 被接受）必须**同时删 `context_management`**（否则 400）；**fable-5 不接受关思考**，只能放大 `max_tokens`。抓包自带的 `fallbacks` **必须删**（否则目标模型不可用时上游改服回退模型、探针假绿）。
+- 别把真实身份（`account_uuid`/`device_id`）烤进模板；本仓公开。
+- 抓包形态：`ANTHROPIC_BASE_URL` 指本地 echo server 得到的是「CLI→中转商」形态（**不发 cch**），要官方端点形态必须 mitmproxy 拦截。配方见 meta 仓 `.claude/skills/relay-client-gate/SKILL.md`。
+
 ## 技术指南
 
 构建命令、代码风格、测试规范、提交与 PR 约定等详细技术指南，请参考 `CLAUDE.md` 和 `CONTRIBUTING.md`，此处不再重复。
