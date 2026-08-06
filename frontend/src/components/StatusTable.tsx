@@ -534,7 +534,9 @@ function qualityScoreColor(score: number): string {
   return `hsl(${last[1]} ${last[2]}% ${last[3]}%)`;
 }
 
-const _MODEL_FAMILY_ORDER: Record<string, number> = { haiku: 0, sonnet: 1, opus: 2 };
+// 能力阶梯升序。fable 是 Claude 5 世代新增家族（2026-06-09 GA），定位在 opus 之上，
+// 故排在最后；未列入的家族回落到 50，无家族标识回落到 99。
+const _MODEL_FAMILY_ORDER: Record<string, number> = { haiku: 0, sonnet: 1, opus: 2, fable: 3 };
 
 function compareModelKeys(a: RpdiagModelScore, b: RpdiagModelScore): number {
   const ra = _modelFamilyRank(a.model_key || a.model);
