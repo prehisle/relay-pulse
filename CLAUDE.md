@@ -4,7 +4,15 @@
 如果你是人类开发者，请优先阅读 `README.md` 和 `CONTRIBUTING.md`，只在需要了解更多技术细节时再参考这里的内容。
 
 ### 同步检查点
-- **最后同步**: 2026-08-06（生产运行 **v2.77.0**/HEAD=`730eb57` + **已部署生产**[prod git_commit=730eb57，go1.26.5，health/ready=200，monitors=**284**；回滚锚点 `rollback-20260806-childmatch-pre`=部署前 2dbee1d/v2.76.0]）。本轮**修上一轮暴露的 monitors.d 写路径 bug + 补上它暴露的观测盲区**（relaypulse-only、Go-only、无 schema/无迁移、前端零改动），3 commit：`0bd20ff` feat / `52c657a` fix / `730eb57` docs。
+- **最后同步**: 2026-08-06（生产运行 **v2.78.0**/HEAD=`65eeee7` + **已部署生产**[prod git_commit=65eeee7，go1.26.5，health/ready=200，monitors=**284**；回滚锚点 `rollback-20260806-catfilter-pre`=部署前 730eb57/v2.77.0；无 schema/无迁移故未新做 DB 备份，沿用 20260805-170048]）。本轮**三件事：一个既有前端缺陷根治 + 两处展示层调整**（relaypulse-only，Go 仅加一个配置字段），3 commit。
+
+  ① **`aa23694` fix(web)：同一批次内多次 url 写入互相覆盖**。react-router 的 `setSearchParams(prev => ...)` 里的 `prev` 是**闭包捕获的上一次渲染值**，且每次调用**立刻 navigate**——它不是 React setState 那种把上一个 updater 结果喂给下一个的队列（已在 `node_modules/react-router-dom/dist/index.js` 逐字确认）。于是同一个事件、同一次 commit 里连写两次 URL，后一次会拿着不含前一次改动的旧值再导航一遍，把前面的改动整个抹掉。**现网可复现**：移动端筛选抽屉「清空所有筛选」一次调 6 个 setter，实际只有最后一个生效——生产 A/B 实测，修复前带 4 个筛选条件点清空后 URL 仍剩 `?provider=saiai&service=cc&category=commercial`，修复后全空。同类隐患还有 `clearPriceRatioSort`/`clearQualityScoreSort`/`clearModelVendorSort`/`setBoard('hot')` 这几个 URL 纠偏 effect 落在同一次 commit 时互相回写（**注意 `clearSortForKey` 即使 key 不匹配也仍会导航一次**，所以「都只删 sort 参数所以不冲突」不成立）。修法=`useUrlState.ts` 里 **8 处** `setSearchParams` 全部收敛到唯一的 `commitParams(mutate)`，以 `pendingParamsRef`（本批次已写入的值）而非渲染快照为基底，批次边界用 `queueMicrotask` 清空。**边界要说准**：microtask 覆盖的是「同一个同步调用栈」（一个事件处理函数 / 一次 passive effect flush 内顺序跑完的 effect），**不是路由事务**——同步栈里夹一次 `flushSync` 外部导航后再写、或导航被 blocker 拒绝，基底会比真实 URL 旧（当前仓库两种形状都不存在，已写进注释）。新增 `useUrlState.test.tsx` 两条：收藏模式下点清空（`exitFavoritesMode` 先把快照筛选**恢复进 URL**、再逐个清，是最容易被冲掉的形状）／批次之间插入一次绕开本 hook 的 `navigate()`。两条均 bite-test 验非真空。⚠️ **测试写法坑**：同步的测试体里微任务不会排空，跨批次那条必须 `await Promise.resolve()` 造真实任务边界，否则测试恒绿（第一版就是真空的）。
+
+  ② **`385e5d8` feat(web)：厂商列只显示彩色品牌图标**。表格、移动端行、网格卡片三处统一 `iconOnly`，全名走 title/aria-label（未收录 code 无图标时 `VendorBadge` 自动退回文字，这条不能破）。着色走 `.text-vendor-*` 工具类 + `--vendor-*` 变量（**不用内联 style**：jsdom 的 CSSOM 不认内联 `var()`，会被静默丢弃导致测试无法断言；且 class 方式符合仓库「语义化类不硬编码颜色」约定，暗色微调能留在 CSS 层）。取色自图标出处 `@lobehub/icons-static-svg` 的 `COLOR_PRIMARY`，与 path 同源。**三类分开、别合并**：有品牌色的五家走变量；**字节 `#325AB4` 在暗色 bg-surface 上对比度仅 2.77**（图形元素下限 3:1），暗色主题单独提亮到 `#5B87E8`；**openai / moonshot 的商标本就是单色黑白**（其 COLOR_PRIMARY 是纯黑，暗色主题对比度 1.0 等于不可见），跟随主题前景色；anthropic/google 自带 fill，不套着色类（守卫测试锁死）。着色类**只能套在 svg 上**，套在徽章外层会连带把卡片视图的厂商名染成品牌色（已有测试）。
+
+  ③ **`65eeee7` feat：`hide_category_filter` 运行时开关**（仿 `hide_price_column`，改 yaml 热更新即生效）。起因是加了厂商筛选器后顶部工具栏换行；**实测宽度预算是死的 1216px**（容器 max-width，与屏幕多宽无关）：中文需 1276px（只超 60px）、去掉分类降到 1174px 进一行；**英/俄/日分别需 1518/1814/1632px，加厂商之前就已超，去掉分类救不回来**（要根治只能把筛选器收进漏斗弹层，本轮未做）。分类本身价值也低：生产 233 条通道 227 商业 / 6 公益、下拉仅两项。⚠️ **残留 URL 参数刻意不删**：原计划用 effect 调 `setFilterCategory([])` 抹掉 `?category=`，**实测根本不生效**（正是 ① 那个缺陷——紧随其后的 `clearQualityScoreSort` 把它覆盖回去了），改成**派生**：`useMonitorData` 内算 `effectiveFilterCategory = hideCategoryFilter ? EMPTY_FILTER : filterCategory`，用于数据过滤并 return 给 App 消费（选项联动 memo ×5 / activeFiltersCount / analytics / 传给 Controls 的 value 全用它；只有传进 hook 的入参仍是原始值）。副作用反而更好——关掉开关用户原来的选择自动恢复。顺带修 `AppConfig.clone()` 长期漏抄 `AllowPrivateNetworks`，并加反射守卫 `TestClone_PreservesAllTopLevelBoolFlags`（所有顶层 bool 置 true → clone 后逐个核对，防整类漏抄；`clone()` 生产代码零调用点故此前无实际影响）。`docs/user/config.md` 补上新开关**并顺带收录一直没被文档记录的 `hide_price_column`**。
+
+  **验证**：gofmt/vet/`go test ./...` 全绿；tsc/eslint 0 error/vitest **295** 全绿（新增 4 条）；本地起服双态实跑（开关 ON 分类下拉与移动抽屉均消失、计数不计它、残留 category 不再过滤；改 yaml 热更新到 OFF 后筛选器回来、原选择还在、过滤重新生效）。**codex 三闸**（SESSION `019fd571`：设计 → 派生方案改判 → url 修复终审；它抓到并已修的三处=`clone()` 漏抄 `AllowPrivateNetworks`、我写的 `app_config.go` 注释与实现不符、测试注释谎称「逐字复刻」而真实入口是 `exitFavoritesMode`）。**prod 实证**：version=65eeee7、health/ready=200、monitors=284、部署后 5min 内 7 条 `level=ERROR` 全是上游探测超时；`hide_category_filter: true` 已写入生产 config.yaml 并热更新（`热更新成功 monitors=284`）；公网 live 实测——中文首页筛选块 458px/容器 1216px **不换行**、分类下拉消失、带 `?category=public` 仍出全部 90 行、厂商列 8 家全部只出图标且颜色逐一核对（DeepSeek `rgb(77,107,254)`／MiniMax `rgb(242,63,93)`／智谱 `rgb(56,89,255)`／字节 `rgb(91,135,232)` 暗色提亮值／OpenAI·月之暗面 `rgb(219,230,240)` 前景色）、移动端「清空所有筛选」一次清光。**上一同步**: 2026-08-06（生产运行 **v2.77.0**/HEAD=`730eb57` + **已部署生产**[prod git_commit=730eb57，go1.26.5，health/ready=200，monitors=**284**；回滚锚点 `rollback-20260806-childmatch-pre`=部署前 2dbee1d/v2.76.0]）。本轮**修上一轮暴露的 monitors.d 写路径 bug + 补上它暴露的观测盲区**（relaypulse-only、Go-only、无 schema/无迁移、前端零改动），3 commit：`0bd20ff` feat / `52c657a` fix / `730eb57` docs。
 
   ① **子行合并改一对一（`preserveAdminHiddenFields`）**：给**已有子行**的通道经 admin API 追加模板驱动子行会写出一份 `model_id` 重复的坏文件——admin 返回 200、revision 递增，热更新 fail-closed 保住旧配置（监测不断），**但磁盘文件已损坏、容器重启即加载失败**，且整份 monitors.d 的热更新在修好前一直卡住。根因是 Pass 2 按 `parent+model` 展示名兜底匹配时**多对一**：模板驱动子行的展示名来自模板、行里不写 `model`，磁盘上是空串 → 新加的空 model 子行集体命中同一个既有子行，`copyAdminHiddenFields` 把它的 `model_id` 复制给每一行（该函数刻意强制还原 id 以保证不可变，这里正好帮倒忙）。通道原本没有子行时不触发（找不到匹配对象），故现象是「第一次加子行成功、第二次开始撞车」。修法=`claimed` 数组 + `claimExistingChild` helper，既有行被认领即移出候选。**两个 pass 必须是两个完整循环**（不是行内二级 fallback），保证**全局** model_id 匹配优先于展示名兜底——否则排在前面的无 id 行会先按展示名抢走某个既有行，而后面本该按 id 配到它的行反倒落空；代价是 updated 数组顺序不再决定 id/展示名冲突时的归属，**稳定 id 恒胜出**（已用测试固定该语义）。
 
@@ -708,6 +716,7 @@ HTTP 响应
 | Provider 策略 | `disabled_providers`、`hidden_providers`、`risk_providers` | 批量禁用/隐藏/风险标记 |
 | 板块系统 | `boards`（`enabled`，三层：hot/secondary/cold）、`boards.auto_move`（`enabled`、`threshold_cold/down/up`、`min_probes`、`check_interval`） | 热板/备板/冷板 + 自动移板 |
 | 展示控制 | `expose_channel_details`、`channel_details_providers`、`public_base_url` | 通道技术细节暴露 |
+| 展示开关（runtime） | `hide_price_column`、`hide_category_filter` | 隐藏价格列 / 隐藏「分类」筛选器。改 yaml 热更新即生效，经 `/api/status` meta 下发前端。**`hide_category_filter` 只隐藏筛选入口**：`category` 字段照常下发，URL 里残留的 `?category=` 被视为未选中（参数保留、不删，关掉开关即恢复原选择） |
 | 赞助/标签 | `sponsor_pin`、`enable_annotations`、`annotation_rules` | 置顶与标签体系 |
 | 功能模块 | `events`、`onboarding`、`announcements`、`github` | 事件/收录/公告/GitHub 配置 |
 | 存储 | `storage`（含 type/sqlite/postgres/retention/archive） | 数据库与数据生命周期 |
@@ -955,6 +964,7 @@ vim config.yaml
 - 测试文件：`frontend/src/utils/*.test.ts`
 - 关键测试：
   - `sortMonitors.test.ts` - 排序逻辑
+  - `hooks/useUrlState.test.tsx` - 同批次多次 URL 写入必须叠加（改 useUrlState 前先跑）
   - `heatmapAggregator.test.ts` - 热力图聚合
   - `monitorDataProcessor.test.ts` - 数据处理（canonicalize/uptime/转换）
   - `apiClient.test.ts` - API 客户端
