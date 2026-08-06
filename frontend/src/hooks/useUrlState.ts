@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ViewMode, SortConfig, BoardFilter } from '../types';
 import { HIDE_PRICE_COLUMN } from '../constants';
@@ -195,6 +195,43 @@ function serializeSortConfig(config: SortConfig): string {
  */
 export function useUrlState(): [UrlState, UrlStateActions] {
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // 同一批次内已写入、但组件还没重新渲染的参数快照（null=本批次尚无写入）。
+  //
+  // 为什么需要它：react-router 的 setSearchParams(prev => ...) 里的 prev 是**闭包捕获的
+  // 上一次渲染值**，而且每次调用立刻 navigate——它不是 React setState 那种会把上一个
+  // updater 的结果喂给下一个的队列。于是同一个事件/同一次 commit 里连续写两次 URL 时，
+  // 第二次会拿着不含第一次改动的旧值再导航一遍，把第一次的改动整个抹掉。
+  //
+  // 实际踩到的两处：
+  //   ① 移动端筛选抽屉「清空」一次调 6 个 setter → 只有最后一个真正生效，其余被带回来；
+  //   ② 隐藏列/关功能后的几个 URL 纠偏 effect（清排序、归一 board）落在同一次 commit 时互相回写。
+  //
+  // 修法：所有写入都经 commitParams 走这一个咽喉点，以「本批次已写入的值」而非渲染快照为基底，
+  // 于是多次写入自然叠加。
+  //
+  // ⚠️ 边界要说准：microtask 覆盖的是**同一个同步调用栈**（一个事件处理函数、一次 passive
+  // effect flush 内顺序跑完的那些 effect），它不是 React/Router 提供的路由事务标识。
+  // 已知覆盖不到、且当前仓库不存在的形状：同一同步栈里夹一次 flushSync 外部导航后再写本 hook，
+  // 或导航被 blocker 拒绝——那时基底会比真实 URL 旧。真出现这类调用，得改成同时记住
+  // 「本批起始 prev」与「累计 next」，发现 prev 两者都不是就说明 URL 被外部推进过、应改用新 prev。
+  const pendingParamsRef = useRef<URLSearchParams | null>(null);
+
+  const commitParams = useCallback((mutate: (params: URLSearchParams) => void) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(pendingParamsRef.current ?? prev);
+      mutate(next);
+      if (pendingParamsRef.current === null) {
+        // 本批次第一次写入：排一个 microtask 在批次末尾丢弃基底，
+        // 避免它跨批次残留、把用户后来删掉的参数又复活。
+        queueMicrotask(() => {
+          pendingParamsRef.current = null;
+        });
+      }
+      pendingParamsRef.current = next;
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   // 会话态标记：用户是否在本次会话中手动点击过排序
   // 刷新页面后会重置为 false，允许置顶恢复
   const [hasManualSort, setHasManualSort] = useState(false);
@@ -270,16 +307,14 @@ export function useUrlState(): [UrlState, UrlStateActions] {
 
   // 更新单个参数的通用函数
   const updateParam = useCallback((key: string, value: string, defaultValue: string) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
+    commitParams((next) => {
       if (value === defaultValue) {
         next.delete(key);
       } else {
         next.set(key, value);
       }
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
+    });
+  }, [commitParams]);
 
   // 各个状态的 setter
   const setTimeRange = useCallback((value: string) => {
@@ -288,16 +323,14 @@ export function useUrlState(): [UrlState, UrlStateActions] {
 
   // 时段过滤 setter（null 表示全天，移除 URL 参数）
   const setTimeFilter = useCallback((value: string | null) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
+    commitParams((next) => {
       if (value === null || value === '') {
         next.delete(PARAM_KEYS.timeFilter);
       } else {
         next.set(PARAM_KEYS.timeFilter, value);
       }
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
+    });
+  }, [commitParams]);
 
   // 板块 setter（默认 hot 时移除参数，保持 URL 简洁）
   const setBoard = useCallback((value: BoardFilter) => {
@@ -310,8 +343,7 @@ export function useUrlState(): [UrlState, UrlStateActions] {
     values: string[],
     normalizer: (value: string) => string
   ) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
+    commitParams((next) => {
       // 规范化：去空、去重、排序，使用自定义大小写策略
       const normalized = Array.from(new Set(
         values
@@ -325,9 +357,8 @@ export function useUrlState(): [UrlState, UrlStateActions] {
       } else {
         next.set(key, normalized.join(','));
       }
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
+    });
+  }, [commitParams]);
 
   const setFilterProvider = useCallback((values: string[]) => {
     setArrayParam(PARAM_KEYS.filterProvider, values, normalizeLower);
@@ -352,16 +383,14 @@ export function useUrlState(): [UrlState, UrlStateActions] {
 
   // 仅显示收藏 setter（true='1'，false=移除参数）
   const setShowFavoritesOnly = useCallback((value: boolean) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
+    commitParams((next) => {
       if (value) {
         next.set(PARAM_KEYS.showFavoritesOnly, '1');
       } else {
         next.delete(PARAM_KEYS.showFavoritesOnly);
       }
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
+    });
+  }, [commitParams]);
 
   const setViewMode = useCallback((value: ViewMode) => {
     updateParam(PARAM_KEYS.viewMode, value, DEFAULTS.viewMode);
@@ -373,31 +402,27 @@ export function useUrlState(): [UrlState, UrlStateActions] {
     const serialized = serializeSortConfig(config);
     // 默认排序时移除 URL 参数，刷新后可恢复置顶
     // 非默认排序时保留参数
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
+    commitParams((next) => {
       if (serialized === DEFAULT_SORT_PARAM) {
         next.delete(PARAM_KEYS.sort);
       } else {
         next.set(PARAM_KEYS.sort, serialized);
       }
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
+    });
+  }, [commitParams]);
 
   // 通用：runtime 隐藏/禁用某列后，清掉 URL 里指向该列的旧排序，
   // 避免分享链接刷新时仍触发已隐藏列的排序（不写 hasManualSort，刷新仍可恢复置顶语义）。
   const clearSortForKey = useCallback((targetKey: string) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
+    commitParams((next) => {
       const raw = next.get(PARAM_KEYS.sort);
-      if (!raw) return next;
+      if (!raw) return;
       const lastUnderscore = raw.lastIndexOf('_');
       const key = lastUnderscore === -1 ? raw : raw.substring(0, lastUnderscore);
-      if (key !== targetKey) return next;
+      if (key !== targetKey) return;
       next.delete(PARAM_KEYS.sort);
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
+    });
+  }, [commitParams]);
 
   // runtime 隐藏价格列后清理旧 URL（见 UrlStateActions jsdoc）。
   const clearPriceRatioSort = useCallback(() => clearSortForKey('priceRatio'), [clearSortForKey]);
@@ -427,17 +452,15 @@ export function useUrlState(): [UrlState, UrlStateActions] {
     }
 
     // 2. 原子性更新 URL：清空筛选器 + 设置 fav=1
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
+    commitParams((next) => {
       next.delete(PARAM_KEYS.filterProvider);
       next.delete(PARAM_KEYS.filterService);
       next.delete(PARAM_KEYS.filterChannel);
       next.delete(PARAM_KEYS.filterCategory);
       next.delete(PARAM_KEYS.filterVendor);
       next.set(PARAM_KEYS.showFavoritesOnly, '1');
-      return next;
-    }, { replace: true });
-  }, [state.showFavoritesOnly, state.filterProvider, state.filterService, state.filterChannel, state.filterCategory, state.filterVendor, setSearchParams]);
+    });
+  }, [state.showFavoritesOnly, state.filterProvider, state.filterService, state.filterChannel, state.filterCategory, state.filterVendor, commitParams]);
 
   // 退出收藏模式：恢复快照中的筛选状态，移除收藏模式标记
   const exitFavoritesMode = useCallback(() => {
@@ -456,8 +479,7 @@ export function useUrlState(): [UrlState, UrlStateActions] {
     }
 
     // 2. 原子性更新 URL：先清空所有筛选器，再恢复快照中的值
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
+    commitParams((next) => {
       // 移除收藏模式
       next.delete(PARAM_KEYS.showFavoritesOnly);
       // 先清空所有筛选器（避免收藏模式中新增的筛选残留）
@@ -486,10 +508,8 @@ export function useUrlState(): [UrlState, UrlStateActions] {
         }
       }
       // 无快照时恢复为默认（空数组），即不设置参数
-
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
+    });
+  }, [commitParams]);
 
   const actions: UrlStateActions = {
     setTimeRange,
