@@ -187,7 +187,7 @@ Issues and Pull Requests welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## 📈 Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=prehisle/relay-pulse&type=Date)](https://star-history.com/#prehisle/relay-pulse&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=prehisle/relay-pulse&type=Date)](https://star-history.dera.page/#prehisle/relay-pulse&Date)
 
 ## ⚠️ Disclaimer
 
