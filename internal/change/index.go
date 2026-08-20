@@ -120,7 +120,7 @@ func (ai *AuthIndex) Rebuild(
 		if tt, ok := probe.GetTestType(m.Service); ok {
 			candidate.TestType = tt.ID
 			candidate.TestTypeName = tt.Name
-			candidate.DefaultTestVariant = tt.DefaultVariant
+			candidate.DefaultTestVariant = defaultTestVariant(tt, m.Template)
 			if len(tt.Variants) > 0 {
 				candidate.TestVariants = make([]TestVariant, 0, len(tt.Variants))
 				for _, v := range tt.Variants {
@@ -151,6 +151,28 @@ func (ai *AuthIndex) Rebuild(
 	logger.Info("change", "API Key 认证索引已重建",
 		"keys", len(newIndex), "candidates", total,
 		"revoked_keys", len(newRevoked), "revoked_in_use", len(newRevokedFP))
+}
+
+// defaultTestVariant 决定变更流程测试步默认选中的探针模板。
+//
+// 优先用**这条通道自己正在跑的模板**：改 base_url / 轮换 key 时要证明的是「这条通道照旧能用」，
+// 拿注册表的通用默认值去探，等于让中转商为一个自己根本没上架的模型作证——2026-08-06 新增
+// cc-fable-ping-20260806 抢走 cc 默认值后，老通道走变更流程默认就在探 fable-5，一律测不过。
+//
+// 只在模板确实是该 service 已注册的变体时采用（模板文件被删、或历史行填了别的 service 的
+// 模板名时回退），避免把一个探测端拿不到的模板名当默认值发给前端。
+func defaultTestVariant(tt *probe.TestType, monitorTemplate string) string {
+	if tt == nil {
+		return ""
+	}
+	if monitorTemplate != "" {
+		for _, v := range tt.Variants {
+			if v != nil && v.ID == monitorTemplate {
+				return v.ID
+			}
+		}
+	}
+	return tt.DefaultVariant
 }
 
 // Lookup 根据 API Key 查找匹配的通道候选。

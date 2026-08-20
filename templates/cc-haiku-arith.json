@@ -2,6 +2,7 @@
 	"model": "Haiku",
 	"request_model": "claude-haiku-4-5-20251001",
 	"model_vendor": "anthropic",
+	"self_serve_default": true,
 	"url": "{{BASE_URL}}/v1/messages",
 	"method": "POST",
 	"headers": {

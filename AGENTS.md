@@ -40,6 +40,7 @@
 - ⚠️ **随机题面与整包 attestation 数学上互斥** → **arith 族永远不能带 billing header**；Claude 5 的 arith 版只能照 `cc-opus-arith` 改 `request_model` + 加 `thinking.disabled` + 删 `context_management` + 调 `max_tokens`，别照 ping 模板做。也**别把 arith 通道换成 ping**：ping 只验 `pong`、抓不到 mock 回显作弊，arith 的随机题面才是那道反作弊闸。
 - **Claude 5 世代**：`thinking` 默认开且 `max_tokens` 是「思考+正文」总预算，不关思考必 200 却恒红；关思考（仅 effort ≤ high 被接受）必须**同时删 `context_management`**（否则 400）；**fable-5 不接受关思考**，只能放大 `max_tokens`。抓包自带的 `fallbacks` **必须删**（否则目标模型不可用时上游改服回退模型、探针假绿）。
 - 别把真实身份（`account_uuid`/`device_id`）烤进模板；本仓公开。
+- **自助流程的默认模板由 `"self_serve_default": true` 显式声明**（每 service 至多一份，现为 `cc-haiku-arith`/`cx-gpt-arith`/`gm-flash-arith`）。此前是「文件名字典序第一个」，2026-08-06 新增 `cc-fable-ping-20260806` 就把 cc 默认值换成了几乎无人提供的 fable-5，收录申请人与走变更流程的老通道**一律卡在测试步**。新增模板时别动这三个声明；守卫是 `TestInitTemplates_BundledDefaultsAreExplicit`。变更流程另有一层：默认跟随**通道自己在跑的模板**（`change.defaultTestVariant`），拿不到才回落注册表默认值。
 - 抓包形态：`ANTHROPIC_BASE_URL` 指本地 echo server 得到的是「CLI→中转商」形态（**不发 cch**），要官方端点形态必须 mitmproxy 拦截。配方见 meta 仓 `.claude/skills/relay-client-gate/SKILL.md`。
 
 ## 技术指南

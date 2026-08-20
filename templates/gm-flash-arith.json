@@ -2,6 +2,7 @@
 	"model": "Flash",
 	"request_model": "gemini-2.5-flash",
 	"model_vendor": "google",
+	"self_serve_default": true,
 	"url": "{{BASE_URL}}/v1beta/models/{{MODEL}}:generateContent",
 	"method": "POST",
 	"headers": {

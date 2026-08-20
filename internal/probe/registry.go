@@ -108,6 +108,14 @@ func ListTestTypes() []*TestType {
 
 // InitTemplates 扫描 templates/ 目录，按文件名约定（{service}-*.json）
 // 动态填充已注册 TestType 的 Variants 和 DefaultVariant。
+//
+// DefaultVariant 取模板自己声明的 `"self_serve_default": true`（每个 service 至多一份）；
+// 一份都没声明时回退到字典序第一个——即本函数的历史行为，自建部署带自己的模板目录时零影响。
+//
+// 这个默认值决定了自助收录第二步与变更请求测试步**首次探测打哪个模型**，因此不能是文件名
+// 字典序的副产物：2026-08-06 新增 `cc-fable-ping-20260806`（`cc-f…` 排在 `cc-h…` 前）就把
+// cc 的默认目标从 haiku 换成了几乎无中转商提供的 fable-5，申请人与老通道一律测不过、卡在
+// 测试步无法提交。可选项不受影响（下拉仍是全部模板，Order 仍是纯字典序），只有默认值被钉死。
 func InitTemplates(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -115,6 +123,7 @@ func InitTemplates(dir string) error {
 	}
 
 	grouped := make(map[string][]*PayloadVariant)
+	declaredDefaults := make(map[string][]string)
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -132,14 +141,41 @@ func InitTemplates(dir string) error {
 			ID:       variantID,
 			Filename: filename,
 		})
+
+		// 读不动的模板只是拿不到声明，仍留在可选列表里：踢掉它会让一次坏部署静默缩短
+		// 公开可选项，而选中它本就会在内联探测处返回可读的解析错误。
+		tmpl, loadErr := config.LoadProbeTemplate(filepath.Join(dir, filename))
+		if loadErr != nil {
+			logger.Warn("probe", "模板加载失败，跳过其默认声明", "template", variantID, "error", loadErr)
+			continue
+		}
+		if tmpl.SelfServeDefault {
+			declaredDefaults[service] = append(declaredDefaults[service], variantID)
+		}
 	}
 
-	for _, variants := range grouped {
+	defaultVariants := make(map[string]string, len(grouped))
+	for service, variants := range grouped {
 		sort.Slice(variants, func(i, j int) bool {
 			return variants[i].ID < variants[j].ID
 		})
 		for i := range variants {
 			variants[i].Order = i + 1
+		}
+
+		declared := declaredDefaults[service]
+		sort.Strings(declared)
+		switch {
+		case len(declared) == 0:
+			defaultVariants[service] = variants[0].ID
+		default:
+			defaultVariants[service] = declared[0]
+			if len(declared) > 1 {
+				// 多份声明属配置事故，但默认值必须确定：取字典序第一个并留痕。
+				logger.Warn("probe", "同一 service 声明了多个自助默认模板，取字典序第一个",
+					"service", service, "declared", strings.Join(declared, ","),
+					"chosen", declared[0])
+			}
 		}
 	}
 
@@ -150,7 +186,7 @@ func InitTemplates(dir string) error {
 		updated := *current
 		if variants, ok := grouped[id]; ok && len(variants) > 0 {
 			updated.Variants = variants
-			updated.DefaultVariant = variants[0].ID
+			updated.DefaultVariant = defaultVariants[id]
 			totalVariants += len(variants)
 		} else {
 			updated.Variants = nil
@@ -162,8 +198,25 @@ func InitTemplates(dir string) error {
 	registryMu.Unlock()
 
 	logger.Info("probe", "探测模板已刷新",
-		"templates_dir", dir, "variants", totalVariants)
+		"templates_dir", dir, "variants", totalVariants,
+		"defaults", formatDefaults(defaultVariants))
 	return nil
+}
+
+// formatDefaults 把「service → 默认模板」拍成确定性的一行日志值（如 "cc=cc-haiku-arith cx=..."），
+// 供部署后直接从日志核对默认探测目标有没有被新模板挤掉。
+func formatDefaults(defaults map[string]string) string {
+	services := make([]string, 0, len(defaults))
+	for service := range defaults {
+		services = append(services, service)
+	}
+	sort.Strings(services)
+
+	pairs := make([]string, 0, len(services))
+	for _, service := range services {
+		pairs = append(pairs, service+"="+defaults[service])
+	}
+	return strings.Join(pairs, " ")
 }
 
 // TemplateBuilder 从 templates/ 目录加载 JSON 模板构建探测配置。

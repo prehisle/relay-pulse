@@ -1381,6 +1381,7 @@ WHERE timestamp < strftime('%s', 'now', '-30 days');
 - **类型**: string
 - **说明**: 引用 `templates/` 目录下的 JSON 模板文件（不含扩展名），定义完整的请求方式（url/method/headers/body/success_contains）
 - **示例**: `"cx-gpt-arith"`、`"cc-haiku-arith"`、`"gm-flash-arith"`
+- **自助流程默认模板**: 模板文件里写 `"self_serve_default": true`，即声明它是所属 service（文件名首段 `cc`/`cx`/`gm`）在自助收录与变更请求测试步里**默认选中**的探针，每个 service 至多一份。一份都没声明时回退到按文件名字典序取第一个（即旧行为）。内置模板已分别声明 `cc-haiku-arith` / `cx-gpt-arith` / `gm-flash-arith`——新增模板不会再悄悄改掉默认探测目标。该字段只影响表单默认值，与调度器探测无关。
 
 ##### `method`（传统模式必填，模板模式可选）
 - **类型**: string

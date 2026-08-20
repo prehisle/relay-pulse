@@ -2,6 +2,7 @@
 	"model": "GPT",
 	"request_model": "gpt-5.5",
 	"model_vendor": "openai",
+	"self_serve_default": true,
 	"url": "{{BASE_URL}}/v1/responses",
 	"method": "POST",
 	"headers": {

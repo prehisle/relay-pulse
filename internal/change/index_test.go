@@ -8,6 +8,7 @@ import (
 
 	"monitor/internal/apikey"
 	"monitor/internal/config"
+	"monitor/internal/probe"
 )
 
 // testCipher 创建测试用的 KeyCipher（固定 hex key）。
@@ -313,4 +314,88 @@ monitors:
 	if c2[0].ApplyMode != "manual" {
 		t.Errorf("p2 ApplyMode: got %q, want %q", c2[0].ApplyMode, "manual")
 	}
+}
+
+// TestAuthIndex_Rebuild_DefaultTestVariant 锁死变更流程测试步的默认模板：
+// 优先跟随通道自己在跑的模板，只在拿不到时才回落注册表默认值。
+//
+// 这条不是纯 UI 偏好：默认值决定了老中转商改 base_url / 轮换 key 时探哪个模型。
+// 曾经一律取注册表默认值，新增一个字典序更靠前的模板（cc-fable-ping-20260806）即把所有
+// 老通道的默认探测目标换成它们并未上架的 fable-5，变更请求提交不了。
+func TestDefaultTestVariant(t *testing.T) {
+	tt := &probe.TestType{
+		ID:             "cc",
+		DefaultVariant: "cc-registry-default",
+		Variants: []*probe.PayloadVariant{
+			{ID: "cc-registry-default", Order: 1},
+			{ID: "cc-own", Order: 2},
+			nil, // 注册表里出现 nil 变体时不得 panic
+		},
+	}
+
+	tests := []struct {
+		name     string
+		tt       *probe.TestType
+		template string
+		want     string
+	}{
+		{name: "通道自己的模板优先", tt: tt, template: "cc-own", want: "cc-own"},
+		{name: "无模板时回落注册表默认值", tt: tt, template: "", want: "cc-registry-default"},
+		{name: "模板已不存在时回落", tt: tt, template: "cc-removed", want: "cc-registry-default"},
+		{name: "别的 service 的模板名不认", tt: tt, template: "gm-flash-arith", want: "cc-registry-default"},
+		{name: "未注册的 service 给空串不 panic", tt: nil, template: "cc-own", want: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := defaultTestVariant(tc.tt, tc.template); got != tc.want {
+				t.Errorf("defaultTestVariant(_, %q) = %q，期望 %q", tc.template, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAuthIndex_Rebuild_DefaultTestVariantWiring 锁死 Rebuild 确实把上面那个 helper 接进了候选，
+// 而不是又退回直接读注册表默认值——本轮修的正是这一行。
+func TestAuthIndex_Rebuild_DefaultTestVariantWiring(t *testing.T) {
+	const service = "cctestwiring"
+	registerScopedTestType(t, &probe.TestType{
+		ID:             service,
+		Name:           "CC Test",
+		DefaultVariant: service + "-fallback",
+		Variants: []*probe.PayloadVariant{
+			{ID: service + "-fallback", Order: 1},
+			{ID: service + "-own", Order: 2},
+		},
+	})
+
+	cipher := testCipher(t)
+	idx := NewAuthIndex()
+	idx.Rebuild([]config.ServiceConfig{{
+		Provider: "p", Service: service, Channel: "ch",
+		APIKey: "sk-test-key-003", Template: service + "-own",
+	}}, cipher, nil, nil)
+
+	candidates, _ := idx.Lookup("sk-test-key-003", cipher)
+	if len(candidates) != 1 {
+		t.Fatalf("期望 1 个候选，得到 %d", len(candidates))
+	}
+	if got := candidates[0].DefaultTestVariant; got != service+"-own" {
+		t.Errorf("DefaultTestVariant = %q，期望通道自身模板 %q", got, service+"-own")
+	}
+	// 可选项仍是该 service 的全量变体，用户可手动改选。
+	if len(candidates[0].TestVariants) != 2 {
+		t.Errorf("TestVariants 数量 = %d，期望 2", len(candidates[0].TestVariants))
+	}
+}
+
+// registerScopedTestType 注册一个仅供本测试使用的 probe 测试类型，并在结束时把它清成惰性空壳。
+// probe 注册表是包级全局且没有反注册接口，故只能把残留项的 Variants/DefaultVariant 清空，
+// 让它对后续测试不再有影响（用独一无二的 service id 也是为了这个）。
+func registerScopedTestType(t *testing.T, tt *probe.TestType) {
+	t.Helper()
+	probe.RegisterTestType(tt)
+	t.Cleanup(func() {
+		probe.RegisterTestType(&probe.TestType{ID: tt.ID})
+	})
 }
