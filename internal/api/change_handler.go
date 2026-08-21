@@ -4,11 +4,14 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"monitor/internal/change"
+	"monitor/internal/config"
 	"monitor/internal/logger"
+	"monitor/internal/probe"
 )
 
 // AuthChange 验证 API Key 并返回匹配通道列表
@@ -48,11 +51,89 @@ func (h *Handler) AuthChange(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// buildChangeTestConfig 构造变更请求测试用的 ServiceConfig。
+//
+// **模型元数据一律从服务端运行时配置取，绝不信客户端**——这条别改回去：
+//   - 变更测试发的 api_key 可能是**待轮换的新 key**（前端 `newApiKey || apiKey`），它还没进
+//     AuthIndex，所以无法靠 api_key 反查通道；target_key 才是能定位已认证候选的通道身份。
+//   - 变更要证明的是「这条通道照旧能用」。模型若由客户端指定，就能拿一个便宜模型测通、而
+//     实际在跑的是另一个，测试与被测对象脱钩，proof 也就失去意义。
+//
+// 取的是**父通道行**：变更的认证候选本身只由父行构建（internal/change/index.go 跳过子行），
+// 两处必须同口径，否则「测哪一层」会出现两种答案。
+//
+// base_url 与 api_key 仍用请求里变更后的值（那正是本次要验证的东西）；template 允许请求指定
+// （用户可在测试步切变体排障），但必须是该 service 已注册的变体。
+//
+// 已知边界：这里按 PSC + 模板重新构造，不继承根行的行级覆盖（自定义 headers / timeout / proxy
+// 等）。这与本函数抽出前的行为一致，不是本轮引入的回归；真要对齐得改用根行的 resolved cfg 再
+// 覆盖，但那样切换模板时会带上旧模板已解析的 body，另有代价。
+func (h *Handler) buildChangeTestConfig(c *gin.Context, req inlineTestRequest) (config.ServiceConfig, bool) {
+	targetKey := strings.TrimSpace(req.TargetKey)
+	if targetKey == "" {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "缺少 target_key：变更测试必须指定目标通道")
+		return config.ServiceConfig{}, false
+	}
+
+	provider, service, channel, err := config.ParseMonitorFileKey(targetKey)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "target_key 格式无效")
+		return config.ServiceConfig{}, false
+	}
+
+	appCfg := h.snapshotAppConfig()
+	if appCfg == nil {
+		apiError(c, http.StatusServiceUnavailable, ErrCodeServiceUnavailable, "运行时配置未就绪")
+		return config.ServiceConfig{}, false
+	}
+
+	// 找不到就 400 收场，**不许**回落到「空 model 照样探一次」——那正是本次要修的缺陷形态：
+	// 探测会带着 `"model": ""` 打上游，红得莫名其妙。
+	root, ok := findRuntimeRootByPSC(appCfg, provider, service, channel)
+	if !ok {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "target_key 对应的通道不存在或尚未生效")
+		return config.ServiceConfig{}, false
+	}
+
+	if req.ServiceType != root.Service {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "service_type 与 target_key 不匹配")
+		return config.ServiceConfig{}, false
+	}
+
+	// 模板必须属于目标通道所在 service 的已注册变体，挡住「拿 cx 模板去测 cc 通道」。
+	testType, found := probe.GetTestType(root.Service)
+	if !found {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "target_key 对应的服务类型未注册探测模板")
+		return config.ServiceConfig{}, false
+	}
+	variant, err := testType.ResolveVariant(req.TemplateName)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "测试模板无效: "+err.Error())
+		return config.ServiceConfig{}, false
+	}
+
+	return config.ServiceConfig{
+		Provider: root.Provider,
+		Service:  root.Service,
+		Channel:  root.Channel,
+		// 模型三项来自服务端根行；ResolveSingleMonitor 是 config > template 的回退链
+		// （lifecycle.go 只在字段为空时才填模板值），故这里灌进去的值能活到 wire 上。
+		Model:        root.Model,
+		RequestModel: root.RequestModel,
+		ModelVendor:  root.ModelVendor,
+		// 用注册表里解析出的变体 ID 而非请求原文：ResolveVariant 会 TrimSpace，
+		// 而模板名随后要拼成文件路径，带空白的原文能过注册表校验却读不到文件。
+		Template: variant.ID,
+		BaseURL:  req.BaseURL,
+		APIKey:   req.APIKey,
+	}, true
+}
+
 // ChangeTest 变更请求内联探测测试
 // POST /api/change/test
 //
-// 与 /api/onboarding/test 共用 runInlineTestProbe 探测编排，但只依赖 change service
-// 是否启用（而非 onboarding）。这样仅开启 change_requests、未开 onboarding 时，
+// 与 /api/onboarding/test 共用 bindInlineTestRequest + runResolvedProbe 编排，但只依赖
+// change service 是否启用（而非 onboarding）。这样仅开启 change_requests、未开 onboarding 时，
 // 涉及 base_url / API Key 轮换的变更流程不再因 onboarding 未启用而卡 503。
 // 成功时用 change service 自己的 proofIssuer 签发 proof，可被 change.Submit 验证。
 func (h *Handler) ChangeTest(c *gin.Context) {
@@ -62,7 +143,17 @@ func (h *Handler) ChangeTest(c *gin.Context) {
 		return
 	}
 
-	req, result, ok := h.runInlineTestProbe(c)
+	req, ok := h.bindInlineTestRequest(c)
+	if !ok {
+		return
+	}
+
+	cfg, ok := h.buildChangeTestConfig(c, req)
+	if !ok {
+		return
+	}
+
+	result, ok := h.runResolvedProbe(c, cfg)
 	if !ok {
 		return
 	}

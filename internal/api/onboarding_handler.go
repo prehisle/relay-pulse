@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -160,47 +161,99 @@ func (h *Handler) SubmitOnboarding(c *gin.Context) {
 }
 
 // inlineTestRequest 内联探测请求体，由 /api/onboarding/test 与 /api/change/test 共用。
+//
+// 刻意**没有** model / request_model / model_vendor 字段：变更流程要探的模型由服务端按
+// TargetKey 从运行时配置取（见 buildChangeTestConfig），收录流程则由模板提供。多余的 JSON
+// 键会被 ShouldBindJSON 丢弃，故客户端塞模型字段也进不来。
 type inlineTestRequest struct {
 	ServiceType  string `json:"service_type" binding:"required"`
 	TemplateName string `json:"template_name" binding:"required"`
 	BaseURL      string `json:"base_url" binding:"required"`
 	APIKey       string `json:"api_key" binding:"required"`
+	// TargetKey 是变更流程的目标通道（`provider--service--channel`），**仅变更流程使用**。
+	// 不能标 binding:"required"：收录流程共用本结构体，那里根本没有已存在的通道可指。
+	TargetKey string `json:"target_key"`
 }
 
-// runInlineTestProbe 执行自助收录 / 变更请求共用的内联探测编排：
-// 探测器就绪检查 → IP 限流 → 参数绑定 → SSRF 校验 → 构造 ServiceConfig →
-// 与 loader 一致的 ResolveSingleMonitor（模板填充 + Duration 派生）→ 30s 超时探测。
-// 调用方各自负责功能开关判断（onboarding / change service）与探测成功后的 proof 签发。
+// bindInlineTestRequest 执行两条公开内联探测端点共用的请求前置检查：
+// 探测器就绪 → IP 限流 → 参数绑定 → SSRF 校验。
+//
+// 与 runResolvedProbe 拆开是因为两条流程的 ServiceConfig **来源不同**：收录流程从用户提交
+// 字段构造，变更流程必须从服务端运行时配置取模型元数据。原先合成一个函数时，共用的构造逻辑
+// 只能取两者的交集，于是变更流程永远拿不到 model——native 模板的通道因此在 wire 上发出
+// `"model": ""`，测试恒红、改 base_url / 轮换 key 全部卡死。
+//
 // 任一前置校验失败时已写入响应并返回 ok=false，调用方应直接返回。
-func (h *Handler) runInlineTestProbe(c *gin.Context) (inlineTestRequest, *probe.Result, bool) {
+func (h *Handler) bindInlineTestRequest(c *gin.Context) (inlineTestRequest, bool) {
 	var req inlineTestRequest
 
 	if h.inlineProber == nil {
 		apiError(c, http.StatusServiceUnavailable, ErrCodeFeatureDisabled, "内联探测器未初始化")
-		return req, nil, false
+		return req, false
 	}
 
 	// IP 限流
 	if h.probeLimiter != nil && !h.probeLimiter.Allow(c.ClientIP()) {
 		apiError(c, http.StatusTooManyRequests, ErrCodeRateLimited, "请求过于频繁，请稍后再试")
-		return req, nil, false
+		return req, false
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "请求参数无效: "+err.Error())
-		return req, nil, false
+		return req, false
 	}
 
 	// SSRF 前置校验
 	guard := probe.NewSSRFGuard()
 	if err := guard.ValidateURL(req.BaseURL); err != nil {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "URL 安全校验失败: "+err.Error())
-		return req, nil, false
+		return req, false
 	}
 
-	// 走与 AdminPublish 同一映射器构造 ServiceConfig，再经 ResolveSingleMonitor 走与 loader 一致
-	// 的解析路径（模板填充 + Duration 派生）。这样"用户自助测试"与"发布后调度真探测"用同一份
-	// cfg 表达，规避"测试绿、上线红"的字段漂移。
+	return req, true
+}
+
+// runResolvedProbe 对调用方构造好的临时 ServiceConfig 执行与 loader 一致的解析
+// （ResolveSingleMonitor：模板填充 + Duration 派生）并发起一次 30 秒上限的内联探测。
+//
+// 让调用方自己构造 cfg、这里只管解析与探测，是为了保证"自助测试"与"发布后调度真探测"用
+// 同一份 cfg 表达，规避"测试绿、上线红"的字段漂移。
+// 任一前置校验失败时已写入响应并返回 ok=false，调用方应直接返回。
+func (h *Handler) runResolvedProbe(c *gin.Context, cfg config.ServiceConfig) (*probe.Result, bool) {
+	appCfg := h.snapshotAppConfig()
+	if appCfg == nil {
+		apiError(c, http.StatusServiceUnavailable, ErrCodeServiceUnavailable, "运行时配置未就绪")
+		return nil, false
+	}
+	if err := config.ResolveSingleMonitor(appCfg, &cfg, h.configDir()); err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "解析测试配置失败: "+err.Error())
+		return nil, false
+	}
+
+	// 解析完还是拿不到模型就**停下**，不许带着 `"model": ""` 去打上游。
+	//
+	// 这道闸放在解析之后、探测之前，是让"空 model 探测"在结构上不可能发生：两条流程、
+	// 无论模型来自模板还是监测行，最终都要过这里。native 族（cc-native-* / cx-native-*）
+	// 刻意不声明模型、要求行级填，是唯一会走到这个分支的形状——漏填时上游返回的是没头没脑
+	// 的 400/内容不符，排障要绕一大圈；直接告诉调用方"这个模板必须指定模型"要诚实得多。
+	//
+	// 回退链与 InjectVariables 的 {{MODEL}} 一致：request_model 优先，为空回退 model。
+	if strings.TrimSpace(cfg.RequestModel) == "" && strings.TrimSpace(cfg.Model) == "" {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam,
+			"测试配置缺少模型：所选模板未声明模型，需由监测行指定")
+		return nil, false
+	}
+
+	// 30 秒总超时
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	return h.inlineProber.ProbeConfig(ctx, cfg), true
+}
+
+// buildOnboardingTestConfig 用用户提交的字段构造自助收录测试用的 ServiceConfig。
+// 走与 AdminPublish 同一映射器，使自助测试与上架后的真实探测同源。
+func buildOnboardingTestConfig(req inlineTestRequest) config.ServiceConfig {
 	virtualSub := &onboarding.Submission{
 		ServiceType:  req.ServiceType,
 		TemplateName: req.TemplateName,
@@ -208,23 +261,7 @@ func (h *Handler) runInlineTestProbe(c *gin.Context) (inlineTestRequest, *probe.
 		// PSC 在自助测试阶段只用于日志/审计，不参与 monitor_store 唯一性校验，故用占位值
 		ChannelCode: "__test__",
 	}
-	cfg := onboarding.BuildServiceConfigFromSubmission(virtualSub, req.APIKey)
-
-	appCfg := h.snapshotAppConfig()
-	if appCfg == nil {
-		apiError(c, http.StatusServiceUnavailable, ErrCodeServiceUnavailable, "运行时配置未就绪")
-		return req, nil, false
-	}
-	if err := config.ResolveSingleMonitor(appCfg, &cfg, h.configDir()); err != nil {
-		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "解析测试配置失败: "+err.Error())
-		return req, nil, false
-	}
-
-	// 30 秒总超时
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
-
-	return req, h.inlineProber.ProbeConfig(ctx, cfg), true
+	return onboarding.BuildServiceConfigFromSubmission(virtualSub, req.APIKey)
 }
 
 // inlineTestProbeResponse 组装内联探测结果的公共响应字段（不含 proof，由各端点按需追加）。
@@ -249,7 +286,12 @@ func (h *Handler) OnboardingTest(c *gin.Context) {
 		return
 	}
 
-	req, result, ok := h.runInlineTestProbe(c)
+	req, ok := h.bindInlineTestRequest(c)
+	if !ok {
+		return
+	}
+
+	result, ok := h.runResolvedProbe(c, buildOnboardingTestConfig(req))
 	if !ok {
 		return
 	}

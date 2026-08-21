@@ -656,20 +656,37 @@ func (h *Handler) resolveRuntimeRoot(root *config.ServiceConfig) (config.Service
 	if root == nil {
 		return config.ServiceConfig{}, false
 	}
-	h.cfgMu.RLock()
-	defer h.cfgMu.RUnlock()
-	if h.config == nil {
+	found, ok := findRuntimeRootByPSC(h.snapshotAppConfig(), root.Provider, root.Service, root.Channel)
+	if !ok {
 		return *root, false
 	}
-	for _, m := range h.config.Monitors {
+	return found, true
+}
+
+// findRuntimeRootByPSC 在运行时配置里按 PSC 三元组查找**父通道行**（Parent 为空）。
+//
+// 「只认父行」不是筛选偏好而是语义：子行的 ServiceConfig 依赖父继承，脱离父行单独拿到的
+// 那份是半解析状态；而变更流程的认证候选本身也只由父行构建（internal/change/index.go 里
+// `m.Parent != ""` 直接跳过），故「一个 PSC 对应哪一行」在两处必须是同一个答案。
+//
+// 抽成独立函数是为了让 resolveRuntimeRoot 与变更流程共用同一份匹配规则——两处各写一遍
+// 循环，日后有人给其中一处加了条件（比如跳过 disabled）就会静默产生两种「根行」定义。
+//
+// 返回值拷贝，浅拷贝语义与 resolveRuntimeRoot 一致：只适合覆盖 BaseURL/APIKey 这类字符串
+// 字段，要改 Headers 等引用字段的调用方必须自行深拷贝。
+func findRuntimeRootByPSC(appCfg *config.AppConfig, provider, service, channel string) (config.ServiceConfig, bool) {
+	if appCfg == nil {
+		return config.ServiceConfig{}, false
+	}
+	for _, m := range appCfg.Monitors {
 		if strings.TrimSpace(m.Parent) != "" {
 			continue
 		}
-		if m.Provider == root.Provider && m.Service == root.Service && m.Channel == root.Channel {
+		if m.Provider == provider && m.Service == service && m.Channel == channel {
 			return m, true
 		}
 	}
-	return *root, false
+	return config.ServiceConfig{}, false
 }
 
 // findRawRoot 返回 monitor file 中的父通道（Parent 为空的第一条）。

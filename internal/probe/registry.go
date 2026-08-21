@@ -83,6 +83,17 @@ func RegisterTestType(t *TestType) {
 	registryMu.Unlock()
 }
 
+// UnregisterTestType 从全局注册表中移除探测类型；ID 不存在时是空操作。
+//
+// 与 RegisterTestType 对称。注册表是包级全局的，跨包的测试注册了合成 service 后若没有真正的
+// 移除手段，只能"再注册一个空壳"来假装清理——空壳会永久留在 ListTestTypes 里，被
+// /api/onboarding/meta 一路下发给前端，污染后续任何断言 service 集合的测试。
+func UnregisterTestType(id string) {
+	registryMu.Lock()
+	delete(testTypeRegistry, id)
+	registryMu.Unlock()
+}
+
 // GetTestType 根据 ID 获取探测类型。
 func GetTestType(id string) (*TestType, bool) {
 	registryMu.RLock()

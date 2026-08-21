@@ -206,11 +206,14 @@ export function useChangeRequest() {
       // 调用变更请求专用内联探测 API（同步返回结果）。
       // 走 /api/change/test 而非 /api/onboarding/test：变更流程只依赖 change_requests
       // 开关，未启用 onboarding 时也能测通（两端共用探测编排，proof 同源可被 submit 验证）。
+      // target_key 必传：轮换 key 时这里发的是**新** key，它还没进后端的 API Key 索引，
+      // 服务端只能靠 target_key 定位这条通道、取它正在跑的模型来探测（同 submit 的用法）。
       const resp = await apiPost<InlineTestResult>('/api/change/test', {
         service_type: selectedCandidate.test_type || selectedCandidate.service,
         template_name: selectedVariant || '',
         base_url: testBaseUrl,
         api_key: testKey,
+        target_key: selectedCandidate.monitor_key,
       });
 
       setTestJobId(resp.probe_id);
