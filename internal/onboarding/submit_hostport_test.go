@@ -45,7 +45,51 @@ func TestSubmit_BaseURLPortMustMatchTestAPIURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("同 host 不同端口应被拒，实际 nil")
 	}
-	if !strings.Contains(err.Error(), "host/port 必须一致") {
-		t.Fatalf("期望 host/port 一致性拒因，实际: %v", err)
+	if !strings.Contains(err.Error(), "必须完全一致") {
+		t.Fatalf("期望同一接入点校验拒因，实际: %v", err)
 	}
+}
+
+// TestSubmit_BaseURLPathMustMatchTestAPIURL 锁定路径替换这条既有缺口。
+//
+// 只比 host/port 时，可以拿 https://edge/good 测出 proof、再提交 base_url=https://edge/other：
+// 两者 host/port 相同，却是完全不同的上游——中转商的多条线路恰恰常按路径区分，等于绕开了
+// 「先证明这条线路可用」。同时确认尾部斜杠不误伤（用户在表单里多敲一个 / 是常事）。
+func TestSubmit_BaseURLPathMustMatchTestAPIURL(t *testing.T) {
+	t.Run("同 host 不同路径应被拒", func(t *testing.T) {
+		svc := newSubmitTestService(t)
+		_, err := svc.Submit(context.Background(), &SubmitRequest{
+			AgreementAccepted: true,
+			ProviderName:      "Prov",
+			ServiceType:       "cc",
+			TemplateName:      "cc-haiku-arith",
+			ChannelType:       "O",
+			ChannelSource:     "max",
+			ChannelGroup:      "main",
+			BaseURL:           "https://edge.example.com/other",
+			TestAPIURL:        "https://edge.example.com/good",
+		}, "1.2.3.4")
+		if err == nil || !strings.Contains(err.Error(), "必须完全一致") {
+			t.Fatalf("同 host 不同路径应被拒，实际: %v", err)
+		}
+	})
+
+	t.Run("仅尾部斜杠之差不应被拒", func(t *testing.T) {
+		svc := newSubmitTestService(t)
+		_, err := svc.Submit(context.Background(), &SubmitRequest{
+			AgreementAccepted: true,
+			ProviderName:      "Prov",
+			ServiceType:       "cc",
+			TemplateName:      "cc-haiku-arith",
+			ChannelType:       "O",
+			ChannelSource:     "max",
+			ChannelGroup:      "main",
+			BaseURL:           "https://edge.example.com/good/",
+			TestAPIURL:        "https://edge.example.com/good",
+		}, "1.2.3.4")
+		// 该组合会继续走到 proof 校验（本用例不构造 proof），故只断言不是被 URL 校验挡下的
+		if err != nil && strings.Contains(err.Error(), "必须完全一致") {
+			t.Fatalf("仅尾部斜杠之差不应被 URL 校验拒绝，实际: %v", err)
+		}
+	})
 }

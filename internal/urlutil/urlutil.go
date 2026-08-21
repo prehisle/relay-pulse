@@ -15,6 +15,31 @@ func SameHostPort(a, b *url.URL) bool {
 	return strings.EqualFold(a.Hostname(), b.Hostname()) && normalizedPort(a) == normalizedPort(b)
 }
 
+// SameEndpoint 在 SameHostPort 之上再比 scheme、路径与查询串，即「两个 URL 指向同一个接入点」。
+//
+// 只比 host/port 会漏掉**路径替换**：拿 https://edge/good 测出 proof，提交
+// base_url=https://edge/other，两者 host/port 相同、却是完全不同的上游——而中转商的多线路
+// 恰恰常按路径区分。收录与变更的提交校验都用这一条。
+//
+// 路径按「剥尾部斜杠」归一（https://h 与 https://h/ 视为同一个），其余部分逐字比较：
+// 大小写、编码形式的差异一律视为不同，因为它们对上游而言本就可能是不同资源。
+// scheme 也必须相同：SameHostPort 只把端口按 scheme 归一化，故 http://h:443 与 https://h
+// 在它眼里是同一个，而实际一个明文一个加密。
+func SameEndpoint(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		SameHostPort(a, b) &&
+		normalizedPath(a) == normalizedPath(b) &&
+		a.RawQuery == b.RawQuery
+}
+
+// normalizedPath 返回剥掉尾部斜杠的路径（根路径与空路径同归一为空串）。
+func normalizedPath(u *url.URL) string {
+	return strings.TrimSuffix(u.EscapedPath(), "/")
+}
+
 // normalizedPort 返回 URL 的有效端口：显式端口优先，缺省时按 scheme 默认（https→443 / http→80）。
 func normalizedPort(u *url.URL) string {
 	if port := u.Port(); port != "" {

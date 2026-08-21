@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { apiGet, apiPost, ApiError } from '../utils/apiClient';
 import { normalizeDisplayName } from '../utils/displayName';
+import { canonicalEndpointUrl } from '../utils/endpointUrl';
 import type {
   OnboardingMeta,
   OnboardingFormData,
@@ -156,7 +157,8 @@ export function useOnboarding() {
       const resp = await apiPost<OnboardingTestResult>('/api/onboarding/test', {
         service_type: formData.serviceType,
         template_name: formData.testVariant || formData.testType,
-        base_url: formData.baseUrl,
+        // 与提交时同一口径：测试打的地址就是将来落地的 base_url，且 proof 绑的正是这个串。
+        base_url: canonicalEndpointUrl(formData.baseUrl),
         api_key: formData.apiKey,
       });
 
@@ -189,17 +191,14 @@ export function useOnboarding() {
     setIsSubmitting(true);
     setError(null);
 
-    // 自动补全 URL 协议前缀
-    const ensureUrl = (v: string) => {
-      const s = v.trim();
-      if (s && !/^https?:\/\//i.test(s)) return 'https://' + s;
-      return s;
-    };
+    // base_url 与 test_api_url 必须是同一个串：后端按「同一接入点」比较，且 proof 绑定的
+    // 就是测试时用的那个地址。两处各自处理必然对不上（历史上正是这个 bug）。
+    const baseUrl = canonicalEndpointUrl(formData.baseUrl);
 
     try {
       const req: SubmitOnboardingRequest = {
         provider_name: normalizeDisplayName(formData.providerName),
-        website_url: ensureUrl(formData.websiteUrl),
+        website_url: canonicalEndpointUrl(formData.websiteUrl),
         category: formData.category,
         service_type: formData.serviceType,
         template_name: formData.testVariant || formData.testType,
@@ -208,12 +207,12 @@ export function useOnboarding() {
         channel_source: formData.channelSource,
         channel_group: formData.channelGroup.trim() || 'main',
         channel_name: normalizeDisplayName(formData.channelName),
-        base_url: ensureUrl(formData.baseUrl),
+        base_url: baseUrl,
         api_key: formData.apiKey,
         test_proof: testProof,
         test_job_id: testJobId,
         test_type: formData.testType,
-        test_api_url: formData.baseUrl,
+        test_api_url: baseUrl,
         test_latency: testResult.latency ?? 0,
         test_http_code: testResult.http_code ?? 0,
         locale: navigator.language || 'zh-CN',

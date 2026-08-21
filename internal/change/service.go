@@ -269,8 +269,10 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 			if err != nil || parsedTestURL.Hostname() == "" {
 				return nil, fmt.Errorf("test_api_url 无效")
 			}
-			if !urlutil.SameHostPort(parsedBaseURL, parsedTestURL) {
-				return nil, fmt.Errorf("base_url 与 test_api_url 的 host/port 必须一致")
+			// 与收录侧同一条：路径也要一致，否则可以拿同 host 的另一条线路（按路径区分）
+			// 测出 proof 再把 base_url 换掉。
+			if !urlutil.SameEndpoint(parsedBaseURL, parsedTestURL) {
+				return nil, fmt.Errorf("base_url 与 test_api_url 必须完全一致（协议、host/port 与路径）")
 			}
 		}
 

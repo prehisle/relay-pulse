@@ -38,3 +38,47 @@ func TestSameHostPort(t *testing.T) {
 		})
 	}
 }
+
+// TestSameEndpoint 覆盖「同一接入点」的四个维度：scheme、host/port、路径、查询串。
+//
+// 路径这一维是本函数存在的理由：SameHostPort 放行 https://edge/good ↔ https://edge/other，
+// 而中转商的多条线路常按路径区分，那等于绕开「先证明这条线路可用」。
+func TestSameEndpoint(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{"完全相同", "https://api.example.com/v1", "https://api.example.com/v1", true},
+		{"仅尾部斜杠之差", "https://api.example.com/v1/", "https://api.example.com/v1", true},
+		{"根路径与空路径", "https://api.example.com/", "https://api.example.com", true},
+		{"默认端口与显式 443", "https://api.example.com/v1", "https://api.example.com:443/v1", true},
+		{"路径不同", "https://api.example.com/good", "https://api.example.com/other", false},
+		{"一方无路径", "https://api.example.com", "https://api.example.com/other", false},
+		{"路径大小写不同", "https://api.example.com/API", "https://api.example.com/api", false},
+		{"host 不同", "https://a.example.com/v1", "https://b.example.com/v1", false},
+		{"端口不同", "https://api.example.com:8443/v1", "https://api.example.com/v1", false},
+		{"scheme 不同但归一化端口相同", "http://api.example.com:443/v1", "https://api.example.com/v1", false},
+		{"查询串不同", "https://api.example.com/v1?a=1", "https://api.example.com/v1?a=2", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := url.Parse(tc.a)
+			if err != nil {
+				t.Fatalf("解析 %q: %v", tc.a, err)
+			}
+			b, err := url.Parse(tc.b)
+			if err != nil {
+				t.Fatalf("解析 %q: %v", tc.b, err)
+			}
+			if got := SameEndpoint(a, b); got != tc.want {
+				t.Errorf("SameEndpoint(%q, %q) = %v，期望 %v", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+
+	if SameEndpoint(nil, nil) {
+		t.Error("nil 输入不应判为同一接入点")
+	}
+}

@@ -1164,7 +1164,7 @@ func TestService_Submit_BaseURLHostMustMatchTestAPIURL(t *testing.T) {
 	if err == nil {
 		t.Error("expected error: test_api_url host does not match new base_url")
 	}
-	if !strings.Contains(err.Error(), "host/port 必须一致") {
+	if !strings.Contains(err.Error(), "必须完全一致") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1197,7 +1197,7 @@ func TestService_Submit_BaseURLPortMustMatchTestAPIURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("端口不一致应被拒，实际 nil")
 	}
-	if !strings.Contains(err.Error(), "host/port 必须一致") {
+	if !strings.Contains(err.Error(), "必须完全一致") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1256,7 +1256,7 @@ func TestService_Submit_NewAPIKeyHostMustMatchTargetBaseURL(t *testing.T) {
 	if err == nil {
 		t.Error("expected error: test_api_url host does not match target base_url")
 	}
-	if !strings.Contains(err.Error(), "host/port 必须一致") {
+	if !strings.Contains(err.Error(), "必须完全一致") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

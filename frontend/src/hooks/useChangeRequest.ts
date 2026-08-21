@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiPost, ApiError } from '../utils/apiClient';
+import { canonicalEndpointUrl } from '../utils/endpointUrl';
 import { normalizeDisplayName } from '../utils/displayName';
 import type {
   AuthCandidate,
@@ -200,7 +201,9 @@ export function useChangeRequest() {
 
     try {
       // 确定测试参数：使用变更后的值
-      const testBaseUrl = changes['base_url'] || selectedCandidate.base_url;
+      // 与提交时同一口径：后端按「同一接入点」比较 test_api_url 与将要落地的 base_url，
+      // 且 proof 绑的就是这个串——两处各自处理必然对不上。
+      const testBaseUrl = canonicalEndpointUrl(changes['base_url'] || selectedCandidate.base_url);
       const testKey = newApiKey || apiKey;
 
       // 调用变更请求专用内联探测 API（同步返回结果）。
@@ -245,7 +248,7 @@ export function useChangeRequest() {
     setError(null);
 
     try {
-      const testBaseUrl = changes['base_url'] || selectedCandidate.base_url;
+      const testBaseUrl = canonicalEndpointUrl(changes['base_url'] || selectedCandidate.base_url);
 
       const req: SubmitChangeRequest = {
         api_key: apiKey,

@@ -296,14 +296,16 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		return nil, fmt.Errorf("base_url 必须使用 HTTPS 协议")
 	}
 
-	// 验证 test_api_url 与 base_url 的 host+端口一致（共享 urlutil.SameHostPort，与 change 流程同一真相源），
-	// 防止"在一个端口测出 proof、却把 base_url 收录成同 host 另一端口"绕过 proof 绑定。
+	// 验证 test_api_url 与 base_url 指向同一接入点（共享 urlutil.SameEndpoint，与 change 流程
+	// 同一真相源）：不仅 host/port，路径与查询串也要一致。只比 host/port 时，可以拿
+	// https://edge/good 测出 proof、再提交 base_url=https://edge/other——中转商的多条线路
+	// 恰恰常按路径区分，那等于绕开了「先证明这条线路可用」。
 	parsedTestURL, err := url.Parse(req.TestAPIURL)
 	if err != nil || parsedTestURL.Hostname() == "" {
 		return nil, fmt.Errorf("test_api_url 无效")
 	}
-	if !urlutil.SameHostPort(parsedBaseURL, parsedTestURL) {
-		return nil, fmt.Errorf("base_url 与 test_api_url 的 host/port 必须一致")
+	if !urlutil.SameEndpoint(parsedBaseURL, parsedTestURL) {
+		return nil, fmt.Errorf("base_url 与 test_api_url 必须完全一致（协议、host/port 与路径）")
 	}
 
 	// 加密 API Key
