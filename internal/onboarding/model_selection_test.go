@@ -112,24 +112,14 @@ func TestValidateModelSelection_ModelIDCharset(t *testing.T) {
 func TestSubmit_ModelSelectionEnforced(t *testing.T) {
 	svc := newSubmitTestService(t)
 
-	// 普通模板带模型 → 在通过任何网络/proof 校验之前就该被拒
-	_, err := svc.Submit(context.Background(), &SubmitRequest{
-		AgreementAccepted: true,
-		ProviderName:      "Prov",
-		ServiceType:       "cc",
-		TemplateName:      "cc-haiku-arith",
-		ChannelType:       "O",
-		ChannelSource:     "max",
-		BaseURL:           "https://api.example.com",
-		TestAPIURL:        "https://api.example.com",
-		Model:             "glm-5.2",
-	}, "1.2.3.4")
-	if err == nil || !strings.Contains(err.Error(), "已由探针模板确定") {
-		t.Fatalf("普通模板带模型应被拒，实际: %v", err)
-	}
+	// 「普通模板带模型」这条组合在公开入口已**结构上不可能**：SubmitRequest 自 2026-08-21
+	// 起没有 model/model_vendor 字段，客户端塞了也会被 ShouldBindJSON 丢弃。该分支的守卫改由
+	// ValidateModelSelection 的单元用例（本文件上方）与 AdminUpdate 用例（下方）覆盖。
 
-	// native 模板漏填模型 → 同样在提交入口被拒
-	_, err = svc.Submit(context.Background(), &SubmitRequest{
+	// native 模板漏填模型 → 在提交入口被拒。
+	// 这是公开路径的第二道 fail-closed：native 模板本就标了 self_serve_visible:false、
+	// 在 handler 的 resolveSelfServeTemplate 处已被挡下，万一有人把它标回可见，这里仍会拒。
+	_, err := svc.Submit(context.Background(), &SubmitRequest{
 		AgreementAccepted: true,
 		ProviderName:      "Prov",
 		ServiceType:       "cc",

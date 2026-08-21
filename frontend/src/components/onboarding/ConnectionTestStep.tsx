@@ -5,13 +5,9 @@ import type { LucideIcon } from 'lucide-react';
 import type { OnboardingFormData, OnboardingMeta, OnboardingTestResult } from '../../types/onboarding';
 import { inputClass, selectClass, labelClass, hintClass, primaryButtonClass, secondaryButtonClass } from './controls';
 import {
-  CUSTOM_MODEL_KEY,
   isSelectionValid,
   modelOptionsFor,
-  needsModelId,
-  requestShapesFor,
   resolveDefaultSelection,
-  selectionForCustom,
   selectionFromOption,
   type ModelSelection,
 } from './modelSelection';
@@ -74,7 +70,7 @@ function useProofCountdown(testProof: string | null, proofExpiresAt: number | nu
 interface ConnectionTestStepProps {
   formData: OnboardingFormData;
   updateField: <K extends keyof OnboardingFormData>(key: K, value: OnboardingFormData[K]) => void;
-  /** 一次性应用模型选择（模型 / 厂商 / 探针模板），并作废已有测试证明 */
+  /** 一次性应用模型选择（选项键 + 探针模板），并作废已有测试证明 */
   applyModelSelection: (selection: ModelSelection) => void;
   meta: OnboardingMeta | null;
   testResult: OnboardingTestResult | null;
@@ -116,10 +112,6 @@ export function ConnectionTestStep({
     () => modelOptionsFor(meta, formData.serviceType),
     [meta, formData.serviceType],
   );
-  const requestShapes = useMemo(
-    () => requestShapesFor(meta, formData.serviceType),
-    [meta, formData.serviceType],
-  );
 
   /** 按厂商分组，组内保持后端给的顺序（后端已按受控词表排好，同厂商条目连续） */
   const groupedModels = useMemo(() => {
@@ -138,7 +130,6 @@ export function ConnectionTestStep({
     return t(`vendors.${code}`, { defaultValue: fallback });
   };
 
-  const showModelIdInput = needsModelId(modelOptions, formData.modelKey);
   const selectedOption = modelOptions.find((o) => o.key === formData.modelKey);
 
   const canRunTest = useMemo(() => {
@@ -147,12 +138,10 @@ export function ConnectionTestStep({
       formData.apiKey.trim().length > 0 &&
       filteredTestTypes.length > 0 &&
       formData.testVariant.length > 0 &&
-      // 自填/可改条目必须真的填了模型 ID——后端对 native 模板漏填模型是硬拒
-      (!showModelIdInput || formData.model.trim().length > 0) &&
       !isTesting
     );
-  }, [formData.baseUrl, formData.apiKey, formData.testVariant, formData.model,
-      filteredTestTypes.length, showModelIdInput, isTesting]);
+  }, [formData.baseUrl, formData.apiKey, formData.testVariant,
+      filteredTestTypes.length, isTesting]);
 
   const testPassed = useMemo(() => {
     return testResult?.probe_status === 1 && !!testProof;
@@ -220,7 +209,7 @@ export function ConnectionTestStep({
               {selectedTestType.name || selectedTestType.id}
             </div>
           </div>
-          {/* 选模型：按厂商分组；「其他」进入自填模型 ID 分支 */}
+          {/* 选模型：按厂商分组。这是本步唯一的模型入口——模型 ID / 厂商 / 请求形态都由所选模板钉死 */}
           {modelOptions.length > 0 && (
             <div>
               <label htmlFor="ob-model" className={labelClass}>
@@ -231,12 +220,7 @@ export function ConnectionTestStep({
                 id="ob-model"
                 value={formData.modelKey}
                 onChange={(e) => {
-                  const key = e.target.value;
-                  if (key === CUSTOM_MODEL_KEY) {
-                    applyModelSelection(selectionForCustom(requestShapes));
-                    return;
-                  }
-                  const option = modelOptions.find((o) => o.key === key);
+                  const option = modelOptions.find((o) => o.key === e.target.value);
                   if (option) applyModelSelection(selectionFromOption(option));
                 }}
                 disabled={isTesting}
@@ -249,82 +233,16 @@ export function ConnectionTestStep({
                     ))}
                   </optgroup>
                 ))}
-                {requestShapes.length > 0 && (
-                  <option value={CUSTOM_MODEL_KEY}>
-                    {t('onboarding.connectionTest.modelCustom')}
-                  </option>
-                )}
               </select>
               <p className={hintClass}>{t('onboarding.connectionTest.modelHint')}</p>
             </div>
           )}
 
-          {/* 目录条目：亮出实际会请求的模型 ID，免得用户以为选的是别的 */}
-          {!showModelIdInput && selectedOption && (
+          {/* 亮出实际会请求的模型 ID，免得用户以为选的是别的。只读——模型由模板钉死 */}
+          {selectedOption && (
             <div className="text-xs text-muted">
               {t('onboarding.connectionTest.requestModel')}：
               <span className="font-mono text-secondary ml-1">{selectedOption.request_model}</span>
-            </div>
-          )}
-
-          {/* 自填 / 第一方厂商模型：模型 ID + 厂商 + 请求形态 */}
-          {showModelIdInput && (
-            <div className="space-y-3 p-3 rounded-lg bg-elevated border border-muted">
-              <div>
-                <label htmlFor="ob-model-id" className={labelClass}>
-                  {t('onboarding.connectionTest.modelId')}
-                  <span className="text-danger ml-0.5">*</span>
-                </label>
-                <input
-                  id="ob-model-id"
-                  type="text"
-                  value={formData.model}
-                  onChange={(e) => updateField('model', e.target.value)}
-                  placeholder="glm-5.2"
-                  disabled={isTesting}
-                  className={`${inputClass()} font-mono`}
-                />
-                <p className={hintClass}>{t('onboarding.connectionTest.modelIdHint')}</p>
-              </div>
-
-              <div>
-                <label htmlFor="ob-model-vendor" className={labelClass}>
-                  {t('onboarding.connectionTest.modelVendor')}
-                </label>
-                <select
-                  id="ob-model-vendor"
-                  value={formData.modelVendor}
-                  onChange={(e) => updateField('modelVendor', e.target.value)}
-                  disabled={isTesting}
-                  className={selectClass}
-                >
-                  <option value="">{t('onboarding.connectionTest.modelVendorUnknown')}</option>
-                  {(meta.model_vendors ?? []).map((vendor) => (
-                    <option key={vendor.code} value={vendor.code}>{vendorLabel(vendor.code)}</option>
-                  ))}
-                </select>
-                <p className={hintClass}>{t('onboarding.connectionTest.modelVendorHint')}</p>
-              </div>
-
-              {requestShapes.length > 1 && (
-                <div>
-                  <label htmlFor="ob-request-shape" className={labelClass}>
-                    {t('onboarding.connectionTest.requestShape')}
-                  </label>
-                  <select
-                    id="ob-request-shape"
-                    value={formData.testVariant}
-                    onChange={(e) => updateField('testVariant', e.target.value)}
-                    disabled={isTesting}
-                    className={selectClass}
-                  >
-                    {requestShapes.map((shape) => (
-                      <option key={shape.template} value={shape.template}>{shape.label}</option>
-                    ))}
-                  </select>
-                  <p className={hintClass}>{t('onboarding.connectionTest.requestShapeHint')}</p>
-                </div>
-              )}
             </div>
           )}
         </div>

@@ -1,0 +1,46 @@
+{
+	"self_serve_label": "GLM-5.2",
+	"model": "glm-5.2",
+	"request_model": "glm-5.2",
+	"model_vendor": "zhipu",
+	"_comment": "智谱 GLM-5.2 的 Anthropic Messages 兼容端点探针。请求形态逐字节复制自 cc-native-arith-nothink（含 thinking.disabled 与 max_tokens 64），只补上模型元数据。为什么关思考：默认开深度思考的厂商模型会把小 max_tokens 全用在 thinking 上，stop_reason=max_tokens、正文一个字都没有，内容校验直接判红——探针问的是「端点还活着吗」，不是推理质量。GLM 接受 thinking.disabled 这一条由 2026-08-05 火山方舟真端点实测得出。⚠️ 证据边界：那次实测打的是火山方舟转售端点；中转商自建网关的行为未逐一验证，若某家不接受该字段，自助测试会直接失败（提交不了、不会产生坏数据），由其走 /contact 由我们评估另拆专用模板。model 写规范模型 ID 而非人话名，是因为 model 同时是 DB 业务键——与既有 native 通道的写法保持同一个串，将来把老行切到本模板不会断历史；人话名在 self_serve_label。别加 self_serve_default：每条 service 的自助默认模板只能是 cc-haiku-arith / cx-gpt-arith / gm-flash-arith。",
+	"url": "{{BASE_URL}}/v1/messages",
+	"method": "POST",
+	"headers": {
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"Anthropic-Version": "2023-06-01",
+		"User-Agent": "claude-cli/2.1.76 (external, cli)",
+		"Anthropic-Beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14",
+		"Anthropic-Dangerous-Direct-Browser-Access": "true",
+		"X-App": "cli"
+	},
+	"body": {
+		"model": "{{MODEL}}",
+		"max_tokens": 64,
+		"stream": true,
+		"thinking": {
+			"type": "disabled"
+		},
+		"metadata": {
+			"user_id": "{{USER_ID}}"
+		},
+		"system": [{
+			"text": "You are Claude Code, Anthropic's official CLI for Claude.",
+			"type": "text"
+		}],
+		"messages": [{
+			"role": "user",
+			"content": [{ "text": "{{PROMPT}}", "type": "text" }]
+		}],
+		"tools": []
+	},
+	"response": {
+		"success_contains": "{{EXPECTED_ANSWER}}"
+	},
+	"probe": {
+		"slow_latency": "5s",
+		"timeout": "10s",
+		"retry": 0
+	}
+}

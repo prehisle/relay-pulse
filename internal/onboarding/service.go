@@ -215,11 +215,10 @@ type SubmitRequest struct {
 	Category     string `json:"category" binding:"required,oneof=commercial public"`
 	ServiceType  string `json:"service_type" binding:"required,oneof=cc cx gm"`
 	TemplateName string `json:"template_name" binding:"required,max=100"`
-	// Model / ModelVendor 仅在选中「第一方厂商模型」（native 族模板）时需要：前者是厂商的真实
-	// 模型 ID，后者是受控词表里的厂商 code。binding 只做粗略上限，真正的组合判定在
-	// ValidateModelSelection——binding 拦不住「非 native 模板却带了模型」这类跨字段错误。
-	Model         string `json:"model" binding:"max=128"`
-	ModelVendor   string `json:"model_vendor" binding:"max=24"`
+	// ⚠️ 刻意**没有** model / model_vendor 字段（2026-08-21 起）：模型与厂商由所选模板声明，
+	// 提交方无从指定。留着字段就意味着「非 native 模板 + 仅 vendor 非空」这条组合能过
+	// ValidateModelSelection（它不对非 native 校验 vendor），而行级 vendor 在 config > template
+	// 回退链里优先于模板值——直连 API 就能把 GLM 通道标成 Anthropic。字段不存在则无从谈起。
 	SponsorLevel  string `json:"sponsor_level" binding:"max=50"`
 	ChannelType   string `json:"channel_type" binding:"required,oneof=O R M"`
 	ChannelSource string `json:"channel_source" binding:"required,max=5"`
@@ -282,7 +281,10 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 	if err != nil {
 		return nil, err
 	}
-	model, modelVendor, err := ValidateModelSelection(req.TemplateName, req.Model, req.ModelVendor)
+	// 公开提交不接受行级模型/厂商（SubmitRequest 没有这两个字段），用空值过闸：校验的是
+	// 「这个模板自己声明得起模型吗」。唯一失败形状是 native 族，它在 handler 的
+	// resolveSelfServeTemplate 处已被可见性挡掉，这里是第二道 fail-closed。
+	model, modelVendor, err := ValidateModelSelection(req.TemplateName, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -335,9 +337,9 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 
 	// 验证 test proof（绑定探测参数）。
 	//
-	// 模板与行级模型也在绑定内：不绑就能「用最便宜的模型测通、提交时换成贵的」，
-	// 上架即恒红。这里传的是**规范化后**的值（模板名在 handler 已按注册表核过、模型经
-	// ValidateModelSelection 剥过空白），与签发侧同一口径。
+	// 模板在绑定内：不绑就能「用最便宜的模型测通、提交时换成贵的」，上架即恒红。
+	// 模板名在 handler 已按注册表核过并规范化，与签发侧同一口径。
+	// Model 恒为空——公开流程的模型由模板唯一决定，绑住模板即绑住模型（签发侧同样留空）。
 	err = s.proofIssuer.Verify(req.TestProof, apikey.ProofClaims{
 		JobID:          req.TestJobID,
 		TestType:       req.TestType,

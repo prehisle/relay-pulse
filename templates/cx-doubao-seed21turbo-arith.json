@@ -1,0 +1,40 @@
+{
+	"self_serve_label": "豆包 Seed 2.1 Turbo",
+	"model": "doubao-seed-2.1-turbo",
+	"request_model": "doubao-seed-2.1-turbo",
+	"model_vendor": "bytedance",
+	"_comment": "字节跳动 豆包 Seed 2.1 Turbo 的 OpenAI Responses 兼容端点探针。请求形态逐字节复制自 cx-native-arith（含 reasoning 字段），只补上模型元数据。URL 是 {{BASE_URL}}/v1/responses，与本站全部 cx 模板（cx-gpt-arith / cx-gpt5*-arith）同口径——「base_url 不含版本段」是自助收录的统一约定，也是 Codex CLI 的标准形态。⚠️ 别照 cx-native-arith-noreason 改成 {{BASE_URL}}/responses：那一款是给火山方舟 https://ark.../api/coding/v3 这类 base_url 自带版本段的端点特设的，属**端点属性**不是模型属性，继续只由 admin 手工上架。⚠️ 证据边界：本模型在「/v1/responses + 带 reasoning」这一组合下尚未在真端点验证过（既有实测只覆盖火山方舟的 /responses 形态）；若某中转商不接受 reasoning，自助测试会直接失败、提交不了，由其走 /contact 由我们评估另拆无 reasoning 的专用模板。model 写规范模型 ID 而非人话名，是因为 model 同时是 DB 业务键——与既有 native 通道保持同一个串，将来切模板不断历史；人话名在 self_serve_label。别加 self_serve_default。",
+	"url": "{{BASE_URL}}/v1/responses",
+	"method": "POST",
+	"headers": {
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"openai-beta": "responses=experimental",
+		"User-Agent": "Codex-CLI/1.0"
+	},
+	"body": {
+		"model": "{{MODEL}}",
+		"instructions": "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer.",
+		"input": [
+			{
+				"type": "message",
+				"role": "user",
+				"content": [{ "type": "input_text", "text": "{{PROMPT}}" }]
+			}
+		],
+		"tools": [],
+		"tool_choice": "auto",
+		"parallel_tool_calls": false,
+		"reasoning": { "effort": "low", "summary": "auto" },
+		"store": false,
+		"stream": true
+	},
+	"response": {
+		"success_contains": "{{EXPECTED_ANSWER}}"
+	},
+	"probe": {
+		"slow_latency": "5s",
+		"timeout": "10s",
+		"retry": 0
+	}
+}

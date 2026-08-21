@@ -17,7 +17,6 @@ type ProbeTemplate struct {
 	SelfServeDefault bool              // 是否是所属 service 在自助流程里的默认探测目标（见 probe.InitTemplates）
 	SelfServeVisible bool              // 是否出现在自助收录的可选模型里（默认 true，见 selfServeVisible）
 	SelfServeLabel   string            // 自助收录里展示给用户的人话名（可选，为空时由调用方按 Model/RequestModel 兜底）
-	SelfServeOrder   int               // 自助收录里同组选项的展示次序（越小越靠前，0 视为未声明排最后）
 	URL              string            // URL 模式，支持 {{BASE_URL}} 等占位符
 	Method           string            // HTTP 方法
 	Headers          map[string]string // 请求头，支持占位符
@@ -40,7 +39,6 @@ type probeTemplateFile struct {
 	// 默认可见——反过来（默认隐藏）会让自建部署自带的模板在自助表单里集体消失。
 	SelfServeVisible *bool             `json:"self_serve_visible"`
 	SelfServeLabel   string            `json:"self_serve_label"`
-	SelfServeOrder   int               `json:"self_serve_order"`
 	SelfServeDefault bool              `json:"self_serve_default"`
 	URL              string            `json:"url"`
 	Method           string            `json:"method"`
@@ -107,7 +105,6 @@ func LoadProbeTemplate(filePath string) (*ProbeTemplate, error) {
 		SelfServeDefault: parsed.SelfServeDefault,
 		SelfServeVisible: selfServeVisible(parsed.SelfServeVisible),
 		SelfServeLabel:   strings.TrimSpace(parsed.SelfServeLabel),
-		SelfServeOrder:   parsed.SelfServeOrder,
 		URL:              strings.TrimSpace(parsed.URL),
 		Method:           strings.TrimSpace(parsed.Method),
 		Headers:          parsed.Headers,

@@ -389,6 +389,50 @@ func TestAuthIndex_Rebuild_DefaultTestVariantWiring(t *testing.T) {
 	}
 }
 
+// TestAuthIndex_Rebuild_SelfServeHiddenVariantsStillUsable 锁死「自助不可见 ≠ 变更流程不可用」。
+//
+// 2026-08-21 把 native 族（cc-native-* / cx-native-*）标成 self_serve_visible:false，从公开收录
+// 表单里摘掉。生产上有 10 条第一方厂商通道正跑在这些模板上，它们改 base_url / 轮换 key 必须
+// 照旧走得通——变更流程要证明的是「这条通道照旧能用」，与「新申请人能不能自助选它」无关。
+//
+// 这条守卫针对的是一类很容易犯的后续错误：有人看到收录侧按可见性过滤，顺手把同一个判据加到
+// 这里，于是那 10 条通道的默认模板一夜之间落到别的模型上、测试恒红、变更请求提交不了。
+func TestAuthIndex_Rebuild_SelfServeHiddenVariantsStillUsable(t *testing.T) {
+	const service = "cchiddenvariant"
+	registerScopedTestType(t, &probe.TestType{
+		ID:             service,
+		Name:           "CC Hidden Variant",
+		DefaultVariant: service + "-visible",
+		Variants: []*probe.PayloadVariant{
+			{ID: service + "-visible", Order: 1, SelfServeVisible: true},
+			{ID: service + "-native-arith", Order: 2, SelfServeVisible: false, Native: true},
+		},
+	})
+
+	cipher := testCipher(t)
+	idx := NewAuthIndex()
+	idx.Rebuild([]config.ServiceConfig{{
+		Provider: "ark", Service: service, Channel: "ch",
+		APIKey: "sk-test-key-hidden-01", Template: service + "-native-arith",
+	}}, cipher, nil, nil)
+
+	candidates, _ := idx.Lookup("sk-test-key-hidden-01", cipher)
+	if len(candidates) != 1 {
+		t.Fatalf("期望 1 个候选，得到 %d", len(candidates))
+	}
+	if got := candidates[0].DefaultTestVariant; got != service+"-native-arith" {
+		t.Errorf("DefaultTestVariant = %q，期望通道自身的隐藏模板 %q——"+
+			"自助不可见的模板不该影响变更流程的默认探测目标", got, service+"-native-arith")
+	}
+	var ids []string
+	for _, v := range candidates[0].TestVariants {
+		ids = append(ids, v.ID)
+	}
+	if len(ids) != 2 {
+		t.Errorf("TestVariants = %v，期望两个都在——变更流程不按 self_serve_visible 过滤", ids)
+	}
+}
+
 // registerScopedTestType 注册一个仅供本测试使用的 probe 测试类型，并在结束时把它清成惰性空壳。
 // probe 注册表是包级全局且没有反注册接口，故只能把残留项的 Variants/DefaultVariant 清空，
 // 让它对后续测试不再有影响（用独一无二的 service id 也是为了这个）。

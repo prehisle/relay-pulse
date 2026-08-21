@@ -50,7 +50,7 @@ func TestResolveSelfServeTemplate(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "可见模板通过", service: "zs", template: "zs-visible-arith"},
-		{name: "native 模板同样开放自助", service: "zs", template: "zs-native-arith"},
+		{name: "可见性由字段决定而非 native 标志", service: "zs", template: "zs-native-arith"},
 		{name: "内部模板被挡", service: "zs", template: "zs-internal-arith", wantErr: "不开放自助收录"},
 		{name: "跨 service 引用被挡", service: "zt", template: "zs-visible-arith", wantErr: "不可用"},
 		{name: "不存在的模板被挡", service: "zs", template: "zs-nosuch", wantErr: "不可用"},

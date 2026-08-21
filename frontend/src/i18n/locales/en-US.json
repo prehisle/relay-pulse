@@ -453,14 +453,7 @@
       "proofExpired": "Test proof expired, please re-run the test",
       "model": "Model to monitor",
       "modelHint": "Pick the model this channel will be monitored on — the test and the listing use the same one",
-      "modelCustom": "Other (enter a model ID)",
-      "modelId": "Model ID",
-      "modelIdHint": "The vendor's model identifier, e.g. glm-5.2. It can differ between platforms, so feel free to edit it",
-      "modelVendor": "Model vendor",
       "modelVendorUnknown": "Not listed / not sure",
-      "modelVendorHint": "Used for the vendor label on the site. Leave it blank if unsure and we'll fill it in",
-      "requestShape": "Request shape",
-      "requestShapeHint": "Controls how the probe builds this request. If the test fails on a rejected parameter, try another one",
       "requestModel": "Requested model"
     },
     "test": {

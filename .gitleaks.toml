@@ -54,6 +54,17 @@ regexes = [
 ]
 
 [[allowlists]]
+description = """探针模板名（`<service>-<model>-<形态>`，如 cc-glm52-arith）。含数字的型号段
+（glm52 / k27code / v4pro / seed21turbo）把熵推过了内置阈值，被 generic-api-key 误判。
+锚定得很紧：必须以 cc/cx/gm 三个 service 前缀之一开头、只含小写字母数字与短横线、
+每段 ≤20 字符且最多 5 段——真实中转商 key 实测 35~108 字符且几乎都是 sk- 前缀带大小写混写。"""
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+regexes = [
+  '''^(cc|cx|gm)-[a-z0-9]{1,20}(-[a-z0-9]{1,20}){1,4}$''',
+]
+
+[[allowlists]]
 description = "非凭据的常量：localStorage 键名与文档里的占位 token。全串锚定，逐个列出。"
 regexTarget = "secret"
 regexes = [

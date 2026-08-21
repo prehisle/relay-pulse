@@ -304,16 +304,17 @@ func TestBuildChangeTestConfig_RuntimeConfigNotReady(t *testing.T) {
 	}
 }
 
-// TestBuildOnboardingTestConfig_NeedsNoTargetKey 回归：收录流程内嵌同一个共用请求结构体，
-// 但不该被变更流程的 target_key 要求波及。
+// TestBuildOnboardingTestConfig_NeedsNoTargetKey 回归：收录流程与变更流程共用同一个请求
+// 结构体，但不该被变更流程的 target_key 要求波及。
+//
+// 顺带锁住「收录流程不带行级模型」：模型由模板在 ResolveSingleMonitor 阶段注入，这里构造出的
+// cfg 必须是空 Model/ModelVendor。若有人再给公开请求体加回模型字段，本断言会变红。
 func TestBuildOnboardingTestConfig_NeedsNoTargetKey(t *testing.T) {
-	cfg := buildOnboardingTestConfig(onboardingTestRequest{
-		inlineTestRequest: inlineTestRequest{
-			ServiceType:  "cc",
-			TemplateName: "cc-haiku-arith",
-			BaseURL:      "https://relay.example.com",
-			APIKey:       "sk-test",
-		},
+	cfg := buildOnboardingTestConfig(inlineTestRequest{
+		ServiceType:  "cc",
+		TemplateName: "cc-haiku-arith",
+		BaseURL:      "https://relay.example.com",
+		APIKey:       "sk-test",
 	})
 
 	if cfg.Template != "cc-haiku-arith" {
@@ -324,5 +325,8 @@ func TestBuildOnboardingTestConfig_NeedsNoTargetKey(t *testing.T) {
 	}
 	if cfg.Service != "cc" {
 		t.Errorf("Service = %q，期望 cc", cfg.Service)
+	}
+	if cfg.Model != "" || cfg.ModelVendor != "" {
+		t.Errorf("收录流程不该带行级模型，实际 Model=%q ModelVendor=%q", cfg.Model, cfg.ModelVendor)
 	}
 }

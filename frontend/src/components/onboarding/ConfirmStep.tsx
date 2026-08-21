@@ -257,7 +257,7 @@ export function ConfirmStep({ formData, meta, updateField, submitResult, isSubmi
         <SummaryRow
           /* 展示所选模型的人话名（表单里已不出现模板名）；服务类型(cc) 已在上方单列不重复 */
           label={t('onboarding.connectionTest.model')}
-          value={describeModelSelection(meta, formData.serviceType, formData.modelKey, formData.model)
+          value={describeModelSelection(meta, formData.serviceType, formData.modelKey)
             || formData.testVariant}
         />
       </div>

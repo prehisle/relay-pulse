@@ -128,15 +128,21 @@ func TestSubmit_SponsorLevelWhitelist(t *testing.T) {
 	}
 }
 
-// TestSubmit_ProofBindsTemplateAndModel 锁定收录侧 proof 的两项新绑定：探针模板与行级模型。
+// TestSubmit_ProofBindsTemplate 锁定收录侧 proof 的模板绑定，以及「模型绑定项在公开流程上
+// 恒为空」这条不变量。
 //
-// 不绑就能「用最便宜的 haiku 测通、提交时报成 opus」，或者「用便宜模型测通、报一个贵模型」——
-// 收录成的行上线即恒红，而「测通了才准提交」这条闸形同虚设。
-func TestSubmit_ProofBindsTemplateAndModel(t *testing.T) {
+// 不绑模板就能「用最便宜的 haiku 测通、提交时报成 opus」，收录成的行上线即恒红，而「测通了
+// 才准提交」这条闸形同虚设。
+//
+// 模型不再单独绑：2026-08-21 起公开流程只能选**已声明模型的专属模板**，模型由模板唯一决定，
+// 绑住模板即绑住模型（SubmitRequest 根本没有 model 字段）。校验侧因此恒用空串，于是任何
+// claims.Model 非空的 proof 在这条路径上都对不上——第二个子测试正是锁住这一点，它同时挡住
+// 「拿一份别处签发的、带模型绑定的 proof 来提交」。
+func TestSubmit_ProofBindsTemplate(t *testing.T) {
 	const apiURL = "https://api.example.com"
 	const apiKey = "sk-test-proof-bind-01"
 
-	newReq := func(jobID, template, model string, claims apikey.ProofClaims) *SubmitRequest {
+	newReq := func(jobID, template string) *SubmitRequest {
 		return &SubmitRequest{
 			AgreementAccepted: true,
 			ProviderName:      "ProofBindProv",
@@ -144,7 +150,6 @@ func TestSubmit_ProofBindsTemplateAndModel(t *testing.T) {
 			Category:          "commercial",
 			ServiceType:       "cc",
 			TemplateName:      template,
-			Model:             model,
 			SponsorLevel:      "pulse",
 			ChannelType:       "O",
 			ChannelSource:     "nat",
@@ -160,36 +165,41 @@ func TestSubmit_ProofBindsTemplateAndModel(t *testing.T) {
 
 	t.Run("提交时换模板即拒", func(t *testing.T) {
 		svc := newSubmitTestService(t)
-		req := newReq("job-tpl-swap", "cc-opus-ping", "", apikey.ProofClaims{})
+		req := newReq("job-tpl-swap", "cc-opus-ping")
 		req.TestProof = svc.IssueProof(apikey.ProofClaims{
 			JobID: "job-tpl-swap", TestType: "cc", APIURL: apiURL, Variant: "cc-haiku-arith",
 		}, apiKey)
-		if _, err := svc.Submit(context.Background(), req, "1.2.3.4"); err == nil {
-			t.Fatal("用 haiku 测通、提交时换成 opus，应被拒")
+		// 同样断言拒因是验签失败：只判 err != nil 会让「被别的前置校验先拒」也算通过
+		_, err := svc.Submit(context.Background(), req, "1.2.3.4")
+		if err == nil || !strings.Contains(err.Error(), "测试证明无效") {
+			t.Fatalf("用 haiku 测通、提交时换成 opus，应验签失败，实际: %v", err)
 		}
 	})
 
-	t.Run("提交时换模型即拒", func(t *testing.T) {
+	t.Run("带模型绑定的 proof 在公开提交侧对不上", func(t *testing.T) {
 		svc := newSubmitTestService(t)
-		req := newReq("job-model-swap", "cc-native-arith", "claude-opus-5", apikey.ProofClaims{})
+		req := newReq("job-model-bound", "cc-glm52-arith")
 		req.TestProof = svc.IssueProof(apikey.ProofClaims{
-			JobID: "job-model-swap", TestType: "cc", APIURL: apiURL,
-			Variant: "cc-native-arith", Model: "glm-5.2",
+			JobID: "job-model-bound", TestType: "cc", APIURL: apiURL,
+			Variant: "cc-glm52-arith", Model: "glm-5.2",
 		}, apiKey)
-		if _, err := svc.Submit(context.Background(), req, "1.2.3.4"); err == nil {
-			t.Fatal("用便宜模型测通、提交时换成另一个模型，应被拒")
+		// 断言拒因必须是验签失败：只判 err != nil 会让「因为别的原因先被拒」也算通过，
+		// 而下一个子测试用同一份请求（只是 proof 不带模型）走通了，两者合起来才证明
+		// 差异确实来自模型绑定这一项。
+		_, err := svc.Submit(context.Background(), req, "1.2.3.4")
+		if err == nil || !strings.Contains(err.Error(), "测试证明无效") {
+			t.Fatalf("公开提交侧的模型绑定恒为空，带模型的 proof 应验签失败，实际: %v", err)
 		}
 	})
 
-	t.Run("模板与模型都对得上即通过", func(t *testing.T) {
+	t.Run("模板对得上且模型绑定为空即通过", func(t *testing.T) {
 		svc := newSubmitTestService(t)
-		req := newReq("job-bind-match", "cc-native-arith", "glm-5.2", apikey.ProofClaims{})
+		req := newReq("job-bind-match", "cc-glm52-arith")
 		req.TestProof = svc.IssueProof(apikey.ProofClaims{
-			JobID: "job-bind-match", TestType: "cc", APIURL: apiURL,
-			Variant: "cc-native-arith", Model: "glm-5.2",
+			JobID: "job-bind-match", TestType: "cc", APIURL: apiURL, Variant: "cc-glm52-arith",
 		}, apiKey)
 		if _, err := svc.Submit(context.Background(), req, "1.2.3.4"); err != nil {
-			t.Fatalf("模板与模型一致时应通过: %v", err)
+			t.Fatalf("模板一致、模型绑定为空时应通过: %v", err)
 		}
 	})
 }

@@ -93,7 +93,6 @@ const meta: OnboardingMeta = {
   contact_info: 'QQ:18058344',
   model_vendors: [{ code: 'anthropic', label: 'Anthropic', icon_key: 'anthropic' }],
   models_by_service: {},
-  request_shapes_by_service: {},
 };
 
 beforeAll(async () => {

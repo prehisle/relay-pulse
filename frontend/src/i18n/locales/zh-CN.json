@@ -453,14 +453,7 @@
       "proofExpired": "测试证明已过期，请重新测试",
       "model": "监测的模型",
       "modelHint": "选择这条通道要被监测的模型；测试与上架用的是同一个",
-      "modelCustom": "其他（自填模型 ID）",
-      "modelId": "模型 ID",
-      "modelIdHint": "厂商文档里的模型标识，如 glm-5.2。同一模型在不同平台的写法可能不同，可直接修改",
-      "modelVendor": "模型厂商",
       "modelVendorUnknown": "不在列表 / 暂不确定",
-      "modelVendorHint": "用于站点上的厂商标注；不确定就留空，由我们补",
-      "requestShape": "请求形态",
-      "requestShapeHint": "决定探针怎么发这次请求。若测试报参数不被接受，换一种再试",
       "requestModel": "实际请求模型"
     },
     "test": {

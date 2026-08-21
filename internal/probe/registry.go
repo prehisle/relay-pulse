@@ -48,9 +48,8 @@ type PayloadVariant struct {
 	TemplateVendor string `json:"-"`
 	// TemplateLabel 模板给自助收录用的人话名；为空时由调用方兜底。
 	TemplateLabel string `json:"-"`
-	// TemplateOrder 自助收录里同组选项的展示次序（越小越靠前，0=未声明）。
-	TemplateOrder int `json:"-"`
-	// Native 标记本模板属于「第一方厂商通用模板」族，即模型必须由提交方填写。
+	// Native 标记本模板属于「第一方厂商通用模板」族，即模型必须由监测行填写
+	// （admin 写路径；本族自 2026-08-21 起对自助收录一律不可见）。
 	Native bool `json:"-"`
 	// SelfServeVisible 标记本模板可否出现在自助收录的可选模型里。**模板读不动时按可见处理**：
 	// 拿不到声明不等于作者想隐藏它，而静默隐藏会让一次坏部署悄悄缩短公开可选项。
@@ -216,7 +215,6 @@ func InitTemplates(dir string) error {
 		variant.TemplateRequestModel = tmpl.RequestModel
 		variant.TemplateVendor = tmpl.ModelVendor
 		variant.TemplateLabel = tmpl.SelfServeLabel
-		variant.TemplateOrder = tmpl.SelfServeOrder
 		variant.SelfServeVisible = tmpl.SelfServeVisible
 		if tmpl.SelfServeDefault {
 			declaredDefaults[service] = append(declaredDefaults[service], variantID)

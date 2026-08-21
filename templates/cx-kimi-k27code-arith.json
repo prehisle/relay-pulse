@@ -1,0 +1,39 @@
+{
+	"self_serve_label": "Kimi K2.7 Code",
+	"model": "kimi-k2.7-code",
+	"request_model": "kimi-k2.7-code",
+	"model_vendor": "moonshot",
+	"_comment": "月之暗面 Kimi K2.7 Code 的 OpenAI Responses 兼容端点探针·无 reasoning 版。请求形态复制自 cx-native-arith 并**删掉 reasoning 字段**，URL 仍是 {{BASE_URL}}/v1/responses（与本站全部 cx 模板同口径，base_url 不含版本段）。为什么单独删 reasoning：2026-08-05 火山方舟实测本模型以 InvalidParameter 400 拒绝该字段（reasoning is not supported by current model），带着它必然测不过。⚠️ 证据边界要说准：那条 400 的证据来自火山方舟端点，且当时验证通过的组合是 「/responses + 无 reasoning」；本模板的「/v1/responses + 无 reasoning」组合**尚未在真端点跑过**，是按「URL 形态由端点决定、reasoning 认不认由模型决定」这两条正交推出来的。首个走本模板的自助提交即为真实验证——测不过的代价只是提交不了、不会产生坏数据。model 写规范模型 ID 而非人话名，是因为 model 同时是 DB 业务键——与既有 native 通道保持同一个串，将来切模板不断历史；人话名在 self_serve_label。别加 self_serve_default。",
+	"url": "{{BASE_URL}}/v1/responses",
+	"method": "POST",
+	"headers": {
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"openai-beta": "responses=experimental",
+		"User-Agent": "Codex-CLI/1.0"
+	},
+	"body": {
+		"model": "{{MODEL}}",
+		"instructions": "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer.",
+		"input": [
+			{
+				"type": "message",
+				"role": "user",
+				"content": [{ "type": "input_text", "text": "{{PROMPT}}" }]
+			}
+		],
+		"tools": [],
+		"tool_choice": "auto",
+		"parallel_tool_calls": false,
+		"store": false,
+		"stream": true
+	},
+	"response": {
+		"success_contains": "{{EXPECTED_ANSWER}}"
+	},
+	"probe": {
+		"slow_latency": "5s",
+		"timeout": "10s",
+		"retry": 0
+	}
+}

@@ -69,8 +69,6 @@ const defaultForm: OnboardingFormData = {
   testType: '',
   testVariant: '',
   modelKey: '',
-  model: '',
-  modelVendor: '',
 };
 
 export function useOnboarding() {
@@ -115,12 +113,11 @@ export function useOnboarding() {
 
   const updateField = useCallback(<K extends keyof OnboardingFormData>(key: K, value: OnboardingFormData[K]) => {
     const resetTestState = key === 'serviceType' && formData.serviceType !== value;
-    // proof 绑定了 apiKey 指纹、base_url、**探针模板与行级模型**（后端 apikey.ProofClaims），
-    // 任一项变了旧 proof 就不再对应这次要提交的东西，必须清掉重测——否则用户会带着一个
-    // 必然验签失败的 proof 走到最后一步才被拒。
+    // proof 绑定了 apiKey 指纹、base_url 与**探针模板**（后端 apikey.ProofClaims），任一项变了
+    // 旧 proof 就不再对应这次要提交的东西，必须清掉重测——否则用户会带着一个必然验签失败的
+    // proof 走到最后一步才被拒。模型不单列：它由所选模板唯一决定，换模型即换模板。
     const invalidateProof =
-      key === 'baseUrl' || key === 'apiKey' ||
-      key === 'testVariant' || key === 'model' || key === 'modelVendor' || key === 'modelKey';
+      key === 'baseUrl' || key === 'apiKey' || key === 'testVariant' || key === 'modelKey';
 
     setFormData(prev => {
       const next = { ...prev, [key]: value } as OnboardingFormData;
@@ -129,8 +126,6 @@ export function useOnboarding() {
         next.testVariant = '';
         // 模型目录按 service 分组，换了 service 旧选择必然失效
         next.modelKey = '';
-        next.model = '';
-        next.modelVendor = '';
       }
       return next;
     });
@@ -154,7 +149,7 @@ export function useOnboarding() {
   }, [formData.serviceType, testProof]);
 
   /**
-   * 应用一次模型选择（模型 / 厂商 / 探针模板一次改完）。
+   * 应用一次模型选择（选项键与探针模板一次改完）。
    *
    * 不逐字段调 updateField：那会连发多次状态更新，且每次都各自判一遍要不要清测试证明，
    * 中间态（新模型 + 旧模板）也会短暂存在。模型选择是一个原子动作，proof 必然作废。
@@ -191,9 +186,6 @@ export function useOnboarding() {
         // 与提交时同一口径：测试打的地址就是将来落地的 base_url，且 proof 绑的正是这个串。
         base_url: canonicalEndpointUrl(formData.baseUrl),
         api_key: formData.apiKey,
-        // 行级模型只对第一方厂商模型非空；后端按模板族校验这条组合
-        model: formData.model,
-        model_vendor: formData.modelVendor,
       });
 
       setTestResult(resp);
@@ -236,8 +228,6 @@ export function useOnboarding() {
         category: formData.category,
         service_type: formData.serviceType,
         template_name: formData.testVariant || formData.testType,
-        model: formData.model,
-        model_vendor: formData.modelVendor,
         sponsor_level: formData.sponsorLevel,
         channel_type: formData.channelType,
         channel_source: formData.channelSource,

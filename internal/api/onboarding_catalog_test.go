@@ -1,6 +1,7 @@
 package api
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,13 +72,19 @@ func TestBuildModelCatalog_FromBundledTemplates(t *testing.T) {
 				t.Errorf("%s 的条目指向不可用模板 %q（found=%v visible=%v）",
 					service, opt.Template, ok, variant.SelfServeVisible)
 			}
-			// 行级模型只允许出现在 native 条目上，与提交侧 ValidateModelSelection 同一规则
-			if (opt.Model != "") != variant.Native {
-				t.Errorf("%s 的条目 %q: model=%q 与模板 native=%v 不自洽",
-					service, opt.Key, opt.Model, variant.Native)
+			// native 模板不声明模型、要求监测行填，而公开流程填不了——它一条都不该出现在目录里
+			if variant.Native {
+				t.Errorf("%s 的条目 %q 指向 native 模板 %q：公开流程没有填模型的入口，"+
+					"选中它必然卡在「模板未声明模型」", service, opt.Key, opt.Template)
 			}
-			if opt.Editable != variant.Native {
-				t.Errorf("%s 的条目 %q: 可编辑标记应与 native 一致", service, opt.Key)
+			// 目录条目必须自己声明得起厂商：厂商标注全靠它，提交方已无从填写
+			if opt.Vendor == "" {
+				t.Errorf("%s 的条目 %q 未声明 model_vendor——上架后厂商列会空着且无人可补",
+					service, opt.Key)
+			}
+			// 模型由模板唯一决定，故选项键与模板一一对应（前端据此做受控选择）
+			if opt.Key != opt.Template {
+				t.Errorf("%s 的条目 key=%q 与模板 %q 不一致", service, opt.Key, opt.Template)
 			}
 		}
 	}
@@ -88,24 +95,56 @@ func TestBuildModelCatalog_FromBundledTemplates(t *testing.T) {
 			t.Errorf("内部模板 %q 不应出现在公开目录里", opt.Template)
 		}
 	}
+}
 
-	// 第一方厂商种子条目在场，且模型 ID 可改（同一模型在不同平台 ID 未必相同）
-	seeds := onboarding.FirstPartyModels("cc")
-	if len(seeds) == 0 {
-		t.Fatal("cc 的第一方厂商种子目录为空，断言可能是真空的")
+// TestBuildModelCatalog_FirstPartyVendorsAreSelfServable 常驻守卫：五家第一方厂商的模型
+// 必须都能在 cc/cx 的自助表单里选到，且各自走的是**专属**模板。
+//
+// 2026-08-21 之前它们走的是「native 通用模板 + 提交方自填模型 ID/厂商/请求形态」，因此可以
+// 提交出「模型 ID 是豆包、厂商标成智谱」这种自相矛盾的数据，请求形态也能选错（症状是 HTTP 200
+// 却恒红 content_mismatch）。改成一模型一模板后，这三项全由我们钉死；本测试锁住「钉死之后
+// 这些模型仍然选得到」——漏建一个模板就是悄悄下线一个厂商。
+func TestBuildModelCatalog_FirstPartyVendorsAreSelfServable(t *testing.T) {
+	snapshotProbeRegistry(t)
+	if err := probe.InitTemplates("../../templates"); err != nil {
+		t.Fatalf("加载内置模板失败: %v", err)
 	}
-	for _, seed := range seeds {
-		found := false
-		for _, opt := range catalog["cc"] {
-			if opt.Model == seed.Model && opt.Vendor == seed.Vendor {
-				found = true
-				if !opt.Editable {
-					t.Errorf("第一方厂商条目 %q 的模型 ID 应可编辑", seed.Label)
+
+	// 双向锁死：厂商 → 该厂商在自助表单上必须出现的**规范模型 ID**。
+	//
+	// 只断言「这家厂商有条目」挡不住误标 vendor（把 kimi 的模板标成 zhipu 照样过）。
+	// 模型 ID 同时是 DB 业务键，写错会让上架行的历史与既有 native 通道对不上，故这里锁到串。
+	firstParty := map[string]string{
+		"zhipu":     "glm-5.2",
+		"moonshot":  "kimi-k2.7-code",
+		"minimax":   "minimax-m3",
+		"deepseek":  "deepseek-v4-pro",
+		"bytedance": "doubao-seed-2.1-turbo",
+	}
+	catalog := buildModelCatalog()
+
+	for _, service := range []string{"cc", "cx"} {
+		byVendor := make(map[string][]OnboardingModelOption)
+		for _, opt := range catalog[service] {
+			byVendor[opt.Vendor] = append(byVendor[opt.Vendor], opt)
+		}
+		for vendor, wantModel := range firstParty {
+			options := byVendor[vendor]
+			if len(options) == 0 {
+				t.Errorf("%s 里厂商 %q 一个可选模型都没有——该厂商在自助表单上已消失", service, vendor)
+				continue
+			}
+			var models []string
+			for _, opt := range options {
+				models = append(models, opt.RequestModel)
+				// 与提交侧同一条规则：公开流程用空模型过闸，模板必须自己声明得起模型
+				if _, _, err := onboarding.ValidateModelSelection(opt.Template, "", ""); err != nil {
+					t.Errorf("%s 的 %q 过不了提交侧校验: %v", service, opt.Template, err)
 				}
 			}
-		}
-		if !found {
-			t.Errorf("第一方厂商种子 %q 未出现在目录里", seed.Label)
+			if !slices.Contains(models, wantModel) {
+				t.Errorf("%s 里厂商 %q 的可选模型 = %v，缺少 %q", service, vendor, models, wantModel)
+			}
 		}
 	}
 }
@@ -136,111 +175,5 @@ func TestBuildModelCatalog_VendorOrder(t *testing.T) {
 			t.Errorf("厂商 %q 的条目在目录里不连续", v)
 		}
 		seenVendor[v] = true
-	}
-}
-
-// TestBuildRequestShapes 自填模型 ID 的请求形态：cc 三种、cx 两种，gm 没有 native 模板故缺席。
-func TestBuildRequestShapes(t *testing.T) {
-	snapshotProbeRegistry(t)
-	if err := probe.InitTemplates("../../templates"); err != nil {
-		t.Fatalf("加载内置模板失败: %v", err)
-	}
-
-	shapes := buildRequestShapes()
-	if len(shapes["cc"]) == 0 || len(shapes["cx"]) == 0 {
-		t.Fatalf("cc/cx 应有 native 请求形态可选，实际 %d/%d", len(shapes["cc"]), len(shapes["cx"]))
-	}
-	if _, ok := shapes["gm"]; ok {
-		t.Error("gm 没有 native 模板，不该出现自填入口")
-	}
-	for service, list := range shapes {
-		for _, shape := range list {
-			if shape.Label == "" || shape.Label == shape.Template {
-				t.Errorf("%s 的请求形态 %q 缺人话标签——用户看不懂模板名", service, shape.Template)
-			}
-			if v, ok := probe.LookupVariant(service, shape.Template); !ok || !v.Native {
-				t.Errorf("%s 的请求形态 %q 不是 native 模板", service, shape.Template)
-			}
-		}
-	}
-}
-
-// TestBuildRequestShapes_OrderFollowsDeclaration 请求形态按模板声明的次序排，而不是文件名字典序。
-//
-// 这一项不只是好看：列表第一项同时是「其他（自填模型 ID）」的初始值。按字典序排会把
-// cc 的推荐形态（默认开思考且支持关闭，最快最省）排到最后，于是自填的人默认拿到一个
-// 对多数第一方厂商模型都不合适的形态。
-func TestBuildRequestShapes_OrderFollowsDeclaration(t *testing.T) {
-	snapshotProbeRegistry(t)
-	if err := probe.InitTemplates("../../templates"); err != nil {
-		t.Fatalf("加载内置模板失败: %v", err)
-	}
-
-	shapes := buildRequestShapes()
-	if got := shapes["cc"][0].Template; got != "cc-native-arith-nothink" {
-		t.Errorf("cc 的首个请求形态 = %q，期望 cc-native-arith-nothink（推荐先试的那个）", got)
-	}
-	if got := shapes["cx"][0].Template; got != "cx-native-arith" {
-		t.Errorf("cx 的首个请求形态 = %q，期望 cx-native-arith", got)
-	}
-
-	// 字典序会把 cc-native-arith 排在最前，故本断言在「忘了排序」时必然变红
-	if shapes["cc"][0].Template == "cc-native-arith" {
-		t.Error("cc 的请求形态仍是字典序")
-	}
-}
-
-// TestFirstPartySeedCatalogIsSound 常驻守卫：手写的第一方厂商种子目录必须自洽。
-//
-// 种子是纯数据、编译器管不着，而它每一条都会直接变成公开表单里的一个选项。三类错法都只会在
-// 用户填完点测试时才暴露（甚至更晚）：模板改名/被标隐藏 → 条目静默消失；模板被改成非 native
-// → 用户拿到一个「带模型的可编辑条目」，提交时才撞上「非 native 不该填模型」；厂商 code 拼错
-// 或模型 ID 含非法字符 → 同样拖到提交才拒。这里一次性在 CI 拦下。
-func TestFirstPartySeedCatalogIsSound(t *testing.T) {
-	snapshotProbeRegistry(t)
-	if err := probe.InitTemplates("../../templates"); err != nil {
-		t.Fatalf("加载内置模板失败: %v", err)
-	}
-
-	total := 0
-	for _, service := range []string{"cc", "cx", "gm"} {
-		seen := make(map[string]string) // template|model -> label，查重
-		for _, seed := range onboarding.FirstPartyModels(service) {
-			total++
-
-			variant, ok := probe.LookupVariant(service, seed.Template)
-			switch {
-			case !ok:
-				t.Errorf("%s 种子 %q 指向不存在的模板 %q", service, seed.Label, seed.Template)
-				continue
-			case !variant.SelfServeVisible:
-				t.Errorf("%s 种子 %q 的模板 %q 被标为自助不可见——该条目会静默消失", service, seed.Label, seed.Template)
-			case !variant.Native:
-				t.Errorf("%s 种子 %q 的模板 %q 不是 native 族——带行级模型的条目只能挂 native 模板",
-					service, seed.Label, seed.Template)
-			}
-
-			// 与提交侧同一条规则：种子给出的组合必须本来就能过校验
-			if _, _, err := onboarding.ValidateModelSelection(seed.Template, seed.Model, seed.Vendor); err != nil {
-				t.Errorf("%s 种子 %q 过不了提交侧校验: %v", service, seed.Label, err)
-			}
-
-			if seed.Label == "" {
-				t.Errorf("%s 种子（模型 %q）缺展示名", service, seed.Model)
-			}
-			if strings.Contains(seed.Label, seed.Vendor) {
-				t.Errorf("%s 种子 %q 的标签里重复了厂商——下拉已按厂商分组", service, seed.Label)
-			}
-
-			key := seed.Template + "|" + seed.Model
-			if prev, dup := seen[key]; dup {
-				t.Errorf("%s 种子 %q 与 %q 重复（同模板同模型），前端选项 key 会撞车", service, seed.Label, prev)
-			}
-			seen[key] = seed.Label
-		}
-	}
-
-	if total == 0 {
-		t.Fatal("第一方厂商种子目录为空，断言是真空的")
 	}
 }

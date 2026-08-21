@@ -29,18 +29,16 @@ type OnboardingMetaResponse struct {
 	ChannelGroupRule             ChannelGroupRule     `json:"channel_group_rule"`
 	TestTypes                    []OnboardingTestType `json:"test_types"`
 	ContactInfo                  string               `json:"contact_info"`
-	// ModelVendors: 模型厂商受控词表，供前端展示厂商名与图标、以及自助表单里的厂商下拉。
-	// 真相源在后端（internal/modelvendor），前端不自建一份，避免两边漂移。
+	// ModelVendors: 模型厂商受控词表，真相源在后端（internal/modelvendor），前端不自建一份。
+	// 消费方是「展示」而非「填写」：主表格的厂商列图标与人话名（useModelVendors）、
+	// 收录表单模型下拉的厂商分组标题、以及管理后台的厂商下拉。
 	//
-	// 自助表单**可以**填厂商（站长 2026-08-21 拍板，推翻此前「只对管理员开放」的策略）：
-	// 撒谎的杀伤面有界——只有第一方厂商模型那条道需要填，且发布必过管理员审核，
-	// rpdiag 的质量盲评是最终兜底。
+	// ⚠️ 自助表单**不再**让提交方选厂商（站长 2026-08-21 裁定）：厂商由所选模型的模板声明，
+	// 提交方选得动就能出现「模型 ID 是豆包、厂商标成智谱」这种自相矛盾的上架数据。
 	ModelVendors []modelvendor.Vendor `json:"model_vendors"`
 
 	// ModelsByService: 「选厂商 → 选该厂商的模型」下拉的数据源，取代原先直接暴露模板名的做法。
 	ModelsByService map[string][]OnboardingModelOption `json:"models_by_service"`
-	// RequestShapesByService: 自填模型 ID 时可选的请求形态（native 模板的人话名）。
-	RequestShapesByService map[string][]OnboardingRequestShape `json:"request_shapes_by_service"`
 }
 
 // ChannelGroupRule 下发给前端的 channel_group 同步校验规则。
@@ -130,11 +128,10 @@ func (h *Handler) GetOnboardingMeta(c *gin.Context) {
 			Default:   groupDefault,
 			MaxLength: groupMaxLength,
 		},
-		TestTypes:              testTypes,
-		ContactInfo:            contactInfo,
-		ModelVendors:           modelvendor.Options(),
-		ModelsByService:        buildModelCatalog(),
-		RequestShapesByService: buildRequestShapes(),
+		TestTypes:       testTypes,
+		ContactInfo:     contactInfo,
+		ModelVendors:    modelvendor.Options(),
+		ModelsByService: buildModelCatalog(),
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -182,12 +179,16 @@ func (h *Handler) SubmitOnboarding(c *gin.Context) {
 
 // inlineTestRequest 内联探测请求体，由 /api/onboarding/test 与 /api/change/test 共用。
 //
-// 刻意**没有** model / request_model / model_vendor 字段：变更流程要探的模型由服务端按
-// TargetKey 从运行时配置取（见 buildChangeTestConfig）。多余的 JSON 键会被 ShouldBindJSON
-// 丢弃，故变更流程的客户端塞模型字段也进不来——这条不变量由结构体形状本身保证，不靠纪律。
+// 刻意**没有** model / request_model / model_vendor 字段：两条公开流程都不信客户端给的模型。
+// 变更流程按 TargetKey 从运行时配置取（见 buildChangeTestConfig）；收录流程则由所选模板声明
+// （非 native 模板的 model/request_model/model_vendor 走 config > template 回退链填充）。
+// 多余的 JSON 键会被 ShouldBindJSON 丢弃，故客户端塞模型字段也进不来——这条不变量由结构体
+// 形状本身保证，不靠纪律。
 //
-// 收录流程要填第一方厂商模型，用的是下面的 onboardingTestRequest（本结构体 + 两个模型字段），
-// **不是**给这里加字段：那会把「变更流程不信客户端模型」这条闸重新打开。
+// ⚠️ 别为了「让提交方填第一方厂商模型」再给这里加字段（2026-08-21 之前正是那样，已被推翻）：
+// 模型 ID、厂商、请求形态都是探针实现细节，提交方填得动就能出现「模型 ID 与厂商互相矛盾」
+// 「请求形态选错导致 200 却恒红 content_mismatch」这类只有我们才判得了的错。第一方厂商模型
+// 一律各建一个专属模板（如 cc-glm52-arith），新模型走 /contact 由我们评估后加。
 type inlineTestRequest struct {
 	ServiceType  string `json:"service_type" binding:"required"`
 	TemplateName string `json:"template_name" binding:"required"`
@@ -196,16 +197,6 @@ type inlineTestRequest struct {
 	// TargetKey 是变更流程的目标通道（`provider--service--channel`），**仅变更流程使用**。
 	// 不能标 binding:"required"：收录流程共用本结构体，那里根本没有已存在的通道可指。
 	TargetKey string `json:"target_key"`
-}
-
-// onboardingTestRequest 是自助收录专用的内联探测请求体：共用字段 + 行级模型。
-//
-// Model/ModelVendor 只在选中「第一方厂商模型」（native 族模板）时有值，其余情况必须为空——
-// 判定与提交、上架同一条（onboarding.ValidateModelSelection）。
-type onboardingTestRequest struct {
-	inlineTestRequest
-	Model       string `json:"model"`
-	ModelVendor string `json:"model_vendor"`
 }
 
 // inlineTestGuards 是两条公开内联探测端点共用的前置闸：探测器就绪 → IP 限流。
@@ -252,8 +243,8 @@ func resolveSelfServeTemplate(serviceType, templateName string) (probe.PayloadVa
 
 // bindOnboardingTestRequest 绑定并校验自助收录的内联探测请求。
 // 任一前置校验失败时已写入响应并返回 ok=false，调用方应直接返回。
-func (h *Handler) bindOnboardingTestRequest(c *gin.Context) (onboardingTestRequest, bool) {
-	var req onboardingTestRequest
+func (h *Handler) bindOnboardingTestRequest(c *gin.Context) (inlineTestRequest, bool) {
+	var req inlineTestRequest
 
 	if !h.inlineTestGuards(c) {
 		return req, false
@@ -274,14 +265,15 @@ func (h *Handler) bindOnboardingTestRequest(c *gin.Context) (onboardingTestReque
 	// 两处都必须是规范形式，否则「签发时用规范名、提交时用原文」会把合法提交变成恒拒。
 	req.TemplateName = variant.ID
 
-	// 模型/厂商与模板的组合校验与提交、上架同源：测试时就用规范化后的值去探，
-	// 避免「测试用了原串、提交用了规范串」这类两侧不一致。
-	model, vendor, err := onboarding.ValidateModelSelection(req.TemplateName, req.Model, req.ModelVendor)
-	if err != nil {
+	// 公开入口不接受行级 model/model_vendor（请求体里根本没有这两个键），所以这里用空值过闸：
+	// 校验的是「这个模板自己声明得起模型吗」。唯一会失败的形状是 native 族——它刻意不声明模型、
+	// 要求监测行填，而监测行只有管理员写得了。native 模板本就标了 self_serve_visible:false、
+	// 上面的 resolveSelfServeTemplate 已经挡住，这里是第二道 fail-closed：万一将来有人把某个
+	// native 模板标回可见，它会在测试入口就报可读错误，而不是带着 `"model": ""` 去打上游。
+	if _, _, err := onboarding.ValidateModelSelection(req.TemplateName, "", ""); err != nil {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, err.Error())
 		return req, false
 	}
-	req.Model, req.ModelVendor = model, vendor
 
 	return req, true
 }
@@ -362,14 +354,15 @@ func (h *Handler) runResolvedProbe(c *gin.Context, cfg config.ServiceConfig) (*p
 }
 
 // buildOnboardingTestConfig 用用户提交的字段构造自助收录测试用的 ServiceConfig。
-// 走与 AdminPublish 同一映射器，使自助测试与上架后的真实探测同源——包括行级模型：
-// 测的必须是将来真上架的那个模型，否则「测通了才准提交」这条闸就名不副实。
-func buildOnboardingTestConfig(req onboardingTestRequest) config.ServiceConfig {
+// 走与 AdminPublish 同一映射器，使自助测试与上架后的真实探测同源。
+//
+// 刻意不填 Model/ModelVendor：公开流程只能选**已声明模型的专属模板**，模型与厂商由
+// ResolveSingleMonitor 从模板注入（config > template 回退链）。这样「测的模型」与
+// 「上架后探的模型」同为模板声明值，不存在提交方替换的余地。
+func buildOnboardingTestConfig(req inlineTestRequest) config.ServiceConfig {
 	virtualSub := &onboarding.Submission{
 		ServiceType:  req.ServiceType,
 		TemplateName: req.TemplateName,
-		Model:        req.Model,
-		ModelVendor:  req.ModelVendor,
 		BaseURL:      req.BaseURL,
 		// PSC 在自助测试阶段只用于日志/审计，不参与 monitor_store 唯一性校验，故用占位值
 		ChannelCode: "__test__",
@@ -414,14 +407,15 @@ func (h *Handler) OnboardingTest(c *gin.Context) {
 	// 探测成功时签发 proof，并下发其绝对过期时间（Unix 秒），
 	// 让前端基于服务端真实 proof_ttl 做倒计时/提交前校验，而非硬编码。
 	if result.ProbeStatus == 1 {
-		// 绑定里带上模板与行级模型：proof 证明的是「用这个形态、测这个模型，通了」，
-		// 提交时任一项被换掉都要验签失败（详见 apikey.ProofClaims）。
+		// 绑定里带上模板：proof 证明的是「用这个形态测，通了」，提交时换模板要验签失败
+		// （详见 apikey.ProofClaims）。模型不再单独绑——公开流程的模型由模板唯一决定，
+		// 绑住模板就等于绑住了模型；Model 字段留空与 Submit 侧的校验值口径一致（两端都是
+		// ValidateModelSelection 的返回值，公开路径恒为空串）。
 		proof, expiresAt := svc.IssueProofWithExpiry(apikey.ProofClaims{
 			JobID:    result.ProbeID,
 			TestType: req.ServiceType,
 			APIURL:   req.BaseURL,
 			Variant:  req.TemplateName,
-			Model:    req.Model,
 		}, req.APIKey)
 		resp["test_proof"] = proof
 		resp["proof_expires_at"] = expiresAt

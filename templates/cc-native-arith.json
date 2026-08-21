@@ -1,5 +1,5 @@
 {
-	"self_serve_order": 3,
+	"self_serve_visible": false,
 	"self_serve_label": "默认不开启思考的模型",
 	"_comment": "第一方厂商 Anthropic Messages 兼容端点通用模板（智谱 GLM / 月之暗面 Kimi / MiniMax / DeepSeek / Qwen 等自家模型）。刻意不声明 model / request_model / model_vendor —— 这三项必须由监测行按厂商填写：模板是厂商无关的，若在此声明 vendor，行级漏填时会经 config > template 回退链静默继承成错误厂商。请求形态与 cc-haiku-arith 逐字一致（含 Claude Code 私有 header 与 system 身份串）：厂商开放 /v1/messages 的目的就是承接 Claude Code，这些正是 Claude Code 自己发的头；保持严格头集也使本模板不构成 mock 回显作弊的宽松入口。若某厂商确实不认某个头，另拆一个该厂商专用模板，不要放宽本文件。",
 	"url": "{{BASE_URL}}/v1/messages",

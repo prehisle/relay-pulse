@@ -1,0 +1,43 @@
+{
+	"self_serve_label": "Kimi K2.7 Code",
+	"model": "kimi-k2.7-code",
+	"request_model": "kimi-k2.7-code",
+	"model_vendor": "moonshot",
+	"_comment": "月之暗面 Kimi K2.7 Code 的 Anthropic Messages 兼容端点探针。请求形态逐字节复制自 cc-native-arith-512（不发 thinking 字段、max_tokens 512），只补上模型元数据。为什么是这一款而不是 nothink 版：本模型默认开深度思考，却**不接受** thinking.disabled（2026-08-05 火山方舟实测直接 400），又会把小预算全用在思考上导致正文为空，只能把预算放大到思考完还有余量输出答案（实测 2.4s）。⚠️ 证据边界同上：实测端点是火山方舟，中转商自建网关未逐一验证。model 写规范模型 ID 而非人话名，是因为 model 同时是 DB 业务键——与既有 native 通道保持同一个串，将来切模板不断历史；人话名在 self_serve_label。别加 self_serve_default。",
+	"url": "{{BASE_URL}}/v1/messages",
+	"method": "POST",
+	"headers": {
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"Anthropic-Version": "2023-06-01",
+		"User-Agent": "claude-cli/2.1.76 (external, cli)",
+		"Anthropic-Beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14",
+		"Anthropic-Dangerous-Direct-Browser-Access": "true",
+		"X-App": "cli"
+	},
+	"body": {
+		"model": "{{MODEL}}",
+		"max_tokens": 512,
+		"stream": true,
+		"metadata": {
+			"user_id": "{{USER_ID}}"
+		},
+		"system": [{
+			"text": "You are Claude Code, Anthropic's official CLI for Claude.",
+			"type": "text"
+		}],
+		"messages": [{
+			"role": "user",
+			"content": [{ "text": "{{PROMPT}}", "type": "text" }]
+		}],
+		"tools": []
+	},
+	"response": {
+		"success_contains": "{{EXPECTED_ANSWER}}"
+	},
+	"probe": {
+		"slow_latency": "5s",
+		"timeout": "10s",
+		"retry": 0
+	}
+}
