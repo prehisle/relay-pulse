@@ -31,8 +31,18 @@ func SameEndpoint(a, b *url.URL) bool {
 	}
 	return strings.EqualFold(a.Scheme, b.Scheme) &&
 		SameHostPort(a, b) &&
+		sameUserinfo(a, b) &&
 		normalizedPath(a) == normalizedPath(b) &&
 		a.RawQuery == b.RawQuery
+}
+
+// sameUserinfo 比较 URL 里内嵌的 user[:password]。
+//
+// 它是端点身份的一部分而不是装饰：`https://alice@edge/x` 与 `https://bob@edge/x` 打的是同一台
+// 机器、却可能是两个账户，HTTP 客户端会据此生成不同的 Authorization 头。忽略它就等于允许
+// 「用甲账户测通、报乙账户」。两边都没有内嵌凭据（绝大多数情况）时恒等。
+func sameUserinfo(a, b *url.URL) bool {
+	return a.User.String() == b.User.String()
 }
 
 // normalizedPath 返回剥掉尾部斜杠的路径（根路径与空路径同归一为空串）。

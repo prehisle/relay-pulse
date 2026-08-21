@@ -93,3 +93,24 @@ func TestSubmit_BaseURLPathMustMatchTestAPIURL(t *testing.T) {
 		}
 	})
 }
+
+// TestSubmit_TestTypeMustMatchServiceType proof 绑的是**测试时**的 service，而校验侧读的是客户端
+// 提交的 test_type；不显式比一下，就得靠「模板必须属于所提交 service」那条闸间接推出两者相等。
+func TestSubmit_TestTypeMustMatchServiceType(t *testing.T) {
+	svc := newSubmitTestService(t)
+	_, err := svc.Submit(context.Background(), &SubmitRequest{
+		AgreementAccepted: true,
+		ProviderName:      "Prov",
+		ServiceType:       "cc",
+		TemplateName:      "cc-haiku-arith",
+		ChannelType:       "O",
+		ChannelSource:     "max",
+		ChannelGroup:      "main",
+		BaseURL:           "https://api.example.com",
+		TestAPIURL:        "https://api.example.com",
+		TestType:          "cx",
+	}, "1.2.3.4")
+	if err == nil || !strings.Contains(err.Error(), "test_type 与 service_type 不一致") {
+		t.Fatalf("test_type 与 service_type 不一致应被拒，实际: %v", err)
+	}
+}

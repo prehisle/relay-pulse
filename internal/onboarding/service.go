@@ -315,6 +315,16 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		return nil, fmt.Errorf("base_url 与 test_api_url 必须完全一致（协议、host/port 与路径）")
 	}
 
+	// test_type 必须与本次提交的 service 一致。
+	//
+	// proof 绑的是**测试时**的 service，而校验侧用的是客户端提交的 test_type——两者不比一下，
+	// 就得靠「模板必须属于所提交的 service」那条闸间接推出它们相等（handler 里的
+	// resolveSelfServeTemplate + proof 绑定模板）。那条推理链成立，但一旦哪天模板闸挪了位置就会
+	// 悄悄失效；这里一行显式比较，把它变成不依赖别处的局部事实。
+	if strings.TrimSpace(req.TestType) != strings.TrimSpace(req.ServiceType) {
+		return nil, fmt.Errorf("test_type 与 service_type 不一致，请重新测试后提交")
+	}
+
 	// 加密 API Key
 	encrypted, err := s.cipher.Encrypt(req.APIKey)
 	if err != nil {

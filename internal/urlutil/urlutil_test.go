@@ -60,6 +60,10 @@ func TestSameEndpoint(t *testing.T) {
 		{"端口不同", "https://api.example.com:8443/v1", "https://api.example.com/v1", false},
 		{"scheme 不同但归一化端口相同", "http://api.example.com:443/v1", "https://api.example.com/v1", false},
 		{"查询串不同", "https://api.example.com/v1?a=1", "https://api.example.com/v1?a=2", false},
+		// 内嵌凭据是端点身份的一部分：同一台机器、不同账户
+		{"内嵌用户不同", "https://alice@api.example.com/v1", "https://bob@api.example.com/v1", false},
+		{"一方带内嵌用户", "https://alice@api.example.com/v1", "https://api.example.com/v1", false},
+		{"内嵌用户相同", "https://alice@api.example.com/v1", "https://alice@api.example.com/v1", true},
 	}
 
 	for _, tc := range tests {
