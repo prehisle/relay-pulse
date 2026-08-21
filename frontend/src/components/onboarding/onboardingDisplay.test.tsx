@@ -62,6 +62,9 @@ const baseFormData: OnboardingFormData = {
   apiKey: 'sk-test-1234567890abcd',
   testType: 'cc',
   testVariant: 'cc-haiku-arith',
+  modelKey: '',
+  model: '',
+  modelVendor: '',
 };
 
 const meta: OnboardingMeta = {
@@ -88,6 +91,9 @@ const meta: OnboardingMeta = {
     },
   ],
   contact_info: 'QQ:18058344',
+  model_vendors: [{ code: 'anthropic', label: 'Anthropic', icon_key: 'anthropic' }],
+  models_by_service: {},
+  request_shapes_by_service: {},
 };
 
 beforeAll(async () => {
@@ -95,10 +101,11 @@ beforeAll(async () => {
 });
 
 describe('ConfirmStep 摘要显示（step3）', () => {
-  const html = () =>
+  const html = (meta: OnboardingMeta | null = null) =>
     renderHTML(
       <ConfirmStep
         formData={baseFormData}
+        meta={meta}
         updateField={updateField}
         submitResult={null}
         isSubmitting={false}
@@ -111,11 +118,45 @@ describe('ConfirmStep 摘要显示（step3）', () => {
       />,
     );
 
-  it('#3 连接摘要那行标签是「请求模板」而非「服务类型」，值为 testVariant', () => {
-    const out = html();
-    // 「请求模板」在 ConfirmStep 中仅此一处；若误回退用 testType 标签则不会出现
-    expect(out).toContain('请求模板');
-    expect(out).toContain('cc-haiku-arith');
+  it('#3 连接摘要展示所选模型的人话名，而不是模板名', () => {
+    const metaWithCatalog: OnboardingMeta = {
+      ...meta,
+      models_by_service: {
+        cc: [{
+          key: 'cc-haiku-arith',
+          label: 'Claude Haiku 4.5',
+          vendor: 'anthropic',
+          template: 'cc-haiku-arith',
+          model: '',
+          request_model: 'claude-haiku-4-5-20251001',
+          editable: false,
+        }],
+      },
+    };
+    const out = renderHTML(
+      <ConfirmStep
+        formData={{ ...baseFormData, modelKey: 'cc-haiku-arith' }}
+        meta={metaWithCatalog}
+        updateField={updateField}
+        submitResult={null}
+        isSubmitting={false}
+        testPassedAt={null}
+        checkedClauses={{}}
+        onToggleClause={noop}
+        onSubmit={noop}
+        onBack={noop}
+        onReset={noop}
+      />,
+    );
+    expect(out).toContain('监测的模型');
+    expect(out).toContain('Claude Haiku 4.5');
+    // 表单里不该再出现模板名
+    expect(out).not.toContain('cc-haiku-arith');
+  });
+
+  it('#3b 目录取不到时回落展示模板名，不留空行', () => {
+    // meta 尚未加载（首屏刷新回到第三步）时仍要说清测的是什么
+    expect(html()).toContain('cc-haiku-arith');
   });
 
   it('填了通道显示名称时摘要出一行，留空不渲染该行', () => {

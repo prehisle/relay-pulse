@@ -13,6 +13,9 @@ package onboarding
 // 同理，条目里的模板只是**默认**请求形态，前端仍会让用户在该 service 的 native 变体间切换。
 
 // FirstPartyModel 是第一方厂商的一个种子模型条目。
+//
+// Label 里**不要**重复厂商名：下拉按厂商分组，组标题已经写着「智谱」，选项再写一遍
+// 「GLM-5.2（智谱）」是噪音。
 type FirstPartyModel struct {
 	// Vendor 受控词表里的厂商 code（internal/modelvendor）。
 	Vendor string
@@ -33,18 +36,18 @@ type FirstPartyModel struct {
 // 基础版，由用户在表单里改。
 var firstPartyModels = map[string][]FirstPartyModel{
 	"cc": {
-		{Vendor: "zhipu", Label: "GLM-5.2（智谱）", Model: "glm-5.2", Template: "cc-native-arith-nothink"},
-		{Vendor: "moonshot", Label: "Kimi K2.7 Code（月之暗面）", Model: "kimi-k2.7-code", Template: "cc-native-arith-512"},
+		{Vendor: "zhipu", Label: "GLM-5.2", Model: "glm-5.2", Template: "cc-native-arith-nothink"},
+		{Vendor: "moonshot", Label: "Kimi K2.7 Code", Model: "kimi-k2.7-code", Template: "cc-native-arith-512"},
 		{Vendor: "minimax", Label: "MiniMax M3", Model: "minimax-m3", Template: "cc-native-arith-nothink"},
 		{Vendor: "deepseek", Label: "DeepSeek V4 Pro", Model: "deepseek-v4-pro", Template: "cc-native-arith-nothink"},
-		{Vendor: "bytedance", Label: "豆包 Seed 2.1 Turbo（字节跳动）", Model: "doubao-seed-2.1-turbo", Template: "cc-native-arith-nothink"},
+		{Vendor: "bytedance", Label: "豆包 Seed 2.1 Turbo", Model: "doubao-seed-2.1-turbo", Template: "cc-native-arith-nothink"},
 	},
 	"cx": {
-		{Vendor: "zhipu", Label: "GLM-5.2（智谱）", Model: "glm-5.2", Template: "cx-native-arith"},
-		{Vendor: "moonshot", Label: "Kimi K2.7 Code（月之暗面）", Model: "kimi-k2.7-code", Template: "cx-native-arith"},
+		{Vendor: "zhipu", Label: "GLM-5.2", Model: "glm-5.2", Template: "cx-native-arith"},
+		{Vendor: "moonshot", Label: "Kimi K2.7 Code", Model: "kimi-k2.7-code", Template: "cx-native-arith"},
 		{Vendor: "minimax", Label: "MiniMax M3", Model: "minimax-m3", Template: "cx-native-arith"},
 		{Vendor: "deepseek", Label: "DeepSeek V4 Pro", Model: "deepseek-v4-pro", Template: "cx-native-arith"},
-		{Vendor: "bytedance", Label: "豆包 Seed 2.1 Turbo（字节跳动）", Model: "doubao-seed-2.1-turbo", Template: "cx-native-arith"},
+		{Vendor: "bytedance", Label: "豆包 Seed 2.1 Turbo", Model: "doubao-seed-2.1-turbo", Template: "cx-native-arith"},
 	},
 }
 

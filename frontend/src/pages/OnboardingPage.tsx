@@ -12,7 +12,7 @@ export default function OnboardingPage() {
     step, meta, metaError, formData, testResult, testProof, testPassedAt, proofExpiresAt,
     isTesting, isSubmitting, submitResult, error,
     checkedClauses, toggleClause,
-    updateField, goToStep, runTest, submit, reset,
+    updateField, applyModelSelection, goToStep, runTest, submit, reset,
   } = useOnboarding();
 
   return (
@@ -103,6 +103,7 @@ export default function OnboardingPage() {
                 <ConnectionTestStep
                   formData={formData}
                   updateField={updateField}
+                  applyModelSelection={applyModelSelection}
                   meta={meta}
                   testResult={testResult}
                   testProof={testProof}
@@ -117,6 +118,7 @@ export default function OnboardingPage() {
                 <ConfirmStep
                   formData={formData}
                   updateField={updateField}
+                  meta={meta}
                   submitResult={submitResult}
                   isSubmitting={isSubmitting}
                   testPassedAt={testPassedAt}

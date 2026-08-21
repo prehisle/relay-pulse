@@ -1,12 +1,15 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, Copy, Check, RotateCcw, ExternalLink, AlertTriangle } from 'lucide-react';
-import type { OnboardingFormData, SubmitOnboardingResponse } from '../../types/onboarding';
+import type { OnboardingFormData, OnboardingMeta, SubmitOnboardingResponse } from '../../types/onboarding';
 import { primaryButtonClass, secondaryButtonClass } from './controls';
+import { describeModelSelection } from './modelSelection';
 
 interface ConfirmStepProps {
   formData: OnboardingFormData;
   updateField: <K extends keyof OnboardingFormData>(key: K, value: OnboardingFormData[K]) => void;
+  /** 用于把所选模型翻译成人话名（摘要里不出现模板名） */
+  meta: OnboardingMeta | null;
   submitResult: SubmitOnboardingResponse | null;
   isSubmitting: boolean;
   testPassedAt: number | null;
@@ -84,7 +87,7 @@ function CopyableText({ text }: { text: string }) {
 }
 
 /** Step 3: Review summary and submit. */
-export function ConfirmStep({ formData, updateField, submitResult, isSubmitting, testPassedAt, proofExpiresAt, checkedClauses, onToggleClause, onSubmit, onBack, onReset }: ConfirmStepProps) {
+export function ConfirmStep({ formData, meta, updateField, submitResult, isSubmitting, testPassedAt, proofExpiresAt, checkedClauses, onToggleClause, onSubmit, onBack, onReset }: ConfirmStepProps) {
   const { t } = useTranslation();
 
   // 全勾同步到 formData.agreementAccepted
@@ -252,10 +255,10 @@ export function ConfirmStep({ formData, updateField, submitResult, isSubmitting,
           }
         />
         <SummaryRow
-          /* 值是 testVariant（请求模板，如 cc-haiku-arith），故标签用「请求模板」而非「服务类型」；
-             服务类型(cc) 已在上方「服务商信息」段单列，此处不再重复 */
-          label={t('onboarding.connectionTest.testVariant')}
-          value={formData.testVariant || formData.testType}
+          /* 展示所选模型的人话名（表单里已不出现模板名）；服务类型(cc) 已在上方单列不重复 */
+          label={t('onboarding.connectionTest.model')}
+          value={describeModelSelection(meta, formData.serviceType, formData.modelKey, formData.model)
+            || formData.testVariant}
         />
       </div>
 

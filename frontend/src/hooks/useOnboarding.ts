@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { apiGet, apiPost, ApiError } from '../utils/apiClient';
 import { normalizeDisplayName } from '../utils/displayName';
 import { canonicalEndpointUrl } from '../utils/endpointUrl';
+import type { ModelSelection } from '../components/onboarding/modelSelection';
 import type {
   OnboardingMeta,
   OnboardingFormData,
@@ -28,6 +29,9 @@ function loadDraft(): Partial<OnboardingFormData> {
       if (typeof parsed.channelSource !== 'string' || !/^[a-z0-9]{2,5}$/.test(parsed.channelSource)) {
         delete parsed.channelSource;
       }
+      // 表单从「选模板」改成「选厂商→选模型」后，旧草稿里的 testVariant 可能指向一个已不
+      // 对外开放的模板；模型选择状态也不存在。一律丢弃，让第二步按目录重新解析默认值。
+      delete parsed.testVariant;
       return parsed as Partial<OnboardingFormData>;
     }
   } catch { /* ignore */ }
@@ -64,6 +68,9 @@ const defaultForm: OnboardingFormData = {
   apiKey: '',
   testType: '',
   testVariant: '',
+  modelKey: '',
+  model: '',
+  modelVendor: '',
 };
 
 export function useOnboarding() {
@@ -108,14 +115,22 @@ export function useOnboarding() {
 
   const updateField = useCallback(<K extends keyof OnboardingFormData>(key: K, value: OnboardingFormData[K]) => {
     const resetTestState = key === 'serviceType' && formData.serviceType !== value;
-    // proof 绑定了 apiKey fingerprint 和 baseUrl，变更时必须清除
-    const invalidateProof = key === 'baseUrl' || key === 'apiKey';
+    // proof 绑定了 apiKey 指纹、base_url、**探针模板与行级模型**（后端 apikey.ProofClaims），
+    // 任一项变了旧 proof 就不再对应这次要提交的东西，必须清掉重测——否则用户会带着一个
+    // 必然验签失败的 proof 走到最后一步才被拒。
+    const invalidateProof =
+      key === 'baseUrl' || key === 'apiKey' ||
+      key === 'testVariant' || key === 'model' || key === 'modelVendor' || key === 'modelKey';
 
     setFormData(prev => {
       const next = { ...prev, [key]: value } as OnboardingFormData;
       if (resetTestState) {
         next.testType = '';
         next.testVariant = '';
+        // 模型目录按 service 分组，换了 service 旧选择必然失效
+        next.modelKey = '';
+        next.model = '';
+        next.modelVendor = '';
       }
       return next;
     });
@@ -137,6 +152,22 @@ export function useOnboarding() {
 
     setError(null);
   }, [formData.serviceType, testProof]);
+
+  /**
+   * 应用一次模型选择（模型 / 厂商 / 探针模板一次改完）。
+   *
+   * 不逐字段调 updateField：那会连发多次状态更新，且每次都各自判一遍要不要清测试证明，
+   * 中间态（新模型 + 旧模板）也会短暂存在。模型选择是一个原子动作，proof 必然作废。
+   */
+  const applyModelSelection = useCallback((selection: ModelSelection) => {
+    setFormData(prev => ({ ...prev, ...selection }));
+    setTestJobId(null);
+    setTestResult(null);
+    setTestProof(null);
+    setTestPassedAt(null);
+    setProofExpiresAt(null);
+    setError(null);
+  }, []);
 
   const goToStep = useCallback((s: number) => {
     setStep(s);
@@ -160,6 +191,9 @@ export function useOnboarding() {
         // 与提交时同一口径：测试打的地址就是将来落地的 base_url，且 proof 绑的正是这个串。
         base_url: canonicalEndpointUrl(formData.baseUrl),
         api_key: formData.apiKey,
+        // 行级模型只对第一方厂商模型非空；后端按模板族校验这条组合
+        model: formData.model,
+        model_vendor: formData.modelVendor,
       });
 
       setTestResult(resp);
@@ -202,6 +236,8 @@ export function useOnboarding() {
         category: formData.category,
         service_type: formData.serviceType,
         template_name: formData.testVariant || formData.testType,
+        model: formData.model,
+        model_vendor: formData.modelVendor,
         sponsor_level: formData.sponsorLevel,
         channel_type: formData.channelType,
         channel_source: formData.channelSource,
@@ -264,6 +300,7 @@ export function useOnboarding() {
     checkedClauses,
     toggleClause,
     updateField,
+    applyModelSelection,
     goToStep,
     runTest,
     submit,

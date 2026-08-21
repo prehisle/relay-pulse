@@ -371,9 +371,16 @@
       "providerNamePlaceholder": "例如：MyService",
       "websiteUrl": "官网地址",
       "category": "类别",
-      "categories": { "commercial": "商业站", "public": "公益站" },
+      "categories": {
+        "commercial": "商业站",
+        "public": "公益站"
+      },
       "serviceType": "服务类型",
-      "serviceTypes": { "cc": "CC", "cx": "CX", "gm": "GM" },
+      "serviceTypes": {
+        "cc": "CC",
+        "cx": "CX",
+        "gm": "GM"
+      },
       "identity": "您的身份",
       "identities": {
         "publicOwner": "公益站站长",
@@ -411,7 +418,13 @@
       "channelNameInvalid": "最多 {{max}} 个字符，且不能包含控制字符或零宽字符",
       "channelGroup": "通道分组代号",
       "channelGroupHint": "1-8 位小写字母或数字，仅用于生成通道标识（如 us、eu、v2），不作为展示名称；留空默认 main",
-      "sourceCategories": { "subscription": "订阅账户", "official": "官方 API", "cloud": "云平台", "reverse": "逆向", "mixed": "混合" },
+      "sourceCategories": {
+        "subscription": "订阅账户",
+        "official": "官方 API",
+        "cloud": "云平台",
+        "reverse": "逆向",
+        "mixed": "混合"
+      },
       "channelCodePreview": "通道标识预览",
       "optional": "（可选）"
     },
@@ -426,11 +439,6 @@
       "showApiKey": "显示 API Key",
       "hideApiKey": "隐藏 API Key",
       "testType": "服务类型",
-      "testVariant": "请求模板",
-      "variantHint": "选择用于测试的模型模板（不同模型可能鉴权策略不同）",
-      "variants": {
-        "cc-haiku-pro-2184": "Haiku Pro (2.1.84)"
-      },
       "runTest": "运行测试",
       "rerunTest": "重新测试",
       "testing": "测试中...",
@@ -442,7 +450,18 @@
       "error": "错误信息",
       "responseDetail": "响应详情",
       "proofValid": "测试证明有效（剩余 {{time}}）",
-      "proofExpired": "测试证明已过期，请重新测试"
+      "proofExpired": "测试证明已过期，请重新测试",
+      "model": "监测的模型",
+      "modelHint": "选择这条通道要被监测的模型；测试与上架用的是同一个",
+      "modelCustom": "其他（自填模型 ID）",
+      "modelId": "模型 ID",
+      "modelIdHint": "厂商文档里的模型标识，如 glm-5.2。同一模型在不同平台的写法可能不同，可直接修改",
+      "modelVendor": "模型厂商",
+      "modelVendorUnknown": "不在列表 / 暂不确定",
+      "modelVendorHint": "用于站点上的厂商标注；不确定就留空，由我们补",
+      "requestShape": "请求形态",
+      "requestShapeHint": "决定探针怎么发这次请求。若测试报参数不被接受，换一种再试",
+      "requestModel": "实际请求模型"
     },
     "test": {
       "statusAvailable": "可用",

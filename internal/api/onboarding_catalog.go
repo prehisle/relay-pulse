@@ -107,22 +107,52 @@ func buildRequestShapes() map[string][]OnboardingRequestShape {
 	shapes := make(map[string][]OnboardingRequestShape)
 
 	for _, t := range probe.ListTestTypes() {
-		var list []OnboardingRequestShape
+		var list []requestShapeWithOrder
 		for _, v := range t.Variants {
 			if v == nil || !v.Native || !v.SelfServeVisible {
 				continue
 			}
-			list = append(list, OnboardingRequestShape{
-				Template: v.ID,
-				Label:    firstNonEmptyString(v.TemplateLabel, v.ID),
+			list = append(list, requestShapeWithOrder{
+				OnboardingRequestShape: OnboardingRequestShape{
+					Template: v.ID,
+					Label:    firstNonEmptyString(v.TemplateLabel, v.ID),
+				},
+				order: v.TemplateOrder,
 			})
 		}
 		if len(list) > 0 {
-			shapes[t.ID] = list
+			// 按模板声明的次序排：默认的字典序会把「多数厂商模型先试这个」排到最后一位，
+			// 而这一项同时是自填模型时的初始值（前端取第一个）。
+			sort.SliceStable(list, func(i, j int) bool {
+				oi, oj := shapeOrder(list[i].order), shapeOrder(list[j].order)
+				if oi != oj {
+					return oi < oj
+				}
+				return list[i].Template < list[j].Template
+			})
+			out := make([]OnboardingRequestShape, 0, len(list))
+			for _, item := range list {
+				out = append(out, item.OnboardingRequestShape)
+			}
+			shapes[t.ID] = out
 		}
 	}
 
 	return shapes
+}
+
+// requestShapeWithOrder 是带排序键的请求形态（order 不进 wire：前端按数组顺序展示即可）。
+type requestShapeWithOrder struct {
+	OnboardingRequestShape
+	order int
+}
+
+// shapeOrder 把「未声明次序」(0) 归到最后，其余按声明值升序。
+func shapeOrder(declared int) int {
+	if declared <= 0 {
+		return int(^uint(0) >> 1)
+	}
+	return declared
 }
 
 // sortModelOptions 按「厂商词表顺序 → 标签 → key」排序，未收录厂商与未声明厂商排在最后。

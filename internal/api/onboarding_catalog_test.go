@@ -164,3 +164,28 @@ func TestBuildRequestShapes(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildRequestShapes_OrderFollowsDeclaration 请求形态按模板声明的次序排，而不是文件名字典序。
+//
+// 这一项不只是好看：列表第一项同时是「其他（自填模型 ID）」的初始值。按字典序排会把
+// cc 的推荐形态（默认开思考且支持关闭，最快最省）排到最后，于是自填的人默认拿到一个
+// 对多数第一方厂商模型都不合适的形态。
+func TestBuildRequestShapes_OrderFollowsDeclaration(t *testing.T) {
+	snapshotProbeRegistry(t)
+	if err := probe.InitTemplates("../../templates"); err != nil {
+		t.Fatalf("加载内置模板失败: %v", err)
+	}
+
+	shapes := buildRequestShapes()
+	if got := shapes["cc"][0].Template; got != "cc-native-arith-nothink" {
+		t.Errorf("cc 的首个请求形态 = %q，期望 cc-native-arith-nothink（推荐先试的那个）", got)
+	}
+	if got := shapes["cx"][0].Template; got != "cx-native-arith" {
+		t.Errorf("cx 的首个请求形态 = %q，期望 cx-native-arith", got)
+	}
+
+	// 字典序会把 cc-native-arith 排在最前，故本断言在「忘了排序」时必然变红
+	if shapes["cc"][0].Template == "cc-native-arith" {
+		t.Error("cc 的请求形态仍是字典序")
+	}
+}

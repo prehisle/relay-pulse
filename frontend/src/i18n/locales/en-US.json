@@ -348,7 +348,10 @@
     "moreAnnouncements": "{{count}} more announcement(s)"
   },
   "onboarding": {
-    "meta": { "title": "Apply for Listing", "description": "Submit your API service to RelayPulse monitoring platform" },
+    "meta": {
+      "title": "Apply for Listing",
+      "description": "Submit your API service to RelayPulse monitoring platform"
+    },
     "title": "Apply for Listing",
     "description": "Submit your API service info and pass the connectivity test to apply",
     "loading": "Loading form configuration...",
@@ -368,9 +371,16 @@
       "providerNamePlaceholder": "e.g. MyService",
       "websiteUrl": "Website URL",
       "category": "Category",
-      "categories": { "commercial": "Commercial", "public": "Public" },
+      "categories": {
+        "commercial": "Commercial",
+        "public": "Public"
+      },
       "serviceType": "Service Type",
-      "serviceTypes": { "cc": "CC", "cx": "CX", "gm": "GM" },
+      "serviceTypes": {
+        "cc": "CC",
+        "cx": "CX",
+        "gm": "GM"
+      },
       "identity": "Your Role",
       "identities": {
         "publicOwner": "Public Site Owner",
@@ -408,7 +418,13 @@
       "channelNameInvalid": "At most {{max}} characters, without control or zero-width characters",
       "channelGroup": "Channel Group Code",
       "channelGroupHint": "1-8 lowercase letters or digits, used only to build the channel identifier (e.g. us, eu, v2), not as a display name; defaults to main",
-      "sourceCategories": { "subscription": "Subscription", "official": "Official API", "cloud": "Cloud", "reverse": "Reverse", "mixed": "Mixed" },
+      "sourceCategories": {
+        "subscription": "Subscription",
+        "official": "Official API",
+        "cloud": "Cloud",
+        "reverse": "Reverse",
+        "mixed": "Mixed"
+      },
       "channelCodePreview": "Channel Code Preview",
       "optional": "(optional)"
     },
@@ -423,11 +439,6 @@
       "showApiKey": "Show API Key",
       "hideApiKey": "Hide API Key",
       "testType": "Service Type",
-      "testVariant": "Request Template",
-      "variantHint": "Choose which model template to test (auth policy may differ by model).",
-      "variants": {
-        "cc-haiku-pro-2184": "Haiku Pro (2.1.84)"
-      },
       "runTest": "Run Test",
       "rerunTest": "Re-test",
       "testing": "Testing...",
@@ -439,7 +450,18 @@
       "error": "Error",
       "responseDetail": "Response detail",
       "proofValid": "Test proof valid ({{time}} remaining)",
-      "proofExpired": "Test proof expired, please re-run the test"
+      "proofExpired": "Test proof expired, please re-run the test",
+      "model": "Model to monitor",
+      "modelHint": "Pick the model this channel will be monitored on — the test and the listing use the same one",
+      "modelCustom": "Other (enter a model ID)",
+      "modelId": "Model ID",
+      "modelIdHint": "The vendor's model identifier, e.g. glm-5.2. It can differ between platforms, so feel free to edit it",
+      "modelVendor": "Model vendor",
+      "modelVendorUnknown": "Not listed / not sure",
+      "modelVendorHint": "Used for the vendor label on the site. Leave it blank if unsure and we'll fill it in",
+      "requestShape": "Request shape",
+      "requestShapeHint": "Controls how the probe builds this request. If the test fails on a rejected parameter, try another one",
+      "requestModel": "Requested model"
     },
     "test": {
       "statusAvailable": "Available",

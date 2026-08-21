@@ -1,4 +1,5 @@
 {
+	"self_serve_order": 2,
 	"self_serve_label": "接口地址已含版本段，且不接受 reasoning 参数",
 	"_comment": "第一方厂商 OpenAI Responses 兼容端点通用模板·无 reasoning 版。⚠️ URL 契约与 cx-native-arith 不同：本模板打 {{BASE_URL}}/responses，故监测行的 base_url **必须已含版本段**（如火山方舟 https://ark.cn-beijing.volces.com/api/coding/v3）——这与 OpenAI 官方 base https://api.openai.com/v1 同构，是 Codex CLI 的标准形态；若 base_url 不含版本段请改用 cx-native-arith。第二处差异是删掉了 reasoning 字段：实测火山方舟的 kimi-k2.7-code 会以 InvalidParameter 400 拒绝它（reasoning is not supported by current model），而去掉后五家厂商模型全部通过，故本模板不发这个字段、由厂商用自己的默认推理档位。刻意不声明 model / request_model / model_vendor —— 这三项必须由监测行按厂商填写：模板是厂商无关的，若在此声明 vendor，行级漏填时会经 config > template 回退链静默继承成错误厂商。删 reasoning 不放宽 header 集、不放宽响应校验（题面仍是随机算术、仍按 RP_ANSWER= 精确子串判定），故不构成 mock 回显作弊的入口；与 native 族其余成员一样，本模板绝不回流给中转商通道。",
 	"url": "{{BASE_URL}}/responses",

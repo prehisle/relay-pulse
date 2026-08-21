@@ -40,7 +40,7 @@ func ValidateModelSelection(templateName, model, vendor string) (string, string,
 
 	switch {
 	case native && normModel == "":
-		return "", "", fmt.Errorf("所选模型需要填写厂商的模型 ID（如 glm-4.7、kimi-k2.7-code）")
+		return "", "", fmt.Errorf("所选模型需要填写厂商的模型 ID（如 glm-5.2、kimi-k2.7-code）")
 	case !native && normModel != "":
 		return "", "", fmt.Errorf("所选模型已由探针模板确定，请勿另填模型 ID（%q）", model)
 	}
