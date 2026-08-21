@@ -173,11 +173,18 @@ jobs:
         id: semantic
         uses: cycjimmy/semantic-release-action@v6
         with:
+          # 只装 semantic-release **没有**自带的那一个：commit-analyzer / release-notes-generator /
+          # github 三个插件本就是 semantic-release 的依赖，由它按互相兼容的版本装好；把它们再
+          # 列一遍只是多开三条各自浮动 major 的漂移通道。
+          #
+          # preset 必须钉版本：2026-08 起 conventional-changelog-conventionalcommits 浮到 10.x，
+          # 它换用 @conventional-changelog/template 且要求 conventional-changelog-writer@9+，
+          # 而 release-notes-generator@14 依赖的是 writer@^8 —— 于是 release job 报
+          # `Missing helper: ... requires conventional-changelog-writer@9 or newer`，任何 commit
+          # 推上来都红、连着两次发不出版本号。9.x 是与 writer@8 配套的最后一个 major。
+          # 升级时机：等 release-notes-generator 依赖的 writer 进到 9，再把这里抬到 10。
           extra_plugins: |
-            @semantic-release/commit-analyzer
-            @semantic-release/release-notes-generator
-            @semantic-release/github
-            conventional-changelog-conventionalcommits
+            conventional-changelog-conventionalcommits@9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
