@@ -22,17 +22,18 @@ func TestProofAudienceIsolation(t *testing.T) {
 	onboarding := NewProofIssuerForAudience(secret, "onboarding", ttl)
 	change := NewProofIssuerForAudience(secret, "change", ttl)
 
-	proof := onboarding.Issue(jobID, "cc", apiURL, fp)
+	claims := ProofClaims{JobID: jobID, TestType: "cc", APIURL: apiURL, KeyFingerprint: fp}
+	proof := onboarding.Issue(claims)
 
-	if err := onboarding.Verify(proof, jobID, "cc", apiURL, fp); err != nil {
+	if err := onboarding.Verify(proof, claims); err != nil {
 		t.Fatalf("同用途验证应通过: %v", err)
 	}
-	if err := change.Verify(proof, jobID, "cc", apiURL, fp); err == nil {
+	if err := change.Verify(proof, claims); err == nil {
 		t.Fatal("onboarding 签发的 proof 不应能在 change 流程验证通过")
 	}
 
-	changeProof := change.Issue(jobID, "cc", apiURL, fp)
-	if err := onboarding.Verify(changeProof, jobID, "cc", apiURL, fp); err == nil {
+	changeProof := change.Issue(claims)
+	if err := onboarding.Verify(changeProof, claims); err == nil {
 		t.Fatal("change 签发的 proof 不应能在 onboarding 流程验证通过")
 	}
 }
@@ -45,8 +46,9 @@ func TestProofAudienceDefaultIsEmpty(t *testing.T) {
 	plain := NewProofIssuer(secret, ttl)
 	explicit := NewProofIssuerForAudience(secret, "", ttl)
 
-	proof := plain.Issue("job", "cc", "https://a.com", "fp")
-	if err := explicit.Verify(proof, "job", "cc", "https://a.com", "fp"); err != nil {
+	claims := ProofClaims{JobID: "job", TestType: "cc", APIURL: "https://a.com", KeyFingerprint: "fp"}
+	proof := plain.Issue(claims)
+	if err := explicit.Verify(proof, claims); err != nil {
 		t.Fatalf("NewProofIssuer 应等价于空 audience: %v", err)
 	}
 }

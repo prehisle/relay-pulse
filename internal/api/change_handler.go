@@ -2,12 +2,14 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"monitor/internal/apikey"
 	"monitor/internal/change"
 	"monitor/internal/config"
 	"monitor/internal/logger"
@@ -162,7 +164,15 @@ func (h *Handler) ChangeTest(c *gin.Context) {
 
 	// 探测成功时签发 proof，并下发其绝对过期时间（Unix 秒），供前端做倒计时/提交前校验。
 	if result.ProbeStatus == 1 {
-		proof, expiresAt := svc.IssueProofWithExpiry(result.ProbeID, req.ServiceType, req.BaseURL, req.APIKey)
+		// 绑定里带上模板与**目标通道**：proof 证明的是「这条通道用这个形态测通了」。
+		// 目标通道取解析后的 PSC（而非请求原文），与 change.Submit 侧的 target.MonitorKey 同形。
+		proof, expiresAt := svc.IssueProofWithExpiry(apikey.ProofClaims{
+			JobID:      result.ProbeID,
+			TestType:   req.ServiceType,
+			APIURL:     req.BaseURL,
+			Variant:    cfg.Template,
+			MonitorKey: fmt.Sprintf("%s--%s--%s", cfg.Provider, cfg.Service, cfg.Channel),
+		}, req.APIKey)
 		resp["test_proof"] = proof
 		resp["proof_expires_at"] = expiresAt
 	}

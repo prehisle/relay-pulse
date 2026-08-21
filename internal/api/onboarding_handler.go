@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"monitor/internal/apikey"
 	"monitor/internal/config"
 	"monitor/internal/logger"
 	"monitor/internal/modelvendor"
@@ -253,10 +254,14 @@ func (h *Handler) bindOnboardingTestRequest(c *gin.Context) (onboardingTestReque
 	if !h.validateProbeTargetURL(c, req.BaseURL) {
 		return req, false
 	}
-	if _, err := resolveSelfServeTemplate(req.ServiceType, req.TemplateName); err != nil {
+	variant, err := resolveSelfServeTemplate(req.ServiceType, req.TemplateName)
+	if err != nil {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, err.Error())
 		return req, false
 	}
+	// 用注册表解析出的变体 ID 覆盖请求原文：模板名随后既要拼文件路径、又要进 proof 绑定，
+	// 两处都必须是规范形式，否则「签发时用规范名、提交时用原文」会把合法提交变成恒拒。
+	req.TemplateName = variant.ID
 
 	// 模型/厂商与模板的组合校验与提交、上架同源：测试时就用规范化后的值去探，
 	// 避免「测试用了原串、提交用了规范串」这类两侧不一致。
@@ -398,7 +403,15 @@ func (h *Handler) OnboardingTest(c *gin.Context) {
 	// 探测成功时签发 proof，并下发其绝对过期时间（Unix 秒），
 	// 让前端基于服务端真实 proof_ttl 做倒计时/提交前校验，而非硬编码。
 	if result.ProbeStatus == 1 {
-		proof, expiresAt := svc.IssueProofWithExpiry(result.ProbeID, req.ServiceType, req.BaseURL, req.APIKey)
+		// 绑定里带上模板与行级模型：proof 证明的是「用这个形态、测这个模型，通了」，
+		// 提交时任一项被换掉都要验签失败（详见 apikey.ProofClaims）。
+		proof, expiresAt := svc.IssueProofWithExpiry(apikey.ProofClaims{
+			JobID:    result.ProbeID,
+			TestType: req.ServiceType,
+			APIURL:   req.BaseURL,
+			Variant:  req.TemplateName,
+			Model:    req.Model,
+		}, req.APIKey)
 		resp["test_proof"] = proof
 		resp["proof_expires_at"] = expiresAt
 	}

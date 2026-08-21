@@ -2,6 +2,7 @@ package onboarding
 
 import (
 	"context"
+	"monitor/internal/apikey"
 	"strings"
 	"testing"
 )
@@ -29,7 +30,13 @@ func newReplayTestRequest(svc *Service, jobID string) *SubmitRequest {
 		TestType:          "cc",
 		TestAPIURL:        apiURL,
 	}
-	req.TestProof = svc.IssueProof(jobID, req.TestType, apiURL, apiKey)
+	// 绑定与 Submit 侧同口径：模板名进 claims，行级模型为空（cc-haiku-arith 非 native 族）
+	req.TestProof = svc.IssueProof(apikey.ProofClaims{
+		JobID:    jobID,
+		TestType: req.TestType,
+		APIURL:   apiURL,
+		Variant:  req.TemplateName,
+	}, apiKey)
 	return req
 }
 
@@ -119,4 +126,70 @@ func TestSubmit_SponsorLevelWhitelist(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSubmit_ProofBindsTemplateAndModel 锁定收录侧 proof 的两项新绑定：探针模板与行级模型。
+//
+// 不绑就能「用最便宜的 haiku 测通、提交时报成 opus」，或者「用便宜模型测通、报一个贵模型」——
+// 收录成的行上线即恒红，而「测通了才准提交」这条闸形同虚设。
+func TestSubmit_ProofBindsTemplateAndModel(t *testing.T) {
+	const apiURL = "https://api.example.com"
+	const apiKey = "sk-test-proof-bind-01"
+
+	newReq := func(jobID, template, model string, claims apikey.ProofClaims) *SubmitRequest {
+		return &SubmitRequest{
+			AgreementAccepted: true,
+			ProviderName:      "ProofBindProv",
+			WebsiteURL:        "https://example.com",
+			Category:          "commercial",
+			ServiceType:       "cc",
+			TemplateName:      template,
+			Model:             model,
+			SponsorLevel:      "pulse",
+			ChannelType:       "O",
+			ChannelSource:     "nat",
+			ChannelGroup:      "main",
+			BaseURL:           apiURL,
+			APIKey:            apiKey,
+			TestProof:         "",
+			TestJobID:         jobID,
+			TestType:          "cc",
+			TestAPIURL:        apiURL,
+		}
+	}
+
+	t.Run("提交时换模板即拒", func(t *testing.T) {
+		svc := newSubmitTestService(t)
+		req := newReq("job-tpl-swap", "cc-opus-ping", "", apikey.ProofClaims{})
+		req.TestProof = svc.IssueProof(apikey.ProofClaims{
+			JobID: "job-tpl-swap", TestType: "cc", APIURL: apiURL, Variant: "cc-haiku-arith",
+		}, apiKey)
+		if _, err := svc.Submit(context.Background(), req, "1.2.3.4"); err == nil {
+			t.Fatal("用 haiku 测通、提交时换成 opus，应被拒")
+		}
+	})
+
+	t.Run("提交时换模型即拒", func(t *testing.T) {
+		svc := newSubmitTestService(t)
+		req := newReq("job-model-swap", "cc-native-arith", "claude-opus-5", apikey.ProofClaims{})
+		req.TestProof = svc.IssueProof(apikey.ProofClaims{
+			JobID: "job-model-swap", TestType: "cc", APIURL: apiURL,
+			Variant: "cc-native-arith", Model: "glm-5.2",
+		}, apiKey)
+		if _, err := svc.Submit(context.Background(), req, "1.2.3.4"); err == nil {
+			t.Fatal("用便宜模型测通、提交时换成另一个模型，应被拒")
+		}
+	})
+
+	t.Run("模板与模型都对得上即通过", func(t *testing.T) {
+		svc := newSubmitTestService(t)
+		req := newReq("job-bind-match", "cc-native-arith", "glm-5.2", apikey.ProofClaims{})
+		req.TestProof = svc.IssueProof(apikey.ProofClaims{
+			JobID: "job-bind-match", TestType: "cc", APIURL: apiURL,
+			Variant: "cc-native-arith", Model: "glm-5.2",
+		}, apiKey)
+		if _, err := svc.Submit(context.Background(), req, "1.2.3.4"); err != nil {
+			t.Fatalf("模板与模型一致时应通过: %v", err)
+		}
+	})
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"monitor/internal/apikey"
 	"monitor/internal/config"
 	"monitor/internal/displayname"
 	"monitor/internal/logger"
@@ -313,14 +314,19 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 	fingerprint := s.cipher.Fingerprint(req.APIKey)
 	last4 := Last4(req.APIKey)
 
-	// 验证 test proof（绑定探测参数）
-	err = s.proofIssuer.Verify(
-		req.TestProof,
-		req.TestJobID,
-		req.TestType,
-		req.TestAPIURL,
-		fingerprint,
-	)
+	// 验证 test proof（绑定探测参数）。
+	//
+	// 模板与行级模型也在绑定内：不绑就能「用最便宜的模型测通、提交时换成贵的」，
+	// 上架即恒红。这里传的是**规范化后**的值（模板名在 handler 已按注册表核过、模型经
+	// ValidateModelSelection 剥过空白），与签发侧同一口径。
+	err = s.proofIssuer.Verify(req.TestProof, apikey.ProofClaims{
+		JobID:          req.TestJobID,
+		TestType:       req.TestType,
+		APIURL:         req.TestAPIURL,
+		KeyFingerprint: fingerprint,
+		Variant:        strings.TrimSpace(req.TemplateName),
+		Model:          model,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("测试证明无效: %w", err)
 	}
@@ -716,17 +722,17 @@ func (s *Service) AdminPublish(ctx context.Context, publicID, board string) erro
 	return nil
 }
 
-// IssueProof 签发测试证明（供内联探测调用）。
-// 参数来自探测结果：jobID, testType, apiURL, apiKey。
-func (s *Service) IssueProof(jobID, testType, apiURL, apiKey string) string {
-	proof, _ := s.IssueProofWithExpiry(jobID, testType, apiURL, apiKey)
+// IssueProof 签发测试证明（供内联探测调用）。claims 的 KeyFingerprint 由本方法按 apiKey 计算，
+// 调用方不必（也不应该）自己算。
+func (s *Service) IssueProof(claims apikey.ProofClaims, apiKey string) string {
+	proof, _ := s.IssueProofWithExpiry(claims, apiKey)
 	return proof
 }
 
 // IssueProofWithExpiry 签发测试证明，并返回其绝对过期时间（Unix 秒），供 API 层下发前端。
-func (s *Service) IssueProofWithExpiry(jobID, testType, apiURL, apiKey string) (string, int64) {
-	fingerprint := s.cipher.Fingerprint(apiKey)
-	return s.proofIssuer.IssueWithExpiry(jobID, testType, apiURL, fingerprint)
+func (s *Service) IssueProofWithExpiry(claims apikey.ProofClaims, apiKey string) (string, int64) {
+	claims.KeyFingerprint = s.cipher.Fingerprint(apiKey)
+	return s.proofIssuer.IssueWithExpiry(claims)
 }
 
 // BuildServiceConfigFromSubmission 将 Submission（连同已解密的 apiKey）翻译成 ServiceConfig。

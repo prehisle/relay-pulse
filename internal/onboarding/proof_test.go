@@ -1,92 +1,32 @@
 package onboarding
 
 import (
-	"strings"
 	"testing"
 	"time"
+
+	"monitor/internal/apikey"
 )
 
-func TestProofIssuer_IssueAndVerify(t *testing.T) {
-	pi := NewProofIssuer("test-secret", 5*time.Minute)
-
-	proof := pi.Issue("job-123", "cc", "https://api.example.com/v1", "fingerprint-abc")
-	if proof == "" {
-		t.Fatal("expected non-empty proof")
+// TestNewProofIssuer_BoundToOnboardingAudience 锁定本包的 ProofIssuer 构造器确实绑了收录用途。
+//
+// 签发/校验/过期/篡改这些通用行为由 internal/apikey 的测试覆盖（这里的类型就是它的别名），
+// 本包只需守住一件它独有的事：用途隔离没被构造器绕过——否则一次探测签出的 proof 又能在
+// 收录与变更两条流程各兑换一次提交（两边的一次性消费表是独立命名空间，拦不住跨流程重放）。
+func TestNewProofIssuer_BoundToOnboardingAudience(t *testing.T) {
+	const secret = "shared-proof-secret"
+	claims := apikey.ProofClaims{
+		JobID:          "job-1",
+		TestType:       "cc",
+		APIURL:         "https://api.example.com",
+		KeyFingerprint: "fp",
 	}
 
-	// Verify with matching params
-	err := pi.Verify(proof, "job-123", "cc", "https://api.example.com/v1", "fingerprint-abc")
-	if err != nil {
-		t.Fatalf("expected valid proof, got error: %v", err)
+	proof := NewProofIssuer(secret, 5*time.Minute).Issue(claims)
+
+	if err := apikey.NewProofIssuerForAudience(secret, ProofAudience, 5*time.Minute).Verify(proof, claims); err != nil {
+		t.Fatalf("同用途应验证通过: %v", err)
 	}
-}
-
-func TestProofIssuer_WrongJobID(t *testing.T) {
-	pi := NewProofIssuer("test-secret", 5*time.Minute)
-	proof := pi.Issue("job-123", "cc", "https://api.example.com", "fp")
-
-	err := pi.Verify(proof, "job-wrong", "cc", "https://api.example.com", "fp")
-	if err == nil {
-		t.Error("expected error for wrong jobID")
-	}
-}
-
-func TestProofIssuer_WrongTestType(t *testing.T) {
-	pi := NewProofIssuer("test-secret", 5*time.Minute)
-	proof := pi.Issue("job-1", "cc", "https://api.example.com", "fp")
-
-	err := pi.Verify(proof, "job-1", "cx", "https://api.example.com", "fp")
-	if err == nil {
-		t.Error("expected error for wrong testType")
-	}
-}
-
-func TestProofIssuer_WrongFingerprint(t *testing.T) {
-	pi := NewProofIssuer("test-secret", 5*time.Minute)
-	proof := pi.Issue("job-1", "cc", "https://api.example.com", "fp-a")
-
-	err := pi.Verify(proof, "job-1", "cc", "https://api.example.com", "fp-b")
-	if err == nil {
-		t.Error("expected error for wrong fingerprint")
-	}
-}
-
-func TestProofIssuer_Expired(t *testing.T) {
-	// Use negative TTL to ensure proof is immediately expired
-	pi := NewProofIssuer("test-secret", -1*time.Second)
-
-	proof := pi.Issue("job-1", "cc", "https://api.example.com", "fp")
-
-	err := pi.Verify(proof, "job-1", "cc", "https://api.example.com", "fp")
-	if err == nil {
-		t.Fatal("expected error for expired proof")
-	}
-	if !strings.Contains(err.Error(), "过期") {
-		t.Errorf("error should mention expiration, got: %v", err)
-	}
-}
-
-func TestProofIssuer_InvalidFormat(t *testing.T) {
-	pi := NewProofIssuer("test-secret", 5*time.Minute)
-
-	err := pi.Verify("no-dot-separator", "j", "t", "u", "f")
-	if err == nil {
-		t.Error("expected error for invalid format")
-	}
-
-	err = pi.Verify("sig.not-a-number", "j", "t", "u", "f")
-	if err == nil {
-		t.Error("expected error for invalid expiry")
-	}
-}
-
-func TestProofIssuer_DifferentSecrets(t *testing.T) {
-	pi1 := NewProofIssuer("secret-a", 5*time.Minute)
-	pi2 := NewProofIssuer("secret-b", 5*time.Minute)
-
-	proof := pi1.Issue("job-1", "cc", "https://api.example.com", "fp")
-	err := pi2.Verify(proof, "job-1", "cc", "https://api.example.com", "fp")
-	if err == nil {
-		t.Error("expected error when verifying with different secret")
+	if err := apikey.NewProofIssuer(secret, 5*time.Minute).Verify(proof, claims); err == nil {
+		t.Fatal("收录 proof 不应能被无用途 issuer 验证通过——说明 audience 没进签名")
 	}
 }

@@ -233,7 +233,7 @@ func TestService_Submit_WithTestRequired(t *testing.T) {
 	cipher, _ := apikey.NewKeyCipher(testHexKey)
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
-	proof := proofIssuer.Issue("job-1", "cc", "https://api.new.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-1", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -270,7 +270,7 @@ func TestService_Submit_TestProofIsSingleUse(t *testing.T) {
 		APIKey:            "sk-test-key-12345",
 		TargetKey:         "testprov--cc--vip",
 		ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
-		TestProof:         proofIssuer.Issue("job-single-use", "cc", "https://api.new.com", fingerprint),
+		TestProof:         proofIssuer.Issue(apikey.ProofClaims{JobID: "job-single-use", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"}),
 		TestJobID:         "job-single-use",
 		TestType:          "cc",
 		TestAPIURL:        "https://api.new.com",
@@ -446,7 +446,7 @@ func TestService_Submit_EncryptsNewAPIKey(t *testing.T) {
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	newKey := "sk-brand-new-key-abcd"
 	fingerprint := cipher.Fingerprint(newKey)
-	proof := proofIssuer.Issue("job-2", "cc", "https://api.test.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-2", TestType: "cc", APIURL: "https://api.test.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -498,7 +498,7 @@ func TestService_Submit_RequiresTestWithoutAgreement_Rejected(t *testing.T) {
 	cipher, _ := apikey.NewKeyCipher(testHexKey)
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
-	proof := proofIssuer.Issue("job-noagree", "cc", "https://api.new.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-noagree", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 	req := &SubmitRequest{
 		APIKey:          "sk-test-key-12345",
 		TargetKey:       "testprov--cc--vip",
@@ -528,7 +528,7 @@ func TestService_Submit_NewAPIKeyWithoutAgreement_Rejected(t *testing.T) {
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	newKey := "sk-brand-new-key-noagree"
 	fingerprint := cipher.Fingerprint(newKey)
-	proof := proofIssuer.Issue("job-newkey-noagree", "cc", "https://api.test.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-newkey-noagree", TestType: "cc", APIURL: "https://api.test.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 	req := &SubmitRequest{
 		APIKey:          "sk-test-key-12345",
 		TargetKey:       "testprov--cc--vip",
@@ -555,7 +555,7 @@ func TestService_Submit_RequiresTestWithAgreement_Stamped(t *testing.T) {
 	cipher, _ := apikey.NewKeyCipher(testHexKey)
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
-	proof := proofIssuer.Issue("job-ac", "cc", "https://api.new.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-ac", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
 		TargetKey:         "testprov--cc--vip",
@@ -883,7 +883,13 @@ func TestService_AdminDelete_NotFound(t *testing.T) {
 func TestService_IssueProof(t *testing.T) {
 	svc, _ := newTestService(t)
 
-	proof := svc.IssueProof("job-1", "cc", "https://api.test.com", "sk-test-key-12345")
+	proof := svc.IssueProof(apikey.ProofClaims{
+		JobID:      "job-1",
+		TestType:   "cc",
+		APIURL:     "https://api.test.com",
+		Variant:    "cc-haiku-arith",
+		MonitorKey: "testprov--cc--vip",
+	}, "sk-test-key-12345")
 	if proof == "" {
 		t.Error("expected non-empty proof")
 	}
@@ -904,7 +910,7 @@ func TestService_Submit_ProofWrongJobID(t *testing.T) {
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
 	// proof 签发时使用 job-good，但提交时用 job-wrong
-	proof := proofIssuer.Issue("job-good", "cc", "https://api.new.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-good", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -933,7 +939,7 @@ func TestService_Submit_ProofWrongAPIURL(t *testing.T) {
 	cipher, _ := apikey.NewKeyCipher(testHexKey)
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
-	proof := proofIssuer.Issue("job-url", "cc", "https://api.legit.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-url", TestType: "cc", APIURL: "https://api.legit.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -960,7 +966,7 @@ func TestService_Submit_ProofExpired(t *testing.T) {
 	// 负 TTL 确保签发即过期（expiresAt 在过去）
 	expiredIssuer := apikey.NewProofIssuer(testProofSecret, -time.Second)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
-	proof := expiredIssuer.Issue("job-exp", "cc", "https://api.new.com", fingerprint)
+	proof := expiredIssuer.Issue(apikey.ProofClaims{JobID: "job-exp", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -989,7 +995,7 @@ func TestService_Submit_ProofTampered(t *testing.T) {
 	cipher, _ := apikey.NewKeyCipher(testHexKey)
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
-	proof := proofIssuer.Issue("job-tamp", "cc", "https://api.new.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-tamp", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	// 篡改签名部分（翻转第一个字符）
 	tampered := "x" + proof[1:]
@@ -1019,7 +1025,7 @@ func TestService_Submit_ProofWrongKeyFingerprint(t *testing.T) {
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	// proof 签发时使用另一个 key 的指纹
 	wrongFingerprint := cipher.Fingerprint("sk-different-key-xyz")
-	proof := proofIssuer.Issue("job-fp", "cc", "https://api.new.com", wrongFingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-fp", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: wrongFingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -1107,7 +1113,7 @@ func TestService_Submit_RejectsEmptyProposedBaseURL(t *testing.T) {
 	cipher, _ := apikey.NewKeyCipher(testHexKey)
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
-	proof := proofIssuer.Issue("job-empty", "cc", "https://api.test.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-empty", TestType: "cc", APIURL: "https://api.test.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -1141,7 +1147,7 @@ func TestService_Submit_BaseURLHostMustMatchTestAPIURL(t *testing.T) {
 	cipher, _ := apikey.NewKeyCipher(testHexKey)
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
-	proof := proofIssuer.Issue("job-host", "cc", "https://api.other.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-host", TestType: "cc", APIURL: "https://api.other.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -1174,7 +1180,7 @@ func TestService_Submit_BaseURLPortMustMatchTestAPIURL(t *testing.T) {
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
 	// proof 绑定缺省端口的 test_api_url，但 base_url 指向同 host 的 :9999
-	proof := proofIssuer.Issue("job-port", "cc", "https://api.new.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-port", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -1205,7 +1211,7 @@ func TestService_Submit_BaseURLDefaultHTTPSPortMatchesExplicit443(t *testing.T) 
 	cipher, _ := apikey.NewKeyCipher(testHexKey)
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	fingerprint := cipher.Fingerprint("sk-test-key-12345")
-	proof := proofIssuer.Issue("job-port-443", "cc", "https://api.new.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-port-443", TestType: "cc", APIURL: "https://api.new.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -1232,7 +1238,7 @@ func TestService_Submit_NewAPIKeyHostMustMatchTargetBaseURL(t *testing.T) {
 	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
 	newKey := "sk-brand-new-key-efgh"
 	fingerprint := cipher.Fingerprint(newKey)
-	proof := proofIssuer.Issue("job-newkey-host", "cc", "https://api.evil.com", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-newkey-host", TestType: "cc", APIURL: "https://api.evil.com", KeyFingerprint: fingerprint, MonitorKey: "testprov--cc--vip"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-test-key-12345",
@@ -1280,7 +1286,7 @@ func TestService_Submit_SkipHostCheckWhenBaseURLEmpty(t *testing.T) {
 
 	newKey := "sk-brand-new-key-0001"
 	fingerprint := cipher.Fingerprint(newKey)
-	proof := proofIssuer.Issue("job-nobase", "cc", "https://any.host.com/v1", fingerprint)
+	proof := proofIssuer.Issue(apikey.ProofClaims{JobID: "job-nobase", TestType: "cc", APIURL: "https://any.host.com/v1", KeyFingerprint: fingerprint, MonitorKey: "nbase--cc--ch"})
 
 	req := &SubmitRequest{
 		APIKey:            "sk-nobase-key-00001",
@@ -1793,4 +1799,66 @@ func TestValidateHTTPURL(t *testing.T) {
 			t.Fatalf("%q 应被拒绝", raw)
 		}
 	}
+}
+
+// TestService_Submit_ProofBindsVariantAndTarget 锁定 proof 的两项新绑定。
+//
+// ① 模板：变更要证明的是「这条通道照旧能用」。不绑模板就能用最便宜的模型测通、
+// 提交时报另一个模型——前端切模板会清测试状态，但直接构造 HTTP 请求就绕过了。
+// ② 目标通道：一把 key 常同时认证多条通道，不绑就能「测 A 通道、改 B 通道」。
+func TestService_Submit_ProofBindsVariantAndTarget(t *testing.T) {
+	cipher, _ := apikey.NewKeyCipher(testHexKey)
+	proofIssuer := apikey.NewProofIssuer(testProofSecret, 5*time.Minute)
+	fingerprint := cipher.Fingerprint("sk-test-key-12345")
+
+	newRequest := func(jobID, submitVariant string, claims apikey.ProofClaims) *SubmitRequest {
+		return &SubmitRequest{
+			APIKey:            "sk-test-key-12345",
+			TargetKey:         "testprov--cc--vip",
+			ProposedChanges:   map[string]string{"base_url": "https://api.new.com"},
+			TestProof:         proofIssuer.Issue(claims),
+			TestJobID:         jobID,
+			TestType:          "cc",
+			TestVariant:       submitVariant,
+			TestAPIURL:        "https://api.new.com",
+			AgreementAccepted: true,
+		}
+	}
+	claimsFor := func(jobID, variant, monitorKey string) apikey.ProofClaims {
+		return apikey.ProofClaims{
+			JobID:          jobID,
+			TestType:       "cc",
+			APIURL:         "https://api.new.com",
+			KeyFingerprint: fingerprint,
+			Variant:        variant,
+			MonitorKey:     monitorKey,
+		}
+	}
+
+	t.Run("提交时换模板即拒", func(t *testing.T) {
+		svc, _ := newTestService(t)
+		req := newRequest("job-variant-swap", "cc-opus-ping",
+			claimsFor("job-variant-swap", "cc-haiku-arith", "testprov--cc--vip"))
+		if _, err := svc.Submit(context.Background(), req, "127.0.0.1"); err == nil {
+			t.Fatal("用 A 模板测通、提交时换成 B 模板，应被拒")
+		}
+	})
+
+	t.Run("拿别的通道的 proof 即拒", func(t *testing.T) {
+		svc, _ := newTestService(t)
+		req := newRequest("job-target-swap", "cc-haiku-arith",
+			claimsFor("job-target-swap", "cc-haiku-arith", "other--cc--vip"))
+		if _, err := svc.Submit(context.Background(), req, "127.0.0.1"); err == nil {
+			t.Fatal("proof 绑的是另一条通道，应被拒")
+		}
+	})
+
+	t.Run("模板与目标都对得上即通过", func(t *testing.T) {
+		svc, _ := newTestService(t)
+		req := newRequest("job-variant-match", "cc-haiku-arith",
+			claimsFor("job-variant-match", "cc-haiku-arith", "testprov--cc--vip"))
+		if _, err := svc.Submit(context.Background(), req, "127.0.0.1"); err != nil {
+			t.Fatalf("模板与目标一致时应通过: %v", err)
+		}
+	})
 }

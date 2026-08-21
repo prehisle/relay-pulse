@@ -19,6 +19,7 @@ import (
 	"monitor/internal/displayname"
 	"monitor/internal/logger"
 	"monitor/internal/onboarding"
+	"monitor/internal/probe"
 	"monitor/internal/urlutil"
 )
 
@@ -280,7 +281,20 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		}
 		proofFingerprint := s.cipher.Fingerprint(proofKey)
 
-		if err := s.proofIssuer.Verify(req.TestProof, req.TestJobID, req.TestType, req.TestAPIURL, proofFingerprint); err != nil {
+		// proof 还绑了**探针模板**与**目标通道**：
+		//   - 不绑模板 → 可以用最便宜的模型测通、提交时报另一个模型，而变更要证明的正是
+		//     「这条通道照旧能用」；前端切模板会清测试状态，但那是 UX，不是安全边界。
+		//   - 不绑目标通道 → 一把 key 常同时认证多条通道，可以「测 A、改 B」。
+		// 模板名两侧都按注册表规范化（canonicalTestVariant），避免「签发时用解析后的 ID、
+		// 校验时用请求原文」这种自造的恒拒。
+		if err := s.proofIssuer.Verify(req.TestProof, apikey.ProofClaims{
+			JobID:          req.TestJobID,
+			TestType:       req.TestType,
+			APIURL:         req.TestAPIURL,
+			KeyFingerprint: proofFingerprint,
+			Variant:        CanonicalTestVariant(target.Service, req.TestVariant),
+			MonitorKey:     target.MonitorKey,
+		}); err != nil {
 			return nil, fmt.Errorf("测试证明无效: %w", err)
 		}
 	}
@@ -379,18 +393,32 @@ func (s *Service) GetStatus(ctx context.Context, publicID string) (*ChangeReques
 }
 
 // IssueProof 签发测试证明（供内联探测调用）。
-func (s *Service) IssueProof(jobID, testType, apiURL, apiKey string) string {
-	proof, _ := s.IssueProofWithExpiry(jobID, testType, apiURL, apiKey)
+func (s *Service) IssueProof(claims apikey.ProofClaims, apiKey string) string {
+	proof, _ := s.IssueProofWithExpiry(claims, apiKey)
 	return proof
+}
+
+// CanonicalTestVariant 把请求里的模板名归一成注册表里的变体 ID：空值回退该 service 的默认
+// 变体（与探测端点 ResolveVariant 同语义），查不到就退回剥空白的原文。
+//
+// 签发与校验两侧必须用同一个函数：探测端点绑的是解析后的变体 ID，而提交请求带的是原文
+// （前端在默认变体的情况下甚至可能不带），两侧各自处理必然对不上、把合法提交变成恒拒。
+func CanonicalTestVariant(service, variant string) string {
+	if tt, ok := probe.GetTestType(service); ok {
+		if v, err := tt.ResolveVariant(variant); err == nil && v != nil {
+			return v.ID
+		}
+	}
+	return strings.TrimSpace(variant)
 }
 
 // IssueProofWithExpiry 签发测试证明，并返回其绝对过期时间（Unix 秒），供 API 层下发前端。
 // 与 onboarding.Service.IssueProofWithExpiry 同口径：change.Service 持有独立但
 // 同源（共享 onboarding.proof_secret）的 proofIssuer，故 /api/change/test 不依赖
 // onboarding 是否启用，签发的 proof 也能被 change.Submit 的同一 proofIssuer 验证。
-func (s *Service) IssueProofWithExpiry(jobID, testType, apiURL, apiKey string) (string, int64) {
-	fingerprint := s.cipher.Fingerprint(apiKey)
-	return s.proofIssuer.IssueWithExpiry(jobID, testType, apiURL, fingerprint)
+func (s *Service) IssueProofWithExpiry(claims apikey.ProofClaims, apiKey string) (string, int64) {
+	claims.KeyFingerprint = s.cipher.Fingerprint(apiKey)
+	return s.proofIssuer.IssueWithExpiry(claims)
 }
 
 // === 管理端 API ===
