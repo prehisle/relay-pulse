@@ -772,7 +772,8 @@
         "autoColdExempt": "Exempt from Auto-Cold",
         "autoColdExemptHint": "Clears and prevents the system from auto-moving this channel to the cold board",
         "autoMoveExempt": "Exempt from Auto-Move",
-        "autoMoveExemptHint": "Skips all availability-based auto-moves (expiry demotion is unaffected)"
+        "autoMoveExemptHint": "Skips all availability-based auto-moves (expiry demotion is unaffected)",
+        "modelVendor": "Model vendor"
       },
       "form": {
         "title": "New Monitor",
@@ -907,7 +908,9 @@
       "confirmReject": "Confirm Reject",
       "delete": "Delete",
       "confirmDelete": "Confirm Delete",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "model": "Row-level model ID",
+      "modelVendor": "Model vendor"
     }
   },
   "vendors": {

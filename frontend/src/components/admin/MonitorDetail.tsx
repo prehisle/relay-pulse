@@ -7,6 +7,7 @@ import { PARENT_TARGET_KEY } from '../../hooks/useMonitorAdmin';
 import { MonitorLogsTab } from './MonitorLogsTab';
 import { CurlCommandBlock } from './CurlCommandBlock';
 import { fieldInputClass, fieldShapeClass } from './fieldStyles';
+import { buildVendorOptions, useModelVendors } from '../../hooks/useModelVendors';
 
 type DetailTab = 'detail' | 'logs';
 
@@ -43,6 +44,8 @@ type EditableFields = Pick<MonitorConfig,
 interface ChildEdit {
   _original?: MonitorConfig;
   model: string;
+  /** 模型厂商 code：套 native 模板的子行必须填，漏填会经 config > template 回退链继承成错误厂商 */
+  model_vendor: string;
   template: string;
   base_url: string;
   api_key: string;
@@ -59,6 +62,11 @@ export function MonitorDetail({
   probeTargets = [], probingTargets = {}, probeResults = {}, probeErrors = {},
 }: MonitorDetailProps) {
   const { t } = useTranslation();
+  const vendors = useModelVendors();
+
+  /** 厂商下拉选项：空值在首位，当前值即使不在词表也保留（免得一保存就把历史值清空） */
+  const vendorOptions = (current: string) =>
+    buildVendorOptions(vendors, current, t('admin.monitors.sponsorLevels.none'));
   const [activeTab, setActiveTab] = useState<DetailTab>('detail');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -147,6 +155,7 @@ export function MonitorDetail({
     items.map(c => ({
       _original: c,
       model: c.model || '',
+      model_vendor: c.model_vendor || '',
       template: c.template || '',
       base_url: c.base_url || '',
       api_key: c.api_key || '',
@@ -187,7 +196,7 @@ export function MonitorDetail({
   };
 
   const addChild = () => {
-    setEditChildren(prev => [...prev, { model: '', template: '', base_url: '', api_key: '' }]);
+    setEditChildren(prev => [...prev, { model: '', model_vendor: '', template: '', base_url: '', api_key: '' }]);
   };
 
   const removeChild = (index: number) => {
@@ -231,6 +240,7 @@ export function MonitorDetail({
         channel: c._original?.channel || '',
         parent: parentPath,
         model: c.model.trim() || undefined,
+        model_vendor: c.model_vendor.trim() || undefined,
         template: c.template || undefined,
         base_url: c.base_url || undefined,
         api_key: c.api_key || undefined,
@@ -550,7 +560,7 @@ export function MonitorDetail({
           ) : (
             <div className="space-y-3">
               {editChildren.map((child, i) => (
-                <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-end border-b border-default/30 pb-3 last:border-0">
+                <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] gap-2 items-end border-b border-default/30 pb-3 last:border-0">
                   <div>
                     <label className="block text-xs text-muted mb-0.5">{t('admin.monitors.field.model')}</label>
                     <input
@@ -559,6 +569,18 @@ export function MonitorDetail({
                       placeholder={t('admin.monitors.form.modelPlaceholder')}
                       className={fieldInputClass({ dense: true })}
                     />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted mb-0.5">{t('admin.monitors.field.modelVendor')}</label>
+                    <select
+                      value={child.model_vendor}
+                      onChange={e => updateChild(i, 'model_vendor', e.target.value)}
+                      className={`w-full ${fieldShapeClass({ dense: true })}`}
+                    >
+                      {vendorOptions(child.model_vendor).map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs text-muted mb-0.5">{t('admin.monitors.field.template')}</label>

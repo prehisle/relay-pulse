@@ -772,7 +772,8 @@
         "autoColdExempt": "豁免自动冷板",
         "autoColdExemptHint": "启用后清除并阻止系统自动将此通道移入冷板",
         "autoMoveExempt": "豁免自动移板",
-        "autoMoveExemptHint": "启用后跳过所有基于可用率的自动移板（不影响到期降级）"
+        "autoMoveExemptHint": "启用后跳过所有基于可用率的自动移板（不影响到期降级）",
+        "modelVendor": "模型厂商"
       },
       "form": {
         "title": "新建监测通道",
@@ -907,7 +908,9 @@
       "confirmReject": "确认驳回",
       "delete": "删除",
       "confirmDelete": "确认删除",
-      "cancel": "取消"
+      "cancel": "取消",
+      "model": "行级模型 ID",
+      "modelVendor": "模型厂商"
     }
   },
   "vendors": {

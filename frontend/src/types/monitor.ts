@@ -47,6 +47,8 @@ export interface MonitorConfig {
   channel: string;
   channel_name?: string;
   model?: string;
+  /** 模型厂商受控 code（internal/modelvendor）；native 族模板必须行级填，否则厂商列显示未知 */
+  model_vendor?: string;
   parent?: string;
   template?: string;
   base_url?: string;

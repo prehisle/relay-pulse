@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import type { MonitorConfig, MonitorFile } from '../../types/monitor';
 import { FormField, SelectField, CheckboxField } from './FormControls';
+import { buildVendorOptions, useModelVendors } from '../../hooks/useModelVendors';
 
 interface MonitorFormProps {
   fetchTemplates: () => Promise<string[]>;
@@ -12,6 +13,8 @@ interface MonitorFormProps {
 
 interface ChildDraft {
   model: string;
+  /** 模型厂商 code：套 native 模板的子行必须填，否则会经 config > template 回退链继承成错误厂商 */
+  model_vendor: string;
   template: string;
   base_url: string;
   api_key: string;
@@ -40,7 +43,7 @@ const EMPTY_CONFIG: MonitorConfig = {
   auto_move_exempt: false,
 };
 
-const EMPTY_CHILD: ChildDraft = { model: '', template: '', base_url: '', api_key: '' };
+const EMPTY_CHILD: ChildDraft = { model: '', model_vendor: '', template: '', base_url: '', api_key: '' };
 
 export function MonitorForm({ fetchTemplates, onSave, onCancel }: MonitorFormProps) {
   const { t } = useTranslation();
@@ -49,6 +52,11 @@ export function MonitorForm({ fetchTemplates, onSave, onCancel }: MonitorFormPro
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [templates, setTemplates] = useState<string[]>([]);
+  const vendors = useModelVendors();
+
+  /** 厂商下拉选项：空值在首位，当前值即使不在词表也保留（免得一保存就把历史值清空） */
+  const vendorOptions = (current: string) =>
+    buildVendorOptions(vendors, current, t('admin.monitors.sponsorLevels.none'));
 
   useEffect(() => {
     let active = true;
@@ -104,6 +112,7 @@ export function MonitorForm({ fetchTemplates, onSave, onCancel }: MonitorFormPro
           channel: '',
           parent: parentPath,
           model: child.model.trim() || undefined,
+          model_vendor: child.model_vendor.trim() || undefined,
           template: child.template || undefined,
           base_url: child.base_url || undefined,
           api_key: child.api_key || undefined,
@@ -189,6 +198,12 @@ export function MonitorForm({ fetchTemplates, onSave, onCancel }: MonitorFormPro
               { value: '', label: t('admin.monitors.templateNone') },
               ...templateOptions.map(name => ({ value: name, label: name })),
             ]}
+          />
+          <SelectField
+            label={t('admin.monitors.field.modelVendor')}
+            value={config.model_vendor || ''}
+            onChange={v => updateField('model_vendor', v)}
+            options={vendorOptions(config.model_vendor || '')}
           />
           <FormField
             label={t('admin.monitors.field.baseUrl')}
@@ -313,12 +328,18 @@ export function MonitorForm({ fetchTemplates, onSave, onCancel }: MonitorFormPro
         <p className="text-xs text-muted">{t('admin.monitors.form.childHint')}</p>
 
         {children.map((child, i) => (
-          <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3 items-end">
+          <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] gap-3 items-end">
             <FormField
               label={t('admin.monitors.field.model')}
               value={child.model}
               onChange={v => updateChild(i, 'model', v)}
               placeholder={t('admin.monitors.form.modelPlaceholder')}
+            />
+            <SelectField
+              label={t('admin.monitors.field.modelVendor')}
+              value={child.model_vendor}
+              onChange={v => updateChild(i, 'model_vendor', v)}
+              options={vendorOptions(child.model_vendor)}
             />
             <FormField
               label={t('admin.monitors.field.template')}

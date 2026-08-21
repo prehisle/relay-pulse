@@ -3,12 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { Lock } from 'lucide-react';
 import type { AdminSubmission, OnboardingTestResult } from '../../types/onboarding';
 import { FormField, SelectField, ReadOnlyField } from './FormControls';
+import { buildVendorOptions, useModelVendors } from '../../hooks/useModelVendors';
 import { CurlCommandBlock } from './CurlCommandBlock';
 
 /** 可编辑字段列表 — 用于本地 draft 初始化和脏检测 */
 const EDITABLE_FIELDS = [
   'provider_name', 'website_url', 'category', 'service_type',
-  'template_name', 'sponsor_level', 'channel_type', 'channel_source', 'channel_group',
+  'template_name', 'model', 'model_vendor',
+  'sponsor_level', 'channel_type', 'channel_source', 'channel_group',
   'target_provider', 'target_service', 'target_channel',
   'channel_name', 'listed_since', 'expires_at',
   'price_min', 'price_max', 'base_url', 'admin_note',
@@ -100,6 +102,7 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
   onBack,
 }) => {
   const { t } = useTranslation();
+  const vendors = useModelVendors();
 
   // 本地编辑 draft — submission 变化时重置（含保存后用持久化值回填、清 dirty）。
   // 渲染期 identity 守卫替代 effect：复刻原 [submission] 引用触发语义（保存后 AdminPage
@@ -172,6 +175,11 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
           ? t('admin.detail.templateEmpty')
           : t('admin.detail.templateUnset');
   const templateOptions = buildTemplateOptions(templates, draft.template_name, templatePlaceholder);
+  const modelVendorOptions = buildVendorOptions(
+    vendors,
+    draft.model_vendor,
+    t('admin.monitors.sponsorLevels.none', { defaultValue: '(空)' }),
+  );
   const templateSelectDisabled =
     !serviceType || isTemplatesLoading || !!templatesError ||
     (templates.length === 0 && !draft.template_name);
@@ -465,6 +473,21 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
               </p>
             )}
           </div>
+          {/* 行级模型：只有第一方厂商通用模板（*-native-*）需要填，其余模板由模板自身声明。
+              后端 ValidateModelSelection 对这组组合是硬校验（填错即拒），故这里保持自由文本，
+              让管理员既能补填、也能在改回普通模板时清空。 */}
+          <FormField
+            label={t('admin.detail.model')}
+            value={draft.model}
+            onChange={(v) => updateField('model', v)}
+            placeholder="glm-5.2"
+          />
+          <SelectField
+            label={t('admin.detail.modelVendor')}
+            value={draft.model_vendor}
+            onChange={(v) => updateField('model_vendor', v)}
+            options={modelVendorOptions}
+          />
           <SelectField
             label={t('admin.detail.sponsorLevel')}
             value={draft.sponsor_level}

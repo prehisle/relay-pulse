@@ -772,7 +772,8 @@
         "autoColdExempt": "自動コールドボード除外",
         "autoColdExemptHint": "このチャネルの自動コールドボード移動をクリアし、以後ブロックします",
         "autoMoveExempt": "自動移動除外",
-        "autoMoveExemptHint": "可用率に基づく自動移動を全てスキップします（有効期限による降格は対象外）"
+        "autoMoveExemptHint": "可用率に基づく自動移動を全てスキップします（有効期限による降格は対象外）",
+        "modelVendor": "モデル提供元"
       },
       "form": {
         "title": "新規モニター作成",
@@ -907,7 +908,9 @@
       "confirmReject": "却下を確認",
       "delete": "削除",
       "confirmDelete": "削除を確認",
-      "cancel": "キャンセル"
+      "cancel": "キャンセル",
+      "model": "行レベルのモデル ID",
+      "modelVendor": "モデル提供元"
     }
   },
   "vendors": {
