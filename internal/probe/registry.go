@@ -28,12 +28,31 @@ func SetTemplatesDir(dir string) {
 }
 
 // PayloadVariant 描述请求体模板的一个变体。
+//
+// Model / SuccessContains 是**调用方的 runtime 覆盖值**（TemplateBuilder.Build 里非空即压过模板
+// 自身声明），下面的 Template* 一组则是 InitTemplates 从模板文件读出的**只读元数据快照**。
+// 两者语义相反，绝不能合并成一个字段：把模板值塞进 Model 会让「覆盖」退化成「缓存」，模板
+// 换了内容而缓存还在时，探测发出的模型就与磁盘上的模板不一致。
 type PayloadVariant struct {
 	ID              string `json:"id"`
 	Filename        string `json:"filename"`
 	Order           int    `json:"order"`
 	Model           string `json:"model,omitempty"`
 	SuccessContains string `json:"success_contains,omitempty"`
+
+	// TemplateModel 模板声明的展示模型名（如 "Haiku"）；native 族为空。
+	TemplateModel string `json:"-"`
+	// TemplateRequestModel 模板声明的真实请求模型 ID（如 "claude-haiku-4-5-20251001"）；native 族为空。
+	TemplateRequestModel string `json:"-"`
+	// TemplateVendor 模板声明的模型厂商 code；native 族为空（厂商由监测行填）。
+	TemplateVendor string `json:"-"`
+	// TemplateLabel 模板给自助收录用的人话名；为空时由调用方兜底。
+	TemplateLabel string `json:"-"`
+	// Native 标记本模板属于「第一方厂商通用模板」族，即模型必须由提交方填写。
+	Native bool `json:"-"`
+	// SelfServeVisible 标记本模板可否出现在自助收录的可选模型里。**模板读不动时按可见处理**：
+	// 拿不到声明不等于作者想隐藏它，而静默隐藏会让一次坏部署悄悄缩短公开可选项。
+	SelfServeVisible bool `json:"-"`
 }
 
 // TestConfigBuilder 用于根据测试类型构建探测配置。
@@ -102,6 +121,32 @@ func GetTestType(id string) (*TestType, bool) {
 	return t, ok
 }
 
+// LookupVariant 按「service + 模板名」查已注册变体，返回值拷贝（调用方改不到注册表）。
+//
+// 这是「这个模板名对这条 service 合法吗」的唯一判定：跨 service 引用（cc 的提交里写
+// gm-flash-arith）一律未命中。别改用「按文件是否存在」判断——那是另一套口径，会放行跨
+// service 模板，且把模板名当路径片段用。
+func LookupVariant(service, variantID string) (PayloadVariant, bool) {
+	id := strings.TrimSpace(variantID)
+	if id == "" {
+		return PayloadVariant{}, false
+	}
+
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+
+	t, ok := testTypeRegistry[strings.TrimSpace(service)]
+	if !ok {
+		return PayloadVariant{}, false
+	}
+	for _, v := range t.Variants {
+		if v != nil && v.ID == id {
+			return *v, true
+		}
+	}
+	return PayloadVariant{}, false
+}
+
 // ListTestTypes 返回所有已注册探测类型，按 ID 排序。
 func ListTestTypes() []*TestType {
 	registryMu.RLock()
@@ -148,18 +193,27 @@ func InitTemplates(dir string) error {
 		}
 		service := variantID[:idx]
 
-		grouped[service] = append(grouped[service], &PayloadVariant{
+		variant := &PayloadVariant{
 			ID:       variantID,
 			Filename: filename,
-		})
+			Native:   config.IsNativeProbeTemplate(variantID),
+			// 读不动的模板仍按可见处理，见字段注释
+			SelfServeVisible: true,
+		}
+		grouped[service] = append(grouped[service], variant)
 
 		// 读不动的模板只是拿不到声明，仍留在可选列表里：踢掉它会让一次坏部署静默缩短
 		// 公开可选项，而选中它本就会在内联探测处返回可读的解析错误。
 		tmpl, loadErr := config.LoadProbeTemplate(filepath.Join(dir, filename))
 		if loadErr != nil {
-			logger.Warn("probe", "模板加载失败，跳过其默认声明", "template", variantID, "error", loadErr)
+			logger.Warn("probe", "模板加载失败，跳过其自助元数据", "template", variantID, "error", loadErr)
 			continue
 		}
+		variant.TemplateModel = tmpl.Model
+		variant.TemplateRequestModel = tmpl.RequestModel
+		variant.TemplateVendor = tmpl.ModelVendor
+		variant.TemplateLabel = tmpl.SelfServeLabel
+		variant.SelfServeVisible = tmpl.SelfServeVisible
 		if tmpl.SelfServeDefault {
 			declaredDefaults[service] = append(declaredDefaults[service], variantID)
 		}

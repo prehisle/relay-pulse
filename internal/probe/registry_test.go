@@ -259,3 +259,107 @@ func TestInitTemplates_BundledDefaultsAreExplicit(t *testing.T) {
 		}
 	}
 }
+
+// TestInitTemplates_CarriesSelfServeMetadata 验证变体携带模板元数据快照，且**不**污染
+// PayloadVariant.Model（那是调用方的 runtime 覆盖位，见该字段注释）。
+func TestInitTemplates_CarriesSelfServeMetadata(t *testing.T) {
+	snapshotRegistry(t)
+
+	dir := writeTemplates(t, map[string]string{
+		"cc-haiku-arith.json": ",\n\t\"model\": \"Haiku\",\n\t\"request_model\": \"claude-haiku-4-5\"," +
+			"\n\t\"model_vendor\": \"anthropic\",\n\t\"self_serve_label\": \"Claude Haiku 4.5\"",
+		"cc-kiro-arith.json":   ",\n\t\"model\": \"Haiku\",\n\t\"self_serve_visible\": false",
+		"cc-native-arith.json": ",\n\t\"self_serve_label\": \"默认不开启思考的模型\"",
+	})
+	if err := InitTemplates(dir); err != nil {
+		t.Fatalf("加载模板失败: %v", err)
+	}
+
+	haiku, ok := LookupVariant("cc", "cc-haiku-arith")
+	if !ok {
+		t.Fatal("cc-haiku-arith 未注册")
+	}
+	if haiku.TemplateModel != "Haiku" || haiku.TemplateRequestModel != "claude-haiku-4-5" {
+		t.Errorf("模板模型元数据 = %q/%q，期望 Haiku/claude-haiku-4-5", haiku.TemplateModel, haiku.TemplateRequestModel)
+	}
+	if haiku.TemplateVendor != "anthropic" || haiku.TemplateLabel != "Claude Haiku 4.5" {
+		t.Errorf("模板厂商/标签 = %q/%q", haiku.TemplateVendor, haiku.TemplateLabel)
+	}
+	if haiku.Model != "" {
+		t.Errorf("PayloadVariant.Model 必须留空（它是 runtime 覆盖位，非模板缓存），实际 %q", haiku.Model)
+	}
+	if haiku.Native || !haiku.SelfServeVisible {
+		t.Errorf("cc-haiku-arith: native=%v visible=%v，期望 false/true", haiku.Native, haiku.SelfServeVisible)
+	}
+
+	kiro, ok := LookupVariant("cc", "cc-kiro-arith")
+	if !ok {
+		t.Fatal("cc-kiro-arith 未注册")
+	}
+	if kiro.SelfServeVisible {
+		t.Error("显式 self_serve_visible=false 的模板应判为自助不可见")
+	}
+
+	native, ok := LookupVariant("cc", "cc-native-arith")
+	if !ok {
+		t.Fatal("cc-native-arith 未注册")
+	}
+	if !native.Native {
+		t.Error("cc-native-arith 应判为 native 族（模型须由监测行填）")
+	}
+	if native.TemplateRequestModel != "" || native.TemplateVendor != "" {
+		t.Errorf("native 模板不该带模型/厂商元数据，实际 %q/%q", native.TemplateRequestModel, native.TemplateVendor)
+	}
+}
+
+// TestInitTemplates_UnreadableTemplateStaysVisible 读不动的模板按「可见」处理。
+//
+// 拿不到声明 ≠ 作者想隐藏它；反过来默认隐藏会让一次坏部署静默缩短公开可选项，而选中一个坏
+// 模板本就会在内联探测处报可读错误。
+func TestInitTemplates_UnreadableTemplateStaysVisible(t *testing.T) {
+	snapshotRegistry(t)
+
+	dir := writeTemplates(t, map[string]string{
+		"cc-good-arith.json": ",\n\t\"self_serve_label\": \"good\"",
+	})
+	if err := os.WriteFile(filepath.Join(dir, "cc-broken-arith.json"), []byte("{ not json"), 0o644); err != nil {
+		t.Fatalf("写坏模板失败: %v", err)
+	}
+	if err := InitTemplates(dir); err != nil {
+		t.Fatalf("加载模板失败: %v", err)
+	}
+
+	broken, ok := LookupVariant("cc", "cc-broken-arith")
+	if !ok {
+		t.Fatal("坏模板应仍留在可选列表里")
+	}
+	if !broken.SelfServeVisible {
+		t.Error("读不动的模板应按可见处理，避免坏部署静默缩短公开可选项")
+	}
+}
+
+// TestLookupVariant_ScopedToService 锁死「模板名归属 service」这条判定：跨 service 引用一律未命中。
+func TestLookupVariant_ScopedToService(t *testing.T) {
+	snapshotRegistry(t)
+
+	dir := writeTemplates(t, map[string]string{
+		"cc-haiku-arith.json": ",\n\t\"self_serve_label\": \"Claude Haiku 4.5\"",
+		"gm-flash-arith.json": ",\n\t\"self_serve_label\": \"Gemini 2.5 Flash\"",
+	})
+	if err := InitTemplates(dir); err != nil {
+		t.Fatalf("加载模板失败: %v", err)
+	}
+
+	if _, ok := LookupVariant("cc", "gm-flash-arith"); ok {
+		t.Error("cc 下不应查到 gm 的模板——跨 service 引用必须未命中")
+	}
+	if _, ok := LookupVariant("cc", ""); ok {
+		t.Error("空模板名不应命中（此处不做默认值回退，那是 ResolveVariant 的语义）")
+	}
+	if _, ok := LookupVariant("nosuch", "cc-haiku-arith"); ok {
+		t.Error("未注册 service 不应命中")
+	}
+	if _, ok := LookupVariant("cc", " cc-haiku-arith "); !ok {
+		t.Error("模板名应与其它入口同口径剥首尾空白")
+	}
+}

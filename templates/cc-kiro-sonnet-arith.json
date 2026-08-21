@@ -1,4 +1,5 @@
 {
+	"self_serve_label": "Claude Sonnet 4.6（Kiro 逆向线路）",
 	"model": "Sonnet",
 	"request_model": "claude-sonnet-4-6",
 	"model_vendor": "anthropic",

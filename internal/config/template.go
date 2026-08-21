@@ -15,6 +15,8 @@ type ProbeTemplate struct {
 	RequestModel     string            // 实际请求模型 ID（可选，为空时回退 Model）
 	ModelVendor      string            // 模型厂商受控 code（可选，见 internal/modelvendor；监测行可覆盖）
 	SelfServeDefault bool              // 是否是所属 service 在自助流程里的默认探测目标（见 probe.InitTemplates）
+	SelfServeVisible bool              // 是否出现在自助收录的可选模型里（默认 true，见 selfServeVisible）
+	SelfServeLabel   string            // 自助收录里展示给用户的人话名（可选，为空时由调用方按 Model/RequestModel 兜底）
 	URL              string            // URL 模式，支持 {{BASE_URL}} 等占位符
 	Method           string            // HTTP 方法
 	Headers          map[string]string // 请求头，支持占位符
@@ -30,9 +32,13 @@ type ProbeTemplate struct {
 
 // probeTemplateFile 是模板 JSON 文件的解析结构
 type probeTemplateFile struct {
-	Model            string            `json:"model"`
-	RequestModel     string            `json:"request_model"`
-	ModelVendor      string            `json:"model_vendor"`
+	Model        string `json:"model"`
+	RequestModel string `json:"request_model"`
+	ModelVendor  string `json:"model_vendor"`
+	// SelfServeVisible 是 *bool：必须能区分「没写」与「显式 false」。
+	// 默认可见——反过来（默认隐藏）会让自建部署自带的模板在自助表单里集体消失。
+	SelfServeVisible *bool             `json:"self_serve_visible"`
+	SelfServeLabel   string            `json:"self_serve_label"`
 	SelfServeDefault bool              `json:"self_serve_default"`
 	URL              string            `json:"url"`
 	Method           string            `json:"method"`
@@ -51,7 +57,7 @@ type probeTemplateFile struct {
 	} `json:"probe"`
 }
 
-// isNativeProbeTemplate 判定模板是否属于「第一方厂商通用模板」族（命名约定 <service>-native-*，
+// IsNativeProbeTemplate 判定模板是否属于「第一方厂商通用模板」族（命名约定 <service>-native-*，
 // 如 cc-native-arith / cx-native-arith）。
 //
 // 这族模板服务于厂商自家模型的 Anthropic/OpenAI 兼容端点，是**厂商无关**的：它们刻意不声明
@@ -63,9 +69,21 @@ type probeTemplateFile struct {
 // 判定集中在此一处，避免前缀字符串散落各调用点。
 // 要求恰好三段且首尾非空：`cc-native` / `cc-native-` 不符合约定，判它们为 native 会让
 // 一个命名不规范的模板悄悄套上「必须行级填厂商」的语义。
-func isNativeProbeTemplate(templateName string) bool {
+//
+// 导出是因为 onboarding 侧要用同一判定决定「这次提交该不该带行级 model」——判定必须只有一份，
+// 抄第二份就会在某一天与本函数漂移，让某族模板在一侧被当 native、另一侧不是。
+func IsNativeProbeTemplate(templateName string) bool {
 	segments := strings.SplitN(strings.TrimSpace(templateName), "-", 3)
 	return len(segments) == 3 && segments[0] != "" && segments[1] == "native" && segments[2] != ""
+}
+
+// selfServeVisible 解析模板的自助可见性：没写即可见。
+//
+// 语义是「默认可见、显式 false 才隐藏」，不是反过来：本仓库内置模板里只有少数几个属于内部/
+// 特化用途（历史冻结版本、逆向线路专用、单通道定制），其余都应当能被自助收录选中；而自建部署
+// 带来的模板一律不会写这个字段，默认隐藏会让他们的表单空掉。
+func selfServeVisible(declared *bool) bool {
+	return declared == nil || *declared
 }
 
 // LoadProbeTemplate 从 JSON 文件加载探测模板
@@ -85,6 +103,8 @@ func LoadProbeTemplate(filePath string) (*ProbeTemplate, error) {
 		RequestModel:     strings.TrimSpace(parsed.RequestModel),
 		ModelVendor:      strings.TrimSpace(parsed.ModelVendor),
 		SelfServeDefault: parsed.SelfServeDefault,
+		SelfServeVisible: selfServeVisible(parsed.SelfServeVisible),
+		SelfServeLabel:   strings.TrimSpace(parsed.SelfServeLabel),
 		URL:              strings.TrimSpace(parsed.URL),
 		Method:           strings.TrimSpace(parsed.Method),
 		Headers:          parsed.Headers,

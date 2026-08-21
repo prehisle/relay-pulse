@@ -23,7 +23,7 @@ const bundledTemplateCount = 20
 //
 // 双向锁死：
 //   - 非 native 模板必须声明受控词表内的合法 vendor——漏一个，用它的通道厂商列就空着；
-//   - native 模板必须**不**声明 vendor（厂商无关，见 isNativeProbeTemplate 注释），
+//   - native 模板必须**不**声明 vendor（厂商无关，见 IsNativeProbeTemplate 注释），
 //     且必须引用 {{MODEL}}，否则监测行填的 model/request_model 根本不进请求体。
 func TestBundledTemplatesDeclareModelVendor(t *testing.T) {
 	const templatesDir = "../../templates"
@@ -46,7 +46,7 @@ func TestBundledTemplatesDeclareModelVendor(t *testing.T) {
 			continue
 		}
 
-		if isNativeProbeTemplate(name) {
+		if IsNativeProbeTemplate(name) {
 			if tmpl.ModelVendor != "" {
 				t.Errorf("native 模板 %s 不得声明 model_vendor（当前 %q）——它厂商无关，声明后监测行漏填 vendor 会静默继承成错误厂商",
 					name, tmpl.ModelVendor)
@@ -78,7 +78,7 @@ func TestBundledTemplatesDeclareModelVendor(t *testing.T) {
 // TestIsNativeProbeTemplate 锁死命名约定：第二段恰为 native 才算第一方厂商通用模板。
 func TestIsNativeProbeTemplate(t *testing.T) {
 	for _, name := range []string{"cc-native-arith", "cx-native-arith", "gm-native-x", " cc-native-arith "} {
-		if !isNativeProbeTemplate(name) {
+		if !IsNativeProbeTemplate(name) {
 			t.Errorf("%q 应判为 native 模板", name)
 		}
 	}
@@ -88,7 +88,7 @@ func TestIsNativeProbeTemplate(t *testing.T) {
 		"cc-native-", // 后缀为空：同上
 		"-native-x",  // 缺 service 段
 	} {
-		if isNativeProbeTemplate(name) {
+		if IsNativeProbeTemplate(name) {
 			t.Errorf("%q 不应判为 native 模板", name)
 		}
 	}

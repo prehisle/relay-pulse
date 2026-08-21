@@ -1,4 +1,5 @@
 {
+	"self_serve_label": "Claude Haiku 4.5",
 	"model": "Haiku",
 	"request_model": "claude-haiku-4-5-20251001",
 	"model_vendor": "anthropic",

@@ -1,4 +1,5 @@
 {
+	"self_serve_label": "Gemini 3 Flash Preview",
 	"model": "Flash Preview",
 	"request_model": "gemini-3-flash-preview",
 	"model_vendor": "google",

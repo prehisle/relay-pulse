@@ -1,4 +1,5 @@
 {
+	"self_serve_visible": false,
 	"model": "Opus",
 	"request_model": "claude-opus-4-8",
 	"model_vendor": "anthropic",

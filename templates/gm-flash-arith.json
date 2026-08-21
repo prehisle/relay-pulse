@@ -1,4 +1,5 @@
 {
+	"self_serve_label": "Gemini 2.5 Flash",
 	"model": "Flash",
 	"request_model": "gemini-2.5-flash",
 	"model_vendor": "google",
