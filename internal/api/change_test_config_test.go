@@ -304,14 +304,16 @@ func TestBuildChangeTestConfig_RuntimeConfigNotReady(t *testing.T) {
 	}
 }
 
-// TestBuildOnboardingTestConfig_NeedsNoTargetKey 回归：收录流程共用同一个请求结构体，
+// TestBuildOnboardingTestConfig_NeedsNoTargetKey 回归：收录流程内嵌同一个共用请求结构体，
 // 但不该被变更流程的 target_key 要求波及。
 func TestBuildOnboardingTestConfig_NeedsNoTargetKey(t *testing.T) {
-	cfg := buildOnboardingTestConfig(inlineTestRequest{
-		ServiceType:  "cc",
-		TemplateName: "cc-haiku-arith",
-		BaseURL:      "https://relay.example.com",
-		APIKey:       "sk-test",
+	cfg := buildOnboardingTestConfig(onboardingTestRequest{
+		inlineTestRequest: inlineTestRequest{
+			ServiceType:  "cc",
+			TemplateName: "cc-haiku-arith",
+			BaseURL:      "https://relay.example.com",
+			APIKey:       "sk-test",
+		},
 	})
 
 	if cfg.Template != "cc-haiku-arith" {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -150,6 +151,13 @@ func (h *Handler) SubmitOnboarding(c *gin.Context) {
 		return
 	}
 
+	// 模板归属与自助可见性只有注册表知道（service 层拿不到），故在这道公开入口就闸掉；
+	// 模板 ↔ 模型的组合规则在 Submit 里，两边都跑得到。
+	if _, err := resolveSelfServeTemplate(req.ServiceType, req.TemplateName); err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, err.Error())
+		return
+	}
+
 	clientIP := c.ClientIP()
 	resp, err := svc.Submit(c.Request.Context(), &req, clientIP)
 	if err != nil {
@@ -163,8 +171,11 @@ func (h *Handler) SubmitOnboarding(c *gin.Context) {
 // inlineTestRequest 内联探测请求体，由 /api/onboarding/test 与 /api/change/test 共用。
 //
 // 刻意**没有** model / request_model / model_vendor 字段：变更流程要探的模型由服务端按
-// TargetKey 从运行时配置取（见 buildChangeTestConfig），收录流程则由模板提供。多余的 JSON
-// 键会被 ShouldBindJSON 丢弃，故客户端塞模型字段也进不来。
+// TargetKey 从运行时配置取（见 buildChangeTestConfig）。多余的 JSON 键会被 ShouldBindJSON
+// 丢弃，故变更流程的客户端塞模型字段也进不来——这条不变量由结构体形状本身保证，不靠纪律。
+//
+// 收录流程要填第一方厂商模型，用的是下面的 onboardingTestRequest（本结构体 + 两个模型字段），
+// **不是**给这里加字段：那会把「变更流程不信客户端模型」这条闸重新打开。
 type inlineTestRequest struct {
 	ServiceType  string `json:"service_type" binding:"required"`
 	TemplateName string `json:"template_name" binding:"required"`
@@ -173,6 +184,90 @@ type inlineTestRequest struct {
 	// TargetKey 是变更流程的目标通道（`provider--service--channel`），**仅变更流程使用**。
 	// 不能标 binding:"required"：收录流程共用本结构体，那里根本没有已存在的通道可指。
 	TargetKey string `json:"target_key"`
+}
+
+// onboardingTestRequest 是自助收录专用的内联探测请求体：共用字段 + 行级模型。
+//
+// Model/ModelVendor 只在选中「第一方厂商模型」（native 族模板）时有值，其余情况必须为空——
+// 判定与提交、上架同一条（onboarding.ValidateModelSelection）。
+type onboardingTestRequest struct {
+	inlineTestRequest
+	Model       string `json:"model"`
+	ModelVendor string `json:"model_vendor"`
+}
+
+// inlineTestGuards 是两条公开内联探测端点共用的前置闸：探测器就绪 → IP 限流。
+// 失败时已写入响应并返回 false，调用方应直接返回。
+func (h *Handler) inlineTestGuards(c *gin.Context) bool {
+	if h.inlineProber == nil {
+		apiError(c, http.StatusServiceUnavailable, ErrCodeFeatureDisabled, "内联探测器未初始化")
+		return false
+	}
+	if h.probeLimiter != nil && !h.probeLimiter.Allow(c.ClientIP()) {
+		apiError(c, http.StatusTooManyRequests, ErrCodeRateLimited, "请求过于频繁，请稍后再试")
+		return false
+	}
+	return true
+}
+
+// validateProbeTargetURL 对用户给出的探测目标做 SSRF 前置校验。
+func (h *Handler) validateProbeTargetURL(c *gin.Context, rawURL string) bool {
+	guard := probe.NewSSRFGuard()
+	if err := guard.ValidateURL(rawURL); err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "URL 安全校验失败: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// resolveSelfServeTemplate 校验「这个模板名对这条 service 合法，且对自助流程可见」，
+// 返回注册表里的变体元数据。
+//
+// 用注册表而不是「模板文件在不在」判定，堵的是两件事：跨 service 引用（cc 的提交里写
+// gm-flash-arith，文件确实存在、但请求形态完全不对），以及把模板名当路径片段用。
+// 可见性只挡公开自助流程——管理员改 template_name 上架内部模板是**有意保留**的逃生口
+// （与 target_provider/AdminConfigJSON 同类），变更流程的候选也一律不受影响。
+func resolveSelfServeTemplate(serviceType, templateName string) (probe.PayloadVariant, error) {
+	variant, ok := probe.LookupVariant(serviceType, templateName)
+	if !ok {
+		return probe.PayloadVariant{}, fmt.Errorf("所选模型不可用（%q），请刷新页面后重新选择", templateName)
+	}
+	if !variant.SelfServeVisible {
+		return probe.PayloadVariant{}, fmt.Errorf("所选模型不开放自助收录（%q），如需收录请联系运营", templateName)
+	}
+	return variant, nil
+}
+
+// bindOnboardingTestRequest 绑定并校验自助收录的内联探测请求。
+// 任一前置校验失败时已写入响应并返回 ok=false，调用方应直接返回。
+func (h *Handler) bindOnboardingTestRequest(c *gin.Context) (onboardingTestRequest, bool) {
+	var req onboardingTestRequest
+
+	if !h.inlineTestGuards(c) {
+		return req, false
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "请求参数无效: "+err.Error())
+		return req, false
+	}
+	if !h.validateProbeTargetURL(c, req.BaseURL) {
+		return req, false
+	}
+	if _, err := resolveSelfServeTemplate(req.ServiceType, req.TemplateName); err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, err.Error())
+		return req, false
+	}
+
+	// 模型/厂商与模板的组合校验与提交、上架同源：测试时就用规范化后的值去探，
+	// 避免「测试用了原串、提交用了规范串」这类两侧不一致。
+	model, vendor, err := onboarding.ValidateModelSelection(req.TemplateName, req.Model, req.ModelVendor)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, err.Error())
+		return req, false
+	}
+	req.Model, req.ModelVendor = model, vendor
+
+	return req, true
 }
 
 // bindInlineTestRequest 执行两条公开内联探测端点共用的请求前置检查：
@@ -187,30 +282,30 @@ type inlineTestRequest struct {
 func (h *Handler) bindInlineTestRequest(c *gin.Context) (inlineTestRequest, bool) {
 	var req inlineTestRequest
 
-	if h.inlineProber == nil {
-		apiError(c, http.StatusServiceUnavailable, ErrCodeFeatureDisabled, "内联探测器未初始化")
+	if !h.inlineTestGuards(c) {
 		return req, false
 	}
-
-	// IP 限流
-	if h.probeLimiter != nil && !h.probeLimiter.Allow(c.ClientIP()) {
-		apiError(c, http.StatusTooManyRequests, ErrCodeRateLimited, "请求过于频繁，请稍后再试")
-		return req, false
-	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "请求参数无效: "+err.Error())
 		return req, false
 	}
-
-	// SSRF 前置校验
-	guard := probe.NewSSRFGuard()
-	if err := guard.ValidateURL(req.BaseURL); err != nil {
-		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "URL 安全校验失败: "+err.Error())
+	if !h.validateProbeTargetURL(c, req.BaseURL) {
 		return req, false
 	}
 
 	return req, true
+}
+
+// resolvedProbeModel 返回一份已解析配置最终会发到上游的模型标识。
+//
+// 回退链与 monitor.InjectVariables 的 {{MODEL}} 逐字一致：request_model 优先，为空回退 model。
+// 抽成一处是因为这条链已经有三份平行实现（wire 注入、内联测试闸、配置期告警），再抄第四份
+// 迟早漂移——而它同时是「这次测的到底是哪个模型」的唯一答案，proof 绑定也要用它。
+func resolvedProbeModel(cfg config.ServiceConfig) string {
+	if v := strings.TrimSpace(cfg.RequestModel); v != "" {
+		return v
+	}
+	return strings.TrimSpace(cfg.Model)
 }
 
 // runResolvedProbe 对调用方构造好的临时 ServiceConfig 执行与 loader 一致的解析
@@ -237,8 +332,7 @@ func (h *Handler) runResolvedProbe(c *gin.Context, cfg config.ServiceConfig) (*p
 	// 刻意不声明模型、要求行级填，是唯一会走到这个分支的形状——漏填时上游返回的是没头没脑
 	// 的 400/内容不符，排障要绕一大圈；直接告诉调用方"这个模板必须指定模型"要诚实得多。
 	//
-	// 回退链与 InjectVariables 的 {{MODEL}} 一致：request_model 优先，为空回退 model。
-	if strings.TrimSpace(cfg.RequestModel) == "" && strings.TrimSpace(cfg.Model) == "" {
+	if resolvedProbeModel(cfg) == "" {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam,
 			"测试配置缺少模型：所选模板未声明模型，需由监测行指定")
 		return nil, false
@@ -252,11 +346,14 @@ func (h *Handler) runResolvedProbe(c *gin.Context, cfg config.ServiceConfig) (*p
 }
 
 // buildOnboardingTestConfig 用用户提交的字段构造自助收录测试用的 ServiceConfig。
-// 走与 AdminPublish 同一映射器，使自助测试与上架后的真实探测同源。
-func buildOnboardingTestConfig(req inlineTestRequest) config.ServiceConfig {
+// 走与 AdminPublish 同一映射器，使自助测试与上架后的真实探测同源——包括行级模型：
+// 测的必须是将来真上架的那个模型，否则「测通了才准提交」这条闸就名不副实。
+func buildOnboardingTestConfig(req onboardingTestRequest) config.ServiceConfig {
 	virtualSub := &onboarding.Submission{
 		ServiceType:  req.ServiceType,
 		TemplateName: req.TemplateName,
+		Model:        req.Model,
+		ModelVendor:  req.ModelVendor,
 		BaseURL:      req.BaseURL,
 		// PSC 在自助测试阶段只用于日志/审计，不参与 monitor_store 唯一性校验，故用占位值
 		ChannelCode: "__test__",
@@ -286,7 +383,7 @@ func (h *Handler) OnboardingTest(c *gin.Context) {
 		return
 	}
 
-	req, ok := h.bindInlineTestRequest(c)
+	req, ok := h.bindOnboardingTestRequest(c)
 	if !ok {
 		return
 	}

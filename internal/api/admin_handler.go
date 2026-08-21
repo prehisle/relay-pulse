@@ -316,6 +316,15 @@ func (h *Handler) AdminTestSubmission(c *gin.Context) {
 		return
 	}
 
+	// 与两条公开流程同一道闸：解析完仍拿不到模型就停下，绝不带着 `"model": ""` 去打上游。
+	// 本入口不走 runResolvedProbe（它要自己传 WithCurlCapture），闸得单独接一次——漏接的话
+	// 审核员会看到一个没头没脑的上游 400，而真正的原因是这条申请压根没填模型。
+	if resolvedProbeModel(cfg) == "" {
+		apiError(c, http.StatusUnprocessableEntity, ErrCodeInvalidParam,
+			"测试配置缺少模型：所选模板未声明模型，需在申请里填写模型 ID")
+		return
+	}
+
 	// 使用内联探测器同步执行
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()

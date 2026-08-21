@@ -34,7 +34,9 @@ func newPublishTestService(t *testing.T) (*Service, *SQLStore, *config.MonitorSt
 		t.Fatalf("MkdirAll(templates): %v", err)
 	}
 	// 最小合法探测模板：LoadProbeTemplate 仅硬性要求 method 非空。
-	const tplJSON = `{"method":"GET","url":"{{BASE_URL}}"}`
+	// 声明 model：validateMonitorConfig 会拒绝「模板与监测行都没有模型」的待发布配置
+	// （那种行上线即在 wire 上发 `"model": ""`）。真实模板除 native 族外都声明模型。
+	const tplJSON = `{"method":"GET","url":"{{BASE_URL}}","model":"Haiku","request_model":"claude-haiku-4-5"}`
 	if err := os.WriteFile(filepath.Join(templatesDir, "tpl.json"), []byte(tplJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(tpl.json): %v", err)
 	}

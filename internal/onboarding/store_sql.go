@@ -33,6 +33,8 @@ func (s *SQLStore) InitTable(ctx context.Context) error {
 
 		service_type TEXT NOT NULL,
 		template_name TEXT NOT NULL,
+		model TEXT NOT NULL DEFAULT '',
+		model_vendor TEXT NOT NULL DEFAULT '',
 
 		sponsor_level TEXT NOT NULL,
 
@@ -167,6 +169,8 @@ func (s *SQLStore) ensureColumns(ctx context.Context) error {
 		{"agreement_accepted", `ALTER TABLE onboarding_submissions ADD COLUMN agreement_accepted INTEGER NOT NULL DEFAULT 0`},
 		{"agreement_accepted_at", `ALTER TABLE onboarding_submissions ADD COLUMN agreement_accepted_at INTEGER NOT NULL DEFAULT 0`},
 		{"agreement_version", `ALTER TABLE onboarding_submissions ADD COLUMN agreement_version TEXT NOT NULL DEFAULT ''`},
+		{"model", `ALTER TABLE onboarding_submissions ADD COLUMN model TEXT NOT NULL DEFAULT ''`},
+		{"model_vendor", `ALTER TABLE onboarding_submissions ADD COLUMN model_vendor TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, m := range migrations {
 		if existing[m.name] {
@@ -184,7 +188,7 @@ func (s *SQLStore) Save(ctx context.Context, sub *Submission) error {
 	query := `
 	INSERT INTO onboarding_submissions (
 		public_id, status, provider_name, website_url, category,
-		service_type, template_name, sponsor_level,
+		service_type, template_name, model, model_vendor, sponsor_level,
 		channel_type, channel_source, channel_group, channel_code,
 		target_provider, target_service, target_channel,
 		channel_name, listed_since, expires_at, price_min, price_max,
@@ -194,11 +198,11 @@ func (s *SQLStore) Save(ctx context.Context, sub *Submission) error {
 		admin_note, admin_config_json, reviewed_at,
 		created_at, updated_at,
 		agreement_accepted, agreement_accepted_at, agreement_version
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	result, err := s.db.ExecContext(ctx, query,
 		sub.PublicID, sub.Status, sub.ProviderName, sub.WebsiteURL, sub.Category,
-		sub.ServiceType, sub.TemplateName, sub.SponsorLevel,
+		sub.ServiceType, sub.TemplateName, sub.Model, sub.ModelVendor, sub.SponsorLevel,
 		sub.ChannelType, sub.ChannelSource, sub.ChannelGroup, sub.ChannelCode,
 		sub.TargetProvider, sub.TargetService, sub.TargetChannel,
 		sub.ChannelName, sub.ListedSince, sub.ExpiresAt, sub.PriceMin, sub.PriceMax,
@@ -283,7 +287,7 @@ func (s *SQLStore) Update(ctx context.Context, sub *Submission) error {
 	query := `
 	UPDATE onboarding_submissions SET
 		status = ?, provider_name = ?, website_url = ?, category = ?,
-		service_type = ?, template_name = ?, sponsor_level = ?,
+		service_type = ?, template_name = ?, model = ?, model_vendor = ?, sponsor_level = ?,
 		channel_type = ?, channel_source = ?, channel_group = ?, channel_code = ?,
 		target_provider = ?, target_service = ?, target_channel = ?,
 		channel_name = ?, listed_since = ?, expires_at = ?, price_min = ?, price_max = ?,
@@ -295,7 +299,7 @@ func (s *SQLStore) Update(ctx context.Context, sub *Submission) error {
 
 	_, err := s.db.ExecContext(ctx, query,
 		sub.Status, sub.ProviderName, sub.WebsiteURL, sub.Category,
-		sub.ServiceType, sub.TemplateName, sub.SponsorLevel,
+		sub.ServiceType, sub.TemplateName, sub.Model, sub.ModelVendor, sub.SponsorLevel,
 		sub.ChannelType, sub.ChannelSource, sub.ChannelGroup, sub.ChannelCode,
 		sub.TargetProvider, sub.TargetService, sub.TargetChannel,
 		sub.ChannelName, sub.ListedSince, sub.ExpiresAt, sub.PriceMin, sub.PriceMax,
@@ -349,7 +353,7 @@ func (s *SQLStore) DeleteByPublicID(ctx context.Context, publicID string) error 
 
 const allColumns = `id, public_id, status,
 	provider_name, website_url, category,
-	service_type, template_name, sponsor_level,
+	service_type, template_name, model, model_vendor, sponsor_level,
 	channel_type, channel_source, channel_group, channel_code,
 	target_provider, target_service, target_channel,
 	channel_name, listed_since, expires_at, price_min, price_max,
@@ -374,7 +378,7 @@ func scanSubmission(s scanner) (*Submission, error) {
 	err := s.Scan(
 		&sub.ID, &sub.PublicID, &sub.Status,
 		&sub.ProviderName, &sub.WebsiteURL, &sub.Category,
-		&sub.ServiceType, &sub.TemplateName, &sub.SponsorLevel,
+		&sub.ServiceType, &sub.TemplateName, &sub.Model, &sub.ModelVendor, &sub.SponsorLevel,
 		&sub.ChannelType, &sub.ChannelSource, &sub.ChannelGroup, &sub.ChannelCode,
 		&sub.TargetProvider, &sub.TargetService, &sub.TargetChannel,
 		&sub.ChannelName, &sub.ListedSince, &sub.ExpiresAt, &sub.PriceMin, &sub.PriceMax,

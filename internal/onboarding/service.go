@@ -203,10 +203,15 @@ type SubmitRequest struct {
 	ProviderName string `json:"provider_name" binding:"max=100"` // 服务商展示名（可中文）；binding:max 仅粗略上限，精校验/规范化在 displayname.ValidateProviderName
 	// binding 用 http_url 而非 url：validator 的 url 标签只要求 scheme 非空，
 	// javascript:alert(1) 这类伪协议能过——而该值会作为 provider_url 进入上架配置与前端外链
-	WebsiteURL    string `json:"website_url" binding:"required,http_url,max=500"`
-	Category      string `json:"category" binding:"required,oneof=commercial public"`
-	ServiceType   string `json:"service_type" binding:"required,oneof=cc cx gm"`
-	TemplateName  string `json:"template_name" binding:"required,max=100"`
+	WebsiteURL   string `json:"website_url" binding:"required,http_url,max=500"`
+	Category     string `json:"category" binding:"required,oneof=commercial public"`
+	ServiceType  string `json:"service_type" binding:"required,oneof=cc cx gm"`
+	TemplateName string `json:"template_name" binding:"required,max=100"`
+	// Model / ModelVendor 仅在选中「第一方厂商模型」（native 族模板）时需要：前者是厂商的真实
+	// 模型 ID，后者是受控词表里的厂商 code。binding 只做粗略上限，真正的组合判定在
+	// ValidateModelSelection——binding 拦不住「非 native 模板却带了模型」这类跨字段错误。
+	Model         string `json:"model" binding:"max=128"`
+	ModelVendor   string `json:"model_vendor" binding:"max=24"`
 	SponsorLevel  string `json:"sponsor_level" binding:"max=50"`
 	ChannelType   string `json:"channel_type" binding:"required,oneof=O R M"`
 	ChannelSource string `json:"channel_source" binding:"required,max=5"`
@@ -269,6 +274,10 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 	if err != nil {
 		return nil, err
 	}
+	model, modelVendor, err := ValidateModelSelection(req.TemplateName, req.Model, req.ModelVendor)
+	if err != nil {
+		return nil, err
+	}
 
 	// IP 限流
 	ipHash := hashIP(clientIP)
@@ -328,6 +337,8 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		Category:          req.Category,
 		ServiceType:       req.ServiceType,
 		TemplateName:      req.TemplateName,
+		Model:             model,
+		ModelVendor:       modelVendor,
 		SponsorLevel:      req.SponsorLevel,
 		ChannelType:       req.ChannelType,
 		ChannelSource:     channelSource,
@@ -427,6 +438,12 @@ func (s *Service) AdminUpdate(ctx context.Context, publicID string, updates map[
 	origChannelSource := sub.ChannelSource
 	origChannelGroup := sub.ChannelGroup
 
+	// 同理记录「模板 ↔ 模型」这组的原值：只在真被改动时才跑组合校验，
+	// 免得管理员编辑无关字段时被历史脏数据卡住。
+	origTemplate := sub.TemplateName
+	origModel := sub.Model
+	origModelVendor := sub.ModelVendor
+
 	// 应用允许的更新字段
 	if v, ok := updates["provider_name"].(string); ok && v != "" {
 		name, err := displayname.ValidateProviderName(v)
@@ -450,6 +467,14 @@ func (s *Service) AdminUpdate(ctx context.Context, publicID string, updates map[
 	}
 	if v, ok := updates["template_name"].(string); ok && v != "" {
 		sub.TemplateName = v
+	}
+	// model / model_vendor 刻意**不**带 `v != ""` 短路：管理员把模板从 native 改成普通模板时，
+	// 必须能把行级模型清空，否则组合校验会一直拒、这条申请再也改不动。
+	if v, ok := updates["model"].(string); ok {
+		sub.Model = strings.TrimSpace(v)
+	}
+	if v, ok := updates["model_vendor"].(string); ok {
+		sub.ModelVendor = strings.TrimSpace(v)
 	}
 	if v, ok := updates["sponsor_level"].(string); ok && v != "" {
 		sub.SponsorLevel = v
@@ -522,6 +547,17 @@ func (s *Service) AdminUpdate(ctx context.Context, publicID string, updates map[
 		sub.ChannelSource = source
 		sub.ChannelGroup = group
 		sub.ChannelCode = deriveChannelCode(sub.ChannelType, source, group)
+	}
+
+	// 「模板 ↔ 模型/厂商」组合校验：与用户提交同一条规则（native 必须有模型、其余必须没有），
+	// 挡住管理员把模板改成 native 却忘了填模型这类改法——那种行上架后会在 wire 上发空 model。
+	if sub.TemplateName != origTemplate || sub.Model != origModel || sub.ModelVendor != origModelVendor {
+		model, vendor, err := ValidateModelSelection(sub.TemplateName, sub.Model, sub.ModelVendor)
+		if err != nil {
+			return nil, err
+		}
+		sub.Model = model
+		sub.ModelVendor = vendor
 	}
 	sub.UpdatedAt = time.Now().Unix()
 
@@ -735,6 +771,10 @@ func BuildServiceConfigFromSubmission(sub *Submission, apiKey string) config.Ser
 		Channel:      channelCode,
 		ChannelName:  sub.ChannelName,
 		Template:     sub.TemplateName,
+		// 行级模型只对 native 族非空；非 native 提交这两项恒为空，模板解析时按
+		// config > template 回退链自动填上模板声明的值（lifecycle.resolveTemplateForMonitor）。
+		Model:        sub.Model,
+		ModelVendor:  sub.ModelVendor,
 		BaseURL:      sub.BaseURL,
 		APIKey:       apiKey,
 		Category:     sub.Category,
@@ -793,11 +833,33 @@ func (s *Service) validateMonitorConfig(m config.ServiceConfig) error {
 
 	// 检查模板文件是否存在
 	templatePath := filepath.Join(s.configDir, "templates", templateName+".json")
-	if _, err := config.LoadProbeTemplate(templatePath); err != nil {
+	tmpl, err := config.LoadProbeTemplate(templatePath)
+	if err != nil {
 		return fmt.Errorf("template %q 不存在或无效: %w", templateName, err)
 	}
 
+	// 上架前把「模型最终仍为空」挡在写盘之前。
+	//
+	// 回退链与 InjectVariables 的 {{MODEL}} 一致：行级 request_model > 行级 model >
+	// 模板 request_model > 模板 model。native 族刻意不声明模型，是唯一会走到这里的形状——
+	// 让它上架，等于写出一条上线即在 wire 上发 `"model": ""` 的通道，只能靠事后看红点发现。
+	// 这道闸位于 AdminConfigJSON 整份覆盖**之后**（AdminPublish 先覆盖再校验），故管理员那条
+	// 逃生口也绕不过它；这与「管理员可以覆盖 PSC/模板」不冲突：那些是选择，这个是坏配置。
+	if firstNonEmpty(m.RequestModel, m.Model, tmpl.RequestModel, tmpl.Model) == "" {
+		return fmt.Errorf("模板 %q 未声明模型，需要在监测行填写模型 ID（model）后再上架", templateName)
+	}
+
 	return nil
+}
+
+// firstNonEmpty 返回首个非空白字符串（已 TrimSpace）。
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if trimmed := strings.TrimSpace(v); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // validatePSCSegment 校验 PSC 段格式

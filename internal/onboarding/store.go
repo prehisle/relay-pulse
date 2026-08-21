@@ -30,6 +30,13 @@ type Submission struct {
 	ServiceType  string `json:"service_type"` // cc / cx / gm
 	TemplateName string `json:"template_name"`
 
+	// 行级模型（仅第一方厂商通用模板需要）。非 native 模板的模型由模板自身声明，这里恒为空。
+	// Model 直接写完整模型 ID：admin JSON API 传不了 request_model，靠 {{MODEL}} 的
+	// request_model → model 回退链发出去；副作用正面——model 作 DB 业务键更稳。
+	Model string `json:"model"`
+	// ModelVendor 模型厂商受控 code（见 internal/modelvendor）。可为空，由管理员在上架前补。
+	ModelVendor string `json:"model_vendor"`
+
 	// 赞助等级
 	SponsorLevel string `json:"sponsor_level"` // public / signal / pulse
 

@@ -34,6 +34,8 @@ func (s *PgxStore) InitTable(ctx context.Context) error {
 
 		service_type TEXT NOT NULL,
 		template_name TEXT NOT NULL,
+		model TEXT NOT NULL DEFAULT '',
+		model_vendor TEXT NOT NULL DEFAULT '',
 
 		sponsor_level TEXT NOT NULL,
 
@@ -102,6 +104,8 @@ func (s *PgxStore) InitTable(ctx context.Context) error {
 		`ALTER TABLE onboarding_submissions ADD COLUMN IF NOT EXISTS agreement_accepted BOOLEAN NOT NULL DEFAULT false`,
 		`ALTER TABLE onboarding_submissions ADD COLUMN IF NOT EXISTS agreement_accepted_at BIGINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE onboarding_submissions ADD COLUMN IF NOT EXISTS agreement_version TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE onboarding_submissions ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE onboarding_submissions ADD COLUMN IF NOT EXISTS model_vendor TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.pool.Exec(ctx, ddl); err != nil {
 			return fmt.Errorf("迁移 onboarding_submissions 失败: %w", err)
@@ -144,7 +148,7 @@ func (s *PgxStore) Save(ctx context.Context, sub *Submission) error {
 	query := `
 	INSERT INTO onboarding_submissions (
 		public_id, status, provider_name, website_url, category,
-		service_type, template_name, sponsor_level,
+		service_type, template_name, model, model_vendor, sponsor_level,
 		channel_type, channel_source, channel_group, channel_code,
 		target_provider, target_service, target_channel,
 		channel_name, listed_since, expires_at, price_min, price_max,
@@ -154,12 +158,12 @@ func (s *PgxStore) Save(ctx context.Context, sub *Submission) error {
 		admin_note, admin_config_json, reviewed_at,
 		created_at, updated_at,
 		agreement_accepted, agreement_accepted_at, agreement_version
-	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41)
 	RETURNING id`
 
 	err := s.pool.QueryRow(ctx, query,
 		sub.PublicID, sub.Status, sub.ProviderName, sub.WebsiteURL, sub.Category,
-		sub.ServiceType, sub.TemplateName, sub.SponsorLevel,
+		sub.ServiceType, sub.TemplateName, sub.Model, sub.ModelVendor, sub.SponsorLevel,
 		sub.ChannelType, sub.ChannelSource, sub.ChannelGroup, sub.ChannelCode,
 		sub.TargetProvider, sub.TargetService, sub.TargetChannel,
 		sub.ChannelName, sub.ListedSince, sub.ExpiresAt, sub.PriceMin, sub.PriceMax,
@@ -239,19 +243,19 @@ func (s *PgxStore) Update(ctx context.Context, sub *Submission) error {
 	query := `
 	UPDATE onboarding_submissions SET
 		status = $1, provider_name = $2, website_url = $3, category = $4,
-		service_type = $5, template_name = $6, sponsor_level = $7,
-		channel_type = $8, channel_source = $9, channel_group = $10, channel_code = $11,
-		target_provider = $12, target_service = $13, target_channel = $14,
-		channel_name = $15, listed_since = $16, expires_at = $17, price_min = $18, price_max = $19,
-		base_url = $20,
-		contact_info = $21,
-		admin_note = $22, admin_config_json = $23, reviewed_at = $24,
-		updated_at = $25
-	WHERE id = $26`
+		service_type = $5, template_name = $6, model = $7, model_vendor = $8, sponsor_level = $9,
+		channel_type = $10, channel_source = $11, channel_group = $12, channel_code = $13,
+		target_provider = $14, target_service = $15, target_channel = $16,
+		channel_name = $17, listed_since = $18, expires_at = $19, price_min = $20, price_max = $21,
+		base_url = $22,
+		contact_info = $23,
+		admin_note = $24, admin_config_json = $25, reviewed_at = $26,
+		updated_at = $27
+	WHERE id = $28`
 
 	_, err := s.pool.Exec(ctx, query,
 		sub.Status, sub.ProviderName, sub.WebsiteURL, sub.Category,
-		sub.ServiceType, sub.TemplateName, sub.SponsorLevel,
+		sub.ServiceType, sub.TemplateName, sub.Model, sub.ModelVendor, sub.SponsorLevel,
 		sub.ChannelType, sub.ChannelSource, sub.ChannelGroup, sub.ChannelCode,
 		sub.TargetProvider, sub.TargetService, sub.TargetChannel,
 		sub.ChannelName, sub.ListedSince, sub.ExpiresAt, sub.PriceMin, sub.PriceMax,
@@ -304,7 +308,7 @@ func (s *PgxStore) DeleteByPublicID(ctx context.Context, publicID string) error 
 
 const pgxAllColumns = `id, public_id, status,
 	provider_name, website_url, category,
-	service_type, template_name, sponsor_level,
+	service_type, template_name, model, model_vendor, sponsor_level,
 	channel_type, channel_source, channel_group, channel_code,
 	target_provider, target_service, target_channel,
 	channel_name, listed_since, expires_at, price_min, price_max,
@@ -323,7 +327,7 @@ func pgxScanSubmission(row pgx.Row) (*Submission, error) {
 	err := row.Scan(
 		&sub.ID, &sub.PublicID, &sub.Status,
 		&sub.ProviderName, &sub.WebsiteURL, &sub.Category,
-		&sub.ServiceType, &sub.TemplateName, &sub.SponsorLevel,
+		&sub.ServiceType, &sub.TemplateName, &sub.Model, &sub.ModelVendor, &sub.SponsorLevel,
 		&sub.ChannelType, &sub.ChannelSource, &sub.ChannelGroup, &sub.ChannelCode,
 		&sub.TargetProvider, &sub.TargetService, &sub.TargetChannel,
 		&sub.ChannelName, &sub.ListedSince, &sub.ExpiresAt, &sub.PriceMin, &sub.PriceMax,
