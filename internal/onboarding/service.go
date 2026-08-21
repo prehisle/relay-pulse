@@ -58,6 +58,11 @@ type ChannelSourceOption struct {
 // 人工新增/调整来源时只改这里，避免 Submit 校验、/meta 下发、前端选项三处漂移。
 // 约束：每个 Value 必须满足 channelSourcePattern（2-5 位小写字母/数字）。
 //
+// cc/cx 的 agg 是**第三方聚合路由**（OpenRouter 一类：同一个模型可能被路由到多个上游）。
+// 刻意不为它新开第四种 channel_type：类型轴问的是线路性质，而「聚合」不是第四种性质——
+// 上游不确定正是 mixed 的定义，故 Category=mixed 自动落 M，无需改类型映射表。
+// 与之相对，云平台转售（火山方舟一类）上游是确定的，走 cloud/nat。
+//
 // cc/cx 的 nat 是第一方厂商（智谱 GLM / 月之暗面 Kimi / MiniMax / DeepSeek / Qwen 等）
 // 用自家模型开放的 Anthropic Messages / OpenAI Responses 兼容端点——协议是那两家的，
 // 模型是厂商自己的，两者由 model_vendor 正交轴分别表达。不复用 api：那两条的 Label
@@ -72,12 +77,13 @@ var ChannelSourceCatalog = map[string][]ChannelSourceOption{
 		{Value: "team", Label: "Claude Team", Category: "subscription"},
 		{Value: "ent", Label: "Claude Enterprise", Category: "subscription"},
 		{Value: "api", Label: "Anthropic Console API", Category: "official"},
-		{Value: "nat", Label: "厂商官方 API（自有模型）", Category: "official"},
+		{Value: "nat", Label: "模型厂商开放平台（自有模型）", Category: "official"},
 		{Value: "aws", Label: "AWS Bedrock", Category: "cloud"},
 		{Value: "azr", Label: "Azure AI Foundry", Category: "cloud"},
 		{Value: "gcp", Label: "Google Vertex AI", Category: "cloud"},
 		{Value: "kiro", Label: "Kiro（逆向）", Category: "reverse"},
 		{Value: "antg", Label: "Antigravity（逆向）", Category: "reverse"},
+		{Value: "agg", Label: "第三方聚合路由（OpenRouter 等）", Category: "mixed"},
 		{Value: "mix", Label: "混合 / 多上游", Category: "mixed"},
 	},
 	"cx": {
@@ -87,7 +93,8 @@ var ChannelSourceCatalog = map[string][]ChannelSourceOption{
 		{Value: "biz", Label: "ChatGPT Business", Category: "subscription"},
 		{Value: "ent", Label: "ChatGPT Enterprise", Category: "subscription"},
 		{Value: "api", Label: "OpenAI Platform API", Category: "official"},
-		{Value: "nat", Label: "厂商官方 API（自有模型）", Category: "official"},
+		{Value: "nat", Label: "模型厂商开放平台（自有模型）", Category: "official"},
+		{Value: "agg", Label: "第三方聚合路由（OpenRouter 等）", Category: "mixed"},
 		{Value: "mix", Label: "混合 / 多上游", Category: "mixed"},
 	},
 	"gm": {

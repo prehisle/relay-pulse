@@ -220,6 +220,12 @@ func TestInitTemplates_BundledDefaultsAreExplicit(t *testing.T) {
 		if tt.DefaultVariant != wantDefault {
 			t.Errorf("service %s 的默认模板 = %q，期望 %q", service, tt.DefaultVariant, wantDefault)
 		}
+		// 默认模板必须自助可见：/api/onboarding/meta 只下发可见变体，默认值指向一个被过滤掉的
+		// 模板时，表单会预选一个下拉里根本没有的项。
+		if v, ok := LookupVariant(service, tt.DefaultVariant); !ok || !v.SelfServeVisible {
+			t.Errorf("service %s 的默认模板 %q 不是自助可见变体（found=%v visible=%v）",
+				service, tt.DefaultVariant, ok, v.SelfServeVisible)
+		}
 	}
 	if total < bundledVariantCountFloor {
 		t.Fatalf("只扫到 %d 个内置模板（下界 %d），断言可能是真空的", total, bundledVariantCountFloor)

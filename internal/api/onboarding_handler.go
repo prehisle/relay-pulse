@@ -29,11 +29,18 @@ type OnboardingMetaResponse struct {
 	ChannelGroupRule             ChannelGroupRule     `json:"channel_group_rule"`
 	TestTypes                    []OnboardingTestType `json:"test_types"`
 	ContactInfo                  string               `json:"contact_info"`
-	// ModelVendors: 模型厂商受控词表，供前端展示厂商名与图标。真相源在后端
-	// （internal/modelvendor），前端不自建一份，避免两边漂移。
-	// 注意自助收录表单**不含**该字段——行级 vendor 只对管理员开放，与 request_model 同口径，
-	// 避免用户自填 anthropic/openai 蹭官方印象。
+	// ModelVendors: 模型厂商受控词表，供前端展示厂商名与图标、以及自助表单里的厂商下拉。
+	// 真相源在后端（internal/modelvendor），前端不自建一份，避免两边漂移。
+	//
+	// 自助表单**可以**填厂商（站长 2026-08-21 拍板，推翻此前「只对管理员开放」的策略）：
+	// 撒谎的杀伤面有界——只有第一方厂商模型那条道需要填，且发布必过管理员审核，
+	// rpdiag 的质量盲评是最终兜底。
 	ModelVendors []modelvendor.Vendor `json:"model_vendors"`
+
+	// ModelsByService: 「选厂商 → 选该厂商的模型」下拉的数据源，取代原先直接暴露模板名的做法。
+	ModelsByService map[string][]OnboardingModelOption `json:"models_by_service"`
+	// RequestShapesByService: 自填模型 ID 时可选的请求形态（native 模板的人话名）。
+	RequestShapesByService map[string][]OnboardingRequestShape `json:"request_shapes_by_service"`
 }
 
 // ChannelGroupRule 下发给前端的 channel_group 同步校验规则。
@@ -84,12 +91,14 @@ func (h *Handler) GetOnboardingMeta(c *gin.Context) {
 	contactInfo := h.config.Onboarding.ContactInfo
 	h.cfgMu.RUnlock()
 
-	// 获取可用测试类型（从 probe 注册表）
+	// 获取可用测试类型（从 probe 注册表）。
+	// 只下发自助可见的变体：内部/特化模板（历史冻结版本、单通道定制、中转商专用指纹版）
+	// 不进公开表单，与 SubmitOnboarding / OnboardingTest 的模板闸同一判据。
 	var testTypes []OnboardingTestType
 	for _, t := range probe.ListTestTypes() {
 		var variants []OnboardingVariant
 		for _, v := range t.Variants {
-			if v != nil {
+			if v != nil && v.SelfServeVisible {
 				variants = append(variants, OnboardingVariant{ID: v.ID, Order: v.Order})
 			}
 		}
@@ -121,9 +130,11 @@ func (h *Handler) GetOnboardingMeta(c *gin.Context) {
 			Default:   groupDefault,
 			MaxLength: groupMaxLength,
 		},
-		TestTypes:    testTypes,
-		ContactInfo:  contactInfo,
-		ModelVendors: modelvendor.Options(),
+		TestTypes:              testTypes,
+		ContactInfo:            contactInfo,
+		ModelVendors:           modelvendor.Options(),
+		ModelsByService:        buildModelCatalog(),
+		RequestShapesByService: buildRequestShapes(),
 	}
 
 	c.JSON(http.StatusOK, resp)
