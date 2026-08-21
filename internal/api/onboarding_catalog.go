@@ -76,7 +76,10 @@ func buildModelCatalog() map[string][]OnboardingModelOption {
 
 		for _, seed := range onboarding.FirstPartyModels(t.ID) {
 			variant, ok := probe.LookupVariant(t.ID, seed.Template)
-			if !ok || !variant.SelfServeVisible {
+			// 种子条目带着行级模型，故它的模板**必须仍是 native 族**：种子里的模板名若被改成
+			// 一个普通模板，这里会生成一个「带模型的可编辑条目」，用户选中、填好、点测试，才在
+			// ValidateModelSelection 处撞上「非 native 不该填模型」——把配置错误延后成用户挫败。
+			if !ok || !variant.SelfServeVisible || !variant.Native {
 				continue
 			}
 			options = append(options, OnboardingModelOption{

@@ -83,7 +83,8 @@ func (t *TestType) ResolveVariant(variantID string) (*PayloadVariant, error) {
 	}
 
 	for _, v := range t.Variants {
-		if v.ID == id {
+		// nil 守卫与 LookupVariant 对称：Variants 由外部注册（含测试），一条 nil 会让这里 panic。
+		if v != nil && v.ID == id {
 			return v, nil
 		}
 	}

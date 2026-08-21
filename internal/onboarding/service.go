@@ -870,6 +870,10 @@ func (s *Service) validateMonitorConfig(m config.ServiceConfig) error {
 	// 让它上架，等于写出一条上线即在 wire 上发 `"model": ""` 的通道，只能靠事后看红点发现。
 	// 这道闸位于 AdminConfigJSON 整份覆盖**之后**（AdminPublish 先覆盖再校验），故管理员那条
 	// 逃生口也绕不过它；这与「管理员可以覆盖 PSC/模板」不冲突：那些是选择，这个是坏配置。
+	// 这里**不**校验「非 native 模板不得带行级 model」——那是**提交侧**的规则（用户不该填），
+	// 不是配置层的不变量：管理员给模板驱动的行显式写 model 展示名是既有且推荐的做法
+	// （`model` 是 DB 业务键，写死它反而让改展示名不断历史）。非 native 行带 model 时
+	// `{{MODEL}}` 仍取模板的 request_model，wire 上请求的模型不变，差别只在展示名。
 	if firstNonEmpty(m.RequestModel, m.Model, tmpl.RequestModel, tmpl.Model) == "" {
 		return fmt.Errorf("模板 %q 未声明模型，需要在监测行填写模型 ID（model）后再上架", templateName)
 	}

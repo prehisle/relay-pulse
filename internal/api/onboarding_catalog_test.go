@@ -189,3 +189,58 @@ func TestBuildRequestShapes_OrderFollowsDeclaration(t *testing.T) {
 		t.Error("cc 的请求形态仍是字典序")
 	}
 }
+
+// TestFirstPartySeedCatalogIsSound 常驻守卫：手写的第一方厂商种子目录必须自洽。
+//
+// 种子是纯数据、编译器管不着，而它每一条都会直接变成公开表单里的一个选项。三类错法都只会在
+// 用户填完点测试时才暴露（甚至更晚）：模板改名/被标隐藏 → 条目静默消失；模板被改成非 native
+// → 用户拿到一个「带模型的可编辑条目」，提交时才撞上「非 native 不该填模型」；厂商 code 拼错
+// 或模型 ID 含非法字符 → 同样拖到提交才拒。这里一次性在 CI 拦下。
+func TestFirstPartySeedCatalogIsSound(t *testing.T) {
+	snapshotProbeRegistry(t)
+	if err := probe.InitTemplates("../../templates"); err != nil {
+		t.Fatalf("加载内置模板失败: %v", err)
+	}
+
+	total := 0
+	for _, service := range []string{"cc", "cx", "gm"} {
+		seen := make(map[string]string) // template|model -> label，查重
+		for _, seed := range onboarding.FirstPartyModels(service) {
+			total++
+
+			variant, ok := probe.LookupVariant(service, seed.Template)
+			switch {
+			case !ok:
+				t.Errorf("%s 种子 %q 指向不存在的模板 %q", service, seed.Label, seed.Template)
+				continue
+			case !variant.SelfServeVisible:
+				t.Errorf("%s 种子 %q 的模板 %q 被标为自助不可见——该条目会静默消失", service, seed.Label, seed.Template)
+			case !variant.Native:
+				t.Errorf("%s 种子 %q 的模板 %q 不是 native 族——带行级模型的条目只能挂 native 模板",
+					service, seed.Label, seed.Template)
+			}
+
+			// 与提交侧同一条规则：种子给出的组合必须本来就能过校验
+			if _, _, err := onboarding.ValidateModelSelection(seed.Template, seed.Model, seed.Vendor); err != nil {
+				t.Errorf("%s 种子 %q 过不了提交侧校验: %v", service, seed.Label, err)
+			}
+
+			if seed.Label == "" {
+				t.Errorf("%s 种子（模型 %q）缺展示名", service, seed.Model)
+			}
+			if strings.Contains(seed.Label, seed.Vendor) {
+				t.Errorf("%s 种子 %q 的标签里重复了厂商——下拉已按厂商分组", service, seed.Label)
+			}
+
+			key := seed.Template + "|" + seed.Model
+			if prev, dup := seen[key]; dup {
+				t.Errorf("%s 种子 %q 与 %q 重复（同模板同模型），前端选项 key 会撞车", service, seed.Label, prev)
+			}
+			seen[key] = seed.Label
+		}
+	}
+
+	if total == 0 {
+		t.Fatal("第一方厂商种子目录为空，断言是真空的")
+	}
+}
