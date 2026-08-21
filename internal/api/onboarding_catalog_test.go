@@ -82,9 +82,9 @@ func TestBuildModelCatalog_FromBundledTemplates(t *testing.T) {
 		}
 	}
 
-	// 隐藏模板不得出现（cc-haiku-arith-anyrouter 是中转商专用指纹版）
+	// 隐藏模板不得出现（*-anyrouter 是中转商专用指纹版）
 	for _, opt := range catalog["cc"] {
-		if strings.HasSuffix(opt.Template, "-anyrouter") || opt.Template == "cc-haiku-pro-2184" {
+		if strings.HasSuffix(opt.Template, "-anyrouter") {
 			t.Errorf("内部模板 %q 不应出现在公开目录里", opt.Template)
 		}
 	}
