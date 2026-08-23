@@ -53,10 +53,15 @@ interface Axes {
 function renderTable(axes: Axes): HTMLElement {
   // 标注列的显隐是**数据驱动**的（没有任何一行带标注就整列不渲染），不是 prop，
   // 故用带/不带 annotations 的两份 fixture 来切这根轴。
-  const data = [
-    monitor({ id: 'a', annotations: axes.annotations ? [{ id: 'recommended', type: 'positive', label: '推荐' }] : undefined }),
+  const data: ProcessedMonitorData[] = [
+    monitor({
+      id: 'a',
+      annotations: axes.annotations
+        ? [{ id: 'public_service', family: 'positive', label: '公益', priority: 10, origin: 'config' }]
+        : undefined,
+    }),
     monitor({ id: 'b', modelVendor: 'zhipu' }),
-  ] as ProcessedMonitorData[];
+  ];
 
   const container = document.createElement('div');
   document.body.appendChild(container);

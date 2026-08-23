@@ -67,17 +67,6 @@ function StatusTableComponent({
   }, []);
 
   const useLatencyGradient = timeRange === '90m';
-  // 列可见性单一真相源：表头（colgroup + thead）与每一行共吃这一个对象，
-  // 三处不再各算各的。标注列是数据驱动（本屏无任何标注就不出列），其余四列来自
-  // props / runtime 开关。
-  const columns: StatusTableColumns = {
-    annotation: hasAnyAnnotationInList(data, { enableAnnotations }),
-    provider: showProvider,
-    vendor: showVendorColumn,
-    price: !hidePriceColumn,
-    // rpdiag 未启用（私有部署）时质量列整列消失：表头 + 格子 + colgroup + 移动端排序项
-    quality: rpdiagEnabled,
-  };
 
   // 移动端：虚拟滚动卡片列表视图
   if (isMobile) {
@@ -98,12 +87,25 @@ function StatusTableComponent({
         onBlockLeave={onBlockLeave}
         rpdiagScores={rpdiagScores}
         rpdiagScoresLoaded={rpdiagScoresLoaded}
-        rpdiagEnabled={columns.quality}
+        rpdiagEnabled={rpdiagEnabled}
         hidePriceColumn={hidePriceColumn}
         showVendorColumn={showVendorColumn}
       />
     );
   }
+
+  // 列可见性单一真相源：表头（colgroup + thead）与每一行共吃这一个对象，三处不再
+  // 各算各的。标注列是数据驱动（本屏无任何标注就不出列），其余四列来自 props /
+  // runtime 开关。刻意放在移动分支之后：annotation 那一项要扫一遍 data，而卡片
+  // 视图根本不需要它——移动端每 30 秒一轮的渲染不该白扫。
+  const columns: StatusTableColumns = {
+    annotation: hasAnyAnnotationInList(data, { enableAnnotations }),
+    provider: showProvider,
+    vendor: showVendorColumn,
+    price: !hidePriceColumn,
+    // rpdiag 未启用（私有部署）时质量列整列消失：表头 + 格子 + colgroup
+    quality: rpdiagEnabled,
+  };
 
   // 桌面端：表格视图
   return (
