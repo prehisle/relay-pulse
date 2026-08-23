@@ -14,7 +14,6 @@ interface StatusTableProps {
   timeRange: string;
   slowLatencyMs: number;
   enableAnnotations?: boolean;      // 注解系统总开关，默认 true
-  showCategoryTag?: boolean; // 是否显示分类标签（推荐/公益），默认 true
   showProvider?: boolean;    // 是否显示服务商名称，默认 true
   showSponsor?: boolean;     // 是否显示赞助者信息，默认 true
   isFavorite: (id: string) => boolean;  // 检查是否已收藏

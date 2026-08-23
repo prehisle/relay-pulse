@@ -380,7 +380,6 @@ function App() {
                   timeRange={timeRange}
                   slowLatencyMs={slowLatencyMs}
                   enableAnnotations={isScreenshotMode ? false : enableAnnotations}
-                  showCategoryTag={!isScreenshotMode}
                   showSponsor={!isScreenshotMode}
                   isFavorite={isFavorite}
                   onToggleFavorite={toggleFavorite}

@@ -571,7 +571,6 @@ export default function ProviderPage() {
                   timeRange={timeRange}
                   slowLatencyMs={slowLatencyMs}
                   enableAnnotations={isEmbedMode ? false : enableAnnotations}
-                  showCategoryTag={false}
                   showProvider={!isEmbedMode}
                   showSponsor={false}
                   isFavorite={isFavorite}
@@ -596,7 +595,6 @@ export default function ProviderPage() {
                       timeRange={timeRange}
                       slowLatencyMs={slowLatencyMs}
                       enableAnnotations={isEmbedMode ? false : enableAnnotations}
-                      showCategoryTag={false}
                       showProvider={!isEmbedMode}
                       isFavorite={isFavorite}
                       onToggleFavorite={toggleFavorite}
