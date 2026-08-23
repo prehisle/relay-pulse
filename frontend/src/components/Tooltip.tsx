@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TooltipState } from '../types';
 import { availabilityToColor, latencyToColor } from '../utils/color';
-import { createMediaQueryEffect } from '../utils/mediaQuery';
+import { useBreakpointMatch } from '../hooks/useBreakpoint';
 
 interface TooltipProps {
   tooltip: TooltipState;
@@ -50,15 +50,10 @@ function formatTimeRange(timestampSec: number, timeRange: string): string {
 
 export function Tooltip({ tooltip, slowLatencyMs, timeRange, onClose }: TooltipProps) {
   const { t } = useTranslation();
-  const [isMobile, setIsMobile] = useState(false);
+  // 移动端走底部 Sheet（mobile 断点 = max-width:767px）
+  const isMobile = useBreakpointMatch('mobile');
   const [flipBelow, setFlipBelow] = useState(false);
   const tooltipRef = useRef<HTMLDivElement>(null);
-
-  // 检测是否为移动端（兼容 Safari ≤13）
-  useEffect(() => {
-    const cleanup = createMediaQueryEffect('mobile', setIsMobile);
-    return cleanup;
-  }, []);
 
   // 桌面端：检测 tooltip 显示在上方时是否会侵入 Header/Controls 区域，自动翻转到下方
   useLayoutEffect(() => {

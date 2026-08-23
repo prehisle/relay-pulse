@@ -15,7 +15,7 @@ import { vendorLabel } from '../components/VendorBadge';
 import { Tooltip } from '../components/Tooltip';
 import { Footer } from '../components/Footer';
 import { EmptyFavorites } from '../components/EmptyFavorites';
-import { createMediaQueryEffect } from '../utils/mediaQuery';
+import { useBreakpointMatch } from '../hooks/useBreakpoint';
 import { canonicalize } from '../utils/monitorDataProcessor';
 import type { MultiSelectOption } from '../components/MultiSelect';
 import type { ViewMode, SortConfig, TooltipState, ProcessedMonitorData, ChannelOption, BoardFilter } from '../types';
@@ -148,12 +148,8 @@ export default function ProviderPage() {
   const { favorites, isFavorite, toggleFavorite, cleanupMissingFavorites, count: favoritesCount } = useFavorites();
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
-  // 移动端检测（< 960px）
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const cleanup = createMediaQueryEffect('tablet', setIsMobile);
-    return cleanup;
-  }, []);
+  // 平板及以下（tablet 断点 = max-width:1023px）
+  const isMobile = useBreakpointMatch('tablet');
 
   // rpdiag 质量分（异步），用于 sort 前给项目注入 qualityScore，并驱动质量列排序可用性
   const { scores: rpdiagScores, loaded: rpdiagScoresLoaded } = useRpdiagScores();

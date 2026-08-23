@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
@@ -30,9 +30,9 @@ import { useFilteredData } from './hooks/useFilteredData';
 import { useTimeAlign } from './hooks/useTimeAlign';
 import { useAutoRefreshPreference, useRefreshCooldown } from './hooks/useRefreshControl';
 import { useBlockTooltip } from './hooks/useBlockTooltip';
+import { useBreakpointMatch } from './hooks/useBreakpoint';
 import { useUrlStateReconcile } from './hooks/useUrlStateReconcile';
 import { useHomeAnalytics } from './hooks/useHomeAnalytics';
-import { createMediaQueryEffect } from './utils/mediaQuery';
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -92,12 +92,8 @@ function App() {
   // 时间对齐模式（localStorage 持久化，不影响分享链接）
   const [timeAlign, setTimeAlign] = useTimeAlign();
 
-  // 移动端检测（< 960px）
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const cleanup = createMediaQueryEffect('tablet', setIsMobile);
-    return cleanup;
-  }, []);
+  // 平板及以下（tablet 断点 = max-width:1023px）
+  const isMobile = useBreakpointMatch('tablet');
 
   // 移动端强制使用 table 视图，截图模式也强制 table
   const effectiveViewMode = isScreenshotMode ? 'table' : (isMobile ? 'table' : viewMode);

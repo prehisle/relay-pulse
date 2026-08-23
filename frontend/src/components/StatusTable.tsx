@@ -1,6 +1,6 @@
-import { useState, useEffect, memo } from 'react';
+import { memo } from 'react';
 import { StatusTableHead, StatusTableMobile, StatusTableRow, type StatusTableColumns } from './table';
-import { createMediaQueryEffect } from '../utils/mediaQuery';
+import { useBreakpointMatch } from '../hooks/useBreakpoint';
 import { hasAnyAnnotationInList } from '../utils/annotationUtils';
 import type { ProcessedMonitorData, SortConfig } from '../types';
 import type { RpdiagScoresResponse } from '../types/monitor';
@@ -57,13 +57,8 @@ function StatusTableComponent({
   hidePriceColumn = false,
   showVendorColumn = false,
 }: StatusTableProps) {
-  const [isMobile, setIsMobile] = useState(false);
-
-  // 检测是否为平板/移动端（tablet 断点 = max-width:1023px，见 utils/mediaQuery.ts BREAKPOINTS；兼容 Safari ≤13）
-  useEffect(() => {
-    const cleanup = createMediaQueryEffect('tablet', setIsMobile);
-    return cleanup;
-  }, []);
+  // 平板/移动端走卡片分支（tablet 断点 = max-width:1023px，见 utils/mediaQuery.ts BREAKPOINTS）
+  const isMobile = useBreakpointMatch('tablet');
 
   const useLatencyGradient = timeRange === '90m';
 
