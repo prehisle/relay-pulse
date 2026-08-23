@@ -5,18 +5,16 @@ import { useTranslation, Trans } from 'react-i18next';
 import { StatusDot } from './StatusDot';
 import { HeatmapBlock } from './HeatmapBlock';
 import { LayeredHeatmapBlock } from './LayeredHeatmapBlock';
-import { ChannelTypeIcon, parseChannelType } from './ChannelTypeIcon';
 import { ExternalLink } from './ExternalLink';
 import { HeaderInfoPopover } from './HeaderInfoPopover';
-import { HoverTooltip } from './HoverTooltip';
 import { AnnotationCell } from './annotations';
 import { FavoriteButton } from './FavoriteButton';
+import { ChannelCell, getModelDisplayList, getModelTooltip } from './table';
 import { QualityScoreCell, shouldShowQualityPending } from './quality';
 import { getTimeRanges } from '../constants';
 import { availabilityToColor, latencyToColor, sponsorLevelToBorderClass, sponsorLevelToCardBorderColor, sponsorLevelToPinnedBgClass } from '../utils/color';
 import { aggregateHeatmap } from '../utils/heatmapAggregator';
 import { createMediaQueryEffect } from '../utils/mediaQuery';
-import { shortenModelName } from '../utils/modelName';
 import { hasAnyAnnotation, hasAnyAnnotationInList } from '../utils/annotationUtils';
 import { formatPriceRatioStructured } from '../utils/format';
 import { getCachedServiceIcon } from './serviceIconCache';
@@ -30,99 +28,6 @@ type HistoryPoint = ProcessedMonitorData['history'][number];
 // 虚拟滚动常量
 const MOBILE_ROW_HEIGHT = 160;  // 移动端卡片高度（约 150px 内容 + 10px 间距）
 const MOBILE_MAX_HEIGHT = 800;  // 移动端列表最大高度
-
-// 通道单元格组件（带自定义 CSS tooltip，替代原生 title 属性）
-interface ChannelCellProps {
-  channel?: string;
-  probeUrl?: string;
-  templateName?: string;
-  coldReason?: string;
-  boardReason?: string;
-  boardReasonModels?: string;
-  className?: string;
-}
-
-function ChannelCell({ channel, probeUrl, templateName, coldReason, boardReason, boardReasonModels, className = '' }: ChannelCellProps) {
-  const { t } = useTranslation();
-  const channelType = parseChannelType(channel);
-  const isQualityHardFail = boardReason === 'quality_hardfail';
-  const hasTooltip = !!(channelType || probeUrl || templateName || coldReason || isQualityHardFail);
-
-  const channelContent = (
-    <>
-      <ChannelTypeIcon channel={channel} />
-      <span className="min-w-0 truncate">{channel || '-'}</span>
-    </>
-  );
-
-  if (!hasTooltip) {
-    return <span className={`inline-flex items-center gap-1 ${className}`}>{channelContent}</span>;
-  }
-
-  return (
-    <HoverTooltip
-      triggerClassName={`gap-1 cursor-help ${className}`}
-      content={
-        <span className="flex flex-col gap-1">
-          {channelType && (
-            <span className="flex flex-col">
-              <span className="text-muted text-[10px]">{t('table.channelTooltip.channelType')}</span>
-              <span className="text-primary text-[11px]">
-                {t(`table.channelType.${channelType}`)} — {t(`table.channelType.${channelType}Desc`)}
-              </span>
-            </span>
-          )}
-          {probeUrl && (
-            <span className="flex flex-col">
-              <span className="text-muted text-[10px]">{t('table.channelTooltip.probeUrl')}</span>
-              <span className="text-primary font-mono text-[11px] break-all">{probeUrl}</span>
-            </span>
-          )}
-          {templateName && (
-            <span className="flex flex-col">
-              <span className="text-muted text-[10px]">{t('table.channelTooltip.template')}</span>
-              <span className="text-primary font-mono text-[11px] break-all">{templateName}</span>
-            </span>
-          )}
-          {coldReason && (
-            <span className="flex flex-col">
-              <span className="text-muted text-[10px]">{t('table.channelTooltip.coldReason', '冷板原因')}</span>
-              <span className="text-warning text-[11px] break-all">{coldReason}</span>
-            </span>
-          )}
-          {isQualityHardFail && (
-            <span className="flex flex-col">
-              <span className="text-muted text-[10px]">{t('table.channelTooltip.qualityHardFail.label', '质量移板')}</span>
-              <span className="text-warning text-[11px] break-all">
-                {boardReasonModels
-                  ? t('table.channelTooltip.qualityHardFail.text', '{{models}} 近3次评测均未取得可评分响应，已暂移备用板', { models: boardReasonModels })
-                  : t('table.channelTooltip.qualityHardFail.textNoModels', '近3次评测均未取得可评分响应，已暂移备用板')}
-              </span>
-            </span>
-          )}
-        </span>
-      }
-    >
-      {channelContent}
-    </HoverTooltip>
-  );
-}
-
-// ─── 模型列辅助函数 ───────────────────────────────────────────
-
-function getModelDisplayList(modelEntries?: ProcessedMonitorData['modelEntries']): string[] {
-  if (!modelEntries || modelEntries.length === 0) return [];
-  return modelEntries
-    .map((entry) => shortenModelName(entry.requestModel) || entry.model || '-')
-    .filter(Boolean);
-}
-
-function getModelTooltip(modelEntries?: ProcessedMonitorData['modelEntries']): string | undefined {
-  if (!modelEntries || modelEntries.length === 0) return undefined;
-  return modelEntries
-    .map((entry) => entry.requestModel || entry.model || '-')
-    .join('\n');
-}
 
 interface StatusTableProps {
   data: ProcessedMonitorData[];
