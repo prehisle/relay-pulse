@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Server } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -21,12 +21,11 @@ import { useScreenshotMode } from './hooks/useScreenshotMode';
 import { useFilterOptions } from './hooks/useFilterOptions';
 import { useEffectiveFavorites } from './hooks/useEffectiveFavorites';
 import { useFilteredData } from './hooks/useFilteredData';
+import { useTimeAlign } from './hooks/useTimeAlign';
+import { useAutoRefreshPreference, useRefreshCooldown } from './hooks/useRefreshControl';
+import { useBlockTooltip } from './hooks/useBlockTooltip';
 import { createMediaQueryEffect } from './utils/mediaQuery';
 import { trackPeriodChange, trackServiceFilter, trackEvent } from './utils/analytics';
-import type { TooltipState, ProcessedMonitorData } from './types';
-
-// localStorage key for time align preference
-const STORAGE_KEY_TIME_ALIGN = 'relay-pulse-time-align';
 
 function App() {
   const { t, i18n } = useTranslation();
@@ -83,25 +82,8 @@ function App() {
     dismiss: dismissAnnouncements,
   } = useAnnouncements(!isScreenshotMode);
 
-  // 时间对齐模式（使用 localStorage 持久化，不影响分享链接）
-  const [timeAlign, setTimeAlignState] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem(STORAGE_KEY_TIME_ALIGN) ?? 'hour';
-  });
-
-  // 包装 setter 以同步到 localStorage
-  const setTimeAlign = useCallback((align: string) => {
-    setTimeAlignState(align);
-    if (typeof window !== 'undefined') {
-      if (align) {
-        localStorage.setItem(STORAGE_KEY_TIME_ALIGN, align);
-      } else {
-        localStorage.removeItem(STORAGE_KEY_TIME_ALIGN);
-      }
-    }
-    // 追踪时间对齐模式变化
-    trackEvent('change_time_align', { align: align || 'dynamic' });
-  }, []);
+  // 时间对齐模式（localStorage 持久化，不影响分享链接）
+  const [timeAlign, setTimeAlign] = useTimeAlign();
 
   // 移动端检测（< 960px）
   const [isMobile, setIsMobile] = useState(false);
@@ -113,42 +95,11 @@ function App() {
   // 移动端强制使用 table 视图，截图模式也强制 table
   const effectiveViewMode = isScreenshotMode ? 'table' : (isMobile ? 'table' : viewMode);
 
-  const [tooltip, setTooltip] = useState<TooltipState>({
-    show: false,
-    x: 0,
-    y: 0,
-    data: null,
-  });
+  // 热力图色块的全局 Tooltip
+  const { tooltip, handleBlockHover, handleBlockLeave } = useBlockTooltip();
 
-  // 刷新冷却状态（5秒内重复刷新显示提示）
-  const REFRESH_COOLDOWN_MS = 5000;
-  const lastRefreshRef = useRef<number>(0);
-  const [refreshCooldown, setRefreshCooldown] = useState(false);
-
-  // 自动刷新开关（持久化到 localStorage，默认开启）
-  const AUTO_REFRESH_KEY = 'relay-pulse-auto-refresh';
-  const [autoRefresh, setAutoRefresh] = useState(() => {
-    try {
-      const stored = localStorage.getItem(AUTO_REFRESH_KEY);
-      if (stored === null) return true; // 无值时默认开启
-      return stored === 'true'; // 有值则尊重用户选择
-    } catch {
-      return true; // 异常也默认开启
-    }
-  });
-
-  // 切换自动刷新并持久化
-  const handleToggleAutoRefresh = () => {
-    setAutoRefresh(prev => {
-      const next = !prev;
-      try {
-        localStorage.setItem(AUTO_REFRESH_KEY, String(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  };
+  // 自动刷新开关（持久化到 localStorage，默认开启）——必须在 useMonitorData 之前
+  const { autoRefresh, handleToggleAutoRefresh } = useAutoRefreshPreference();
 
   const { scores: rpdiagScores, loaded: rpdiagScoresLoaded } = useRpdiagScores();
 
@@ -169,6 +120,9 @@ function App() {
     rpdiagScores,
     rpdiagScoresLoaded,
   });
+
+  // 手动刷新 + 冷却提示——需要 useMonitorData 的 refetch
+  const { refreshCooldown, handleRefresh } = useRefreshCooldown(refetch);
 
   // 运行时 hide_price_column 切到 true 后，主动抹掉旧的 priceRatio_* URL 排序，
   // 避免点 hide 后用户带着隐藏列的"按价格排序"链接刷新仍触发该排序。
@@ -320,39 +274,6 @@ function App() {
     setSortConfig({ key, direction });
   };
 
-  const handleBlockHover = useCallback((
-    e: React.MouseEvent<HTMLDivElement>,
-    point: ProcessedMonitorData['history'][number]
-  ) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    setTooltip({
-      show: true,
-      x: rect.left + rect.width / 2,
-      y: rect.top - 10,
-      blockBottom: rect.bottom + 10,
-      data: point,
-    });
-  }, []);
-
-  const handleBlockLeave = useCallback(() => {
-    setTooltip((prev) => ({ ...prev, show: false }));
-  }, []);
-
-  const handleRefresh = () => {
-    const now = Date.now();
-    const elapsed = now - lastRefreshRef.current;
-
-    if (elapsed < REFRESH_COOLDOWN_MS) {
-      // 冷却中，显示提示
-      setRefreshCooldown(true);
-      setTimeout(() => setRefreshCooldown(false), 2000); // 提示显示 2 秒
-      return;
-    }
-
-    lastRefreshRef.current = now;
-    trackEvent('manual_refresh');
-    refetch(true); // 绕过浏览器缓存
-  };
 
   return (
     <>
