@@ -18,6 +18,7 @@ import { useUrlState } from './hooks/useUrlState';
 import { useFavorites } from './hooks/useFavorites';
 import { useAnnouncements } from './hooks/useAnnouncements';
 import { useRpdiagScores } from './hooks/useRpdiagScores';
+import { useScreenshotMode } from './hooks/useScreenshotMode';
 import { createMediaQueryEffect } from './utils/mediaQuery';
 import { trackPeriodChange, trackServiceFilter, trackEvent } from './utils/analytics';
 import type { MultiSelectOption } from './components/MultiSelect';
@@ -31,43 +32,7 @@ function App() {
   const location = useLocation();
   const seo = useSeoMeta({ pathname: location.pathname, language: i18n.language });
 
-  // 检测截图模式
-  const isScreenshotMode = useMemo(() => {
-    return new URLSearchParams(location.search).get('screenshot') === '1';
-  }, [location.search]);
-
-  // 截图模式下强制使用 default-dark 主题
-  useEffect(() => {
-    if (!isScreenshotMode) return;
-    const root = document.documentElement;
-    root.setAttribute('data-theme', 'default-dark');
-    root.style.colorScheme = 'dark';
-  }, [isScreenshotMode]);
-
-  // 截图时间戳（组件挂载时记录）
-  const screenshotTimestamp = useMemo(() => {
-    if (!isScreenshotMode) return '';
-    return new Date().toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-      timeZone: 'Asia/Shanghai',
-    });
-  }, [isScreenshotMode]);
-
-  // 截图标题（群名专属标识）
-  const screenshotTitle = useMemo(() => {
-    if (!isScreenshotMode) return '';
-    const raw = new URLSearchParams(location.search).get('title') || '';
-    // 清理控制字符，限制长度
-    const cleaned = raw.replace(/[\r\n\t]+/g, ' ').trim();
-    const chars = Array.from(cleaned);
-    if (chars.length > 60) return chars.slice(0, 60).join('') + '…';
-    return cleaned;
-  }, [isScreenshotMode, location.search]);
+  const { isScreenshotMode, screenshotTimestamp, screenshotTitle } = useScreenshotMode(location.search);
 
   // 使用 URL 状态同步 Hook，支持收藏和分享
   const [urlState, urlActions] = useUrlState();
