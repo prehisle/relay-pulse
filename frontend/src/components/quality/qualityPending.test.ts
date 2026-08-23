@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldShowQualityPending } from './StatusTable';
+import { shouldShowQualityPending } from './index';
 
 describe('shouldShowQualityPending', () => {
   const base = { rpdiagEnabled: true, hasScore: false, serviceType: 'cc', board: 'hot' };

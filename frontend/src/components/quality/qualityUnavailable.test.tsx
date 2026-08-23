@@ -12,8 +12,8 @@ import {
   isModelQualityUnusable,
   UNAVAILABLE_COLOR,
   buildModelTooltipRow,
-} from './StatusTable';
-import type { RpdiagScore, RpdiagModelScore } from '../types/monitor';
+} from './index';
+import type { RpdiagScore, RpdiagModelScore } from '../../types/monitor';
 
 function renderCell(score: RpdiagScore): HTMLElement {
   const container = document.createElement('div');
