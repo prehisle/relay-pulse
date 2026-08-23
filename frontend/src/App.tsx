@@ -19,6 +19,8 @@ import { useAnnouncements } from './hooks/useAnnouncements';
 import { useRpdiagScores } from './hooks/useRpdiagScores';
 import { useScreenshotMode } from './hooks/useScreenshotMode';
 import { useFilterOptions } from './hooks/useFilterOptions';
+import { useEffectiveFavorites } from './hooks/useEffectiveFavorites';
+import { useFilteredData } from './hooks/useFilteredData';
 import { createMediaQueryEffect } from './utils/mediaQuery';
 import { trackPeriodChange, trackServiceFilter, trackEvent } from './utils/analytics';
 import type { TooltipState, ProcessedMonitorData } from './types';
@@ -195,31 +197,16 @@ function App() {
     }
   }, [boardsEnabledLoaded, boardsEnabled, board, setBoard]);
 
-  // 有效收藏计数：favorites ∩ allMonitorIds
-  // - loading/error 时回退到本地数量，避免短暂显示 0
-  // - 旧后端不支持 all_monitor_ids 时也回退
-  const effectiveFavoritesCount = useMemo(() => {
-    if (loading || error) return favoritesCount;
-    if (!allMonitorIdsSupported) return favoritesCount; // 旧后端不支持
-    if (favoritesCount === 0) return 0;
-
-    let count = 0;
-    favorites.forEach((id) => {
-      if (allMonitorIds.has(id)) count++;
-    });
-    return count;
-  }, [loading, error, favorites, favoritesCount, allMonitorIds, allMonitorIdsSupported]);
-
-  // 静默清理无效收藏：移除已从配置中删除的监控项
-  // - 仅在 API 成功返回且后端支持 all_monitor_ids 时执行
-  // - allMonitorIds 是跨板块的全量列表，不会误删移动板块的收藏
-  useEffect(() => {
-    if (loading || error) return;
-    if (!allMonitorIdsSupported) return; // 旧后端不支持，跳过
-    if (favorites.size === 0) return;
-
-    cleanupMissingFavorites(allMonitorIds);
-  }, [loading, error, allMonitorIds, allMonitorIdsSupported, favorites.size, cleanupMissingFavorites]);
+  // 有效收藏计数（含无效收藏的静默清理）
+  const effectiveFavoritesCount = useEffectiveFavorites({
+    loading,
+    error,
+    favorites,
+    favoritesCount,
+    allMonitorIds,
+    allMonitorIdsSupported,
+    cleanupMissingFavorites,
+  });
 
   // 统计激活的筛选器数量（用于移动端 Header 显示）
   const activeFiltersCount = [
@@ -231,46 +218,19 @@ function App() {
     filterVendor.length > 0,
   ].filter(Boolean).length;
 
-  // 基础数据：应用收藏筛选后的数据（如适用）
-  const baseData = useMemo(() => {
-    if (!showFavoritesOnly) return data;
-    return data.filter(item => favorites.has(item.id));
-  }, [data, showFavoritesOnly, favorites]);
-
-  // 选项基础数据：基于 rawData（未被筛选器过滤），用于计算 effectiveXxx
-  // 这避免了循环依赖：选择一个 provider 后，其他 provider 仍然可见
-  const optionsBaseData = useMemo(() => {
-    if (!showFavoritesOnly) return rawData;
-    return rawData.filter(item => favorites.has(item.id));
-  }, [rawData, showFavoritesOnly, favorites]);
-
-  // 最终过滤后的数据（应用所有筛选器）
-  const filteredData = useMemo(() => {
-    // 预构建 Set 优化 O(n) includes → O(1) has
-    const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
-    const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
-    const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
-    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
-    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
-
-    return baseData.filter(item => {
-      if (providerSet && !providerSet.has(item.providerId)) return false;
-      if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
-      if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
-      if (categorySet && !categorySet.has(item.category)) return false;
-      // 未声明厂商的通道在厂商筛选生效时排除（与 useMonitorData 的过滤口径逐字一致）
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
-      return true;
-    });
-  }, [baseData, filterProvider, filterService, filterChannel, effectiveFilterCategory, filterVendor]);
-
-  // 收藏模式下重新计算状态统计（基于 filteredData 而非全板块数据）
-  const effectiveStats = useMemo(() => {
-    if (!showFavoritesOnly) return stats;
-    const total = filteredData.length;
-    const healthy = filteredData.filter(i => i.currentStatus === 'AVAILABLE').length;
-    return { total, healthy, issues: total - healthy };
-  }, [showFavoritesOnly, stats, filteredData]);
+  // 数据筛选链：收藏筛选 → 全筛选器 → 状态统计
+  const { optionsBaseData, filteredData, effectiveStats } = useFilteredData({
+    data,
+    rawData,
+    showFavoritesOnly,
+    favorites,
+    filterProvider,
+    filterService,
+    filterChannel,
+    effectiveFilterCategory,
+    filterVendor,
+    stats,
+  });
 
   // 五个筛选器的动态选项（联动筛选 + 保留已选项，逐项口径见 hook 内注释）
   const {
