@@ -19,7 +19,7 @@ import { createMediaQueryEffect } from '../utils/mediaQuery';
 import { shortenModelName } from '../utils/modelName';
 import { hasAnyAnnotation, hasAnyAnnotationInList } from '../utils/annotationUtils';
 import { formatPriceRatioStructured } from '../utils/format';
-import { getServiceIconComponent } from './ServiceIcon';
+import { getCachedServiceIcon } from './serviceIconCache';
 import { VendorBadge } from './VendorBadge';
 import { lookupRpdiagScore } from '../hooks/useRpdiagScores';
 import type { ProcessedMonitorData, SortConfig } from '../types';
@@ -30,15 +30,6 @@ type HistoryPoint = ProcessedMonitorData['history'][number];
 // 虚拟滚动常量
 const MOBILE_ROW_HEIGHT = 160;  // 移动端卡片高度（约 150px 内容 + 10px 间距）
 const MOBILE_MAX_HEIGHT = 800;  // 移动端列表最大高度
-
-// ServiceIcon 模块级缓存，避免重复调用 getServiceIconComponent
-const serviceIconCache = new Map<string, ReturnType<typeof getServiceIconComponent>>();
-const getCachedServiceIcon = (serviceType: string) => {
-  if (!serviceIconCache.has(serviceType)) {
-    serviceIconCache.set(serviceType, getServiceIconComponent(serviceType));
-  }
-  return serviceIconCache.get(serviceType);
-};
 
 // 通道单元格组件（带自定义 CSS tooltip，替代原生 title 属性）
 interface ChannelCellProps {

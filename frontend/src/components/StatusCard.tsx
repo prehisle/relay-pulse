@@ -10,22 +10,13 @@ import { getTimeRanges } from '../constants';
 import { availabilityToColor, latencyToColor, sponsorLevelToCardBorderColor, sponsorLevelToPinnedBgClass } from '../utils/color';
 import { formatPriceRatioStructured } from '../utils/format';
 import { aggregateHeatmap } from '../utils/heatmapAggregator';
-import { getServiceIconComponent } from './ServiceIcon';
+import { getCachedServiceIcon } from './serviceIconCache';
 import { VendorBadge } from './VendorBadge';
 import { AnnotationCell } from './annotations';
 import { hasAnyAnnotation } from '../utils/annotationUtils';
 import type { ProcessedMonitorData } from '../types';
 
 type HistoryPoint = ProcessedMonitorData['history'][number];
-
-// ServiceIcon 模块级缓存，与 StatusTable 保持一致
-const serviceIconCache = new Map<string, ReturnType<typeof getServiceIconComponent>>();
-const getCachedServiceIcon = (serviceType: string) => {
-  if (!serviceIconCache.has(serviceType)) {
-    serviceIconCache.set(serviceType, getServiceIconComponent(serviceType));
-  }
-  return serviceIconCache.get(serviceType);
-};
 
 interface StatusCardProps {
   item: ProcessedMonitorData;
