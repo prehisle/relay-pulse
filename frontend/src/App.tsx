@@ -7,7 +7,6 @@ import { Header } from './components/Header';
 import { Controls } from './components/Controls';
 import { StatusTable } from './components/StatusTable';
 import { StatusCard } from './components/StatusCard';
-import { vendorLabel } from './components/VendorBadge';
 import { Tooltip } from './components/Tooltip';
 import { Footer } from './components/Footer';
 import { EmptyFavorites } from './components/EmptyFavorites';
@@ -19,10 +18,10 @@ import { useFavorites } from './hooks/useFavorites';
 import { useAnnouncements } from './hooks/useAnnouncements';
 import { useRpdiagScores } from './hooks/useRpdiagScores';
 import { useScreenshotMode } from './hooks/useScreenshotMode';
+import { useFilterOptions } from './hooks/useFilterOptions';
 import { createMediaQueryEffect } from './utils/mediaQuery';
 import { trackPeriodChange, trackServiceFilter, trackEvent } from './utils/analytics';
-import type { MultiSelectOption } from './components/MultiSelect';
-import type { TooltipState, ProcessedMonitorData, ChannelOption } from './types';
+import type { TooltipState, ProcessedMonitorData } from './types';
 
 // localStorage key for time align preference
 const STORAGE_KEY_TIME_ALIGN = 'relay-pulse-time-align';
@@ -273,227 +272,22 @@ function App() {
     return { total, healthy, issues: total - healthy };
   }, [showFavoritesOnly, stats, filteredData]);
 
-  // 动态 Provider 选项：联动筛选 + 保留已选项
-  const effectiveProviders = useMemo(() => {
-    // 预构建 Set 优化查询性能
-    const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
-    const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
-    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
-    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
-    const providerSet = new Set(filterProvider);
-
-    // 1. 应用其他筛选条件（不包括 provider 自身）
-    const filtered = optionsBaseData.filter(item => {
-      if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
-      if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
-      if (categorySet && !categorySet.has(item.category)) return false;
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
-      return true;
-    });
-
-    // 2. 收集当前可用的 provider（带计数）
-    const availableMap = new Map<string, { label: string; count: number }>();
-    filtered.forEach(item => {
-      if (!availableMap.has(item.providerId)) {
-        availableMap.set(item.providerId, { label: item.providerName, count: 1 });
-      } else {
-        availableMap.get(item.providerId)!.count++;
-      }
-    });
-
-    // 3. 确保已选的 provider 始终可见（从全量数据中补充 label）
-    filterProvider.forEach(providerId => {
-      if (!availableMap.has(providerId)) {
-        const item = optionsBaseData.find(d => d.providerId === providerId);
-        if (item) {
-          availableMap.set(providerId, { label: item.providerName, count: 0 });
-        }
-      }
-    });
-
-    // 4. 转换为选项数组，标记无数据的已选项
-    return Array.from(availableMap.entries())
-      .sort((a, b) => a[1].label.localeCompare(b[1].label, 'zh-CN'))
-      .map(([value, { label, count }]) => ({
-        value,
-        label: count === 0 && providerSet.has(value) ? `${label} (0)` : label,
-      }));
-  }, [optionsBaseData, filterService, filterChannel, effectiveFilterCategory, filterVendor, filterProvider]);
-
-  // 动态 Service 选项：联动筛选 + 保留已选项
-  const effectiveServices = useMemo(() => {
-    // 预构建 Set 优化查询性能
-    const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
-    const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
-    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
-    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
-    const serviceSet = new Set(filterService);
-
-    // 1. 应用其他筛选条件（不包括 service 自身）
-    const filtered = optionsBaseData.filter(item => {
-      if (providerSet && !providerSet.has(item.providerId)) return false;
-      if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
-      if (categorySet && !categorySet.has(item.category)) return false;
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
-      return true;
-    });
-
-    // 2. 收集当前可用的 service（带计数）
-    const availableMap = new Map<string, number>();
-    filtered.forEach(item => {
-      const service = item.serviceType.toLowerCase();
-      availableMap.set(service, (availableMap.get(service) || 0) + 1);
-    });
-
-    // 3. 确保已选的 service 始终可见
-    filterService.forEach(service => {
-      if (!availableMap.has(service)) {
-        availableMap.set(service, 0);
-      }
-    });
-
-    // 4. 转换为数组，标记无数据的已选项
-    return Array.from(availableMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([value, count]) =>
-        count === 0 && serviceSet.has(value) ? `${value} (0)` : value
-      );
-  }, [optionsBaseData, filterProvider, filterChannel, effectiveFilterCategory, filterVendor, filterService]);
-
-  // 动态 Channel 选项：联动筛选 + 保留已选项
-  const effectiveChannels = useMemo<ChannelOption[]>(() => {
-    // 预构建 Set 优化查询性能
-    const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
-    const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
-    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
-    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
-    const channelSet = new Set(filterChannel);
-
-    // 1. 应用其他筛选条件（不包括 channel 自身）
-    const filtered = optionsBaseData.filter(item => {
-      if (providerSet && !providerSet.has(item.providerId)) return false;
-      if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
-      if (categorySet && !categorySet.has(item.category)) return false;
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
-      return true;
-    });
-
-    // 2. 收集当前可用的 channel（带计数）+ channelName 映射
-    const availableMap = new Map<string, { count: number; label: string }>();
-    filtered.forEach(item => {
-      if (item.channel) {
-        const existing = availableMap.get(item.channel);
-        if (existing) {
-          existing.count++;
-        } else {
-          availableMap.set(item.channel, {
-            count: 1,
-            label: item.channelName || item.channel,
-          });
-        }
-      }
-    });
-
-    // 3. 确保已选的 channel 始终可见（从全量数据中查找 channelName）
-    filterChannel.forEach(channel => {
-      if (!availableMap.has(channel)) {
-        // 从全量数据中查找 channelName
-        const found = optionsBaseData.find(item => item.channel === channel);
-        availableMap.set(channel, {
-          count: 0,
-          label: found?.channelName || channel,
-        });
-      }
-    });
-
-    // 4. 转换为 ChannelOption[]，按 label 排序，标记无数据的已选项
-    return Array.from(availableMap.entries())
-      .sort((a, b) => a[1].label.localeCompare(b[1].label, 'zh-CN'))
-      .map(([value, { count, label }]) => ({
-        value,
-        label: count === 0 && channelSet.has(value) ? `${label} (0)` : label,
-      }));
-  }, [optionsBaseData, filterProvider, filterService, effectiveFilterCategory, filterVendor, filterChannel]);
-
-  // 动态 Category 选项：联动筛选 + 保留已选项
-  const effectiveCategories = useMemo(() => {
-    // 预构建 Set 优化查询性能
-    const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
-    const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
-    const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
-    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
-    const categorySet = new Set(effectiveFilterCategory);
-
-    // 1. 应用其他筛选条件（不包括 category 自身）
-    const filtered = optionsBaseData.filter(item => {
-      if (providerSet && !providerSet.has(item.providerId)) return false;
-      if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
-      if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
-      return true;
-    });
-
-    // 2. 收集当前可用的 category（带计数）
-    const availableMap = new Map<string, number>();
-    filtered.forEach(item => {
-      availableMap.set(item.category, (availableMap.get(item.category) || 0) + 1);
-    });
-
-    // 3. 确保已选的 category 始终可见
-    effectiveFilterCategory.forEach(category => {
-      if (!availableMap.has(category)) {
-        availableMap.set(category, 0);
-      }
-    });
-
-    // 4. 转换为数组，标记无数据的已选项
-    return Array.from(availableMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([value, count]) =>
-        count === 0 && categorySet.has(value) ? `${value} (0)` : value
-      );
-  }, [optionsBaseData, filterProvider, filterService, filterChannel, filterVendor, effectiveFilterCategory]);
-
-  // 动态模型厂商选项：联动筛选 + 保留已选项。
-  // 与 provider 选项同款是 {value,label} 结构（value=受控 code，label=本地化厂商名），
-  // 按 label 排序——下拉里用户读的是名字；表格排序那侧按 code（见 sortMonitors）。
-  const effectiveVendors = useMemo<MultiSelectOption[]>(() => {
-    const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
-    const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
-    const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
-    const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
-    const vendorSet = new Set(filterVendor);
-
-    // 1. 应用其他筛选条件（不包括 vendor 自身）
-    const filtered = optionsBaseData.filter(item => {
-      if (providerSet && !providerSet.has(item.providerId)) return false;
-      if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
-      if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
-      if (categorySet && !categorySet.has(item.category)) return false;
-      return true;
-    });
-
-    // 2. 收集当前可用的 vendor（带计数）
-    const availableMap = new Map<string, number>();
-    filtered.forEach(item => {
-      if (item.modelVendor) {
-        availableMap.set(item.modelVendor, (availableMap.get(item.modelVendor) || 0) + 1);
-      }
-    });
-
-    // 3. 确保已选的 vendor 始终可见
-    filterVendor.forEach(vendor => {
-      if (!availableMap.has(vendor)) availableMap.set(vendor, 0);
-    });
-
-    // 4. 转换为选项数组（本地化 label），标记无数据的已选项
-    return Array.from(availableMap.entries())
-      .map(([value, count]) => ({
-        value,
-        label: count === 0 && vendorSet.has(value) ? `${vendorLabel(t, value)} (0)` : vendorLabel(t, value),
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
-  }, [optionsBaseData, filterProvider, filterService, filterChannel, effectiveFilterCategory, filterVendor, t]);
+  // 五个筛选器的动态选项（联动筛选 + 保留已选项，逐项口径见 hook 内注释）
+  const {
+    effectiveProviders,
+    effectiveServices,
+    effectiveChannels,
+    effectiveCategories,
+    effectiveVendors,
+  } = useFilterOptions({
+    optionsBaseData,
+    filterProvider,
+    filterService,
+    filterChannel,
+    effectiveFilterCategory,
+    filterVendor,
+    t,
+  });
 
   // 厂商列显隐：基于**未筛选**的全量数据判定，避免"筛一下列就冒出来/消失"的布局抖动。
   // Phase 3 回填厂商前恒 false —— 整列与筛选器对用户完全不存在。
