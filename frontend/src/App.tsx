@@ -1,12 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Server } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
 import { Header } from './components/Header';
 import { Controls } from './components/Controls';
 import { StatusTable } from './components/StatusTable';
-import { StatusCard } from './components/StatusCard';
+import {
+  ScreenshotHeader,
+  ColdBoardNotice,
+  ErrorPlaceholder,
+  LoadingPlaceholder,
+  NoDataPlaceholder,
+  StatusCardGrid,
+} from './components/home';
 import { Tooltip } from './components/Tooltip';
 import { Footer } from './components/Footer';
 import { EmptyFavorites } from './components/EmptyFavorites';
@@ -344,48 +350,23 @@ function App() {
 
           {/* 截图模式标题栏 */}
           {isScreenshotMode && (
-            <div className="mb-3 px-3 py-2 bg-elevated border border-default rounded-lg text-xs text-secondary">
-              {/* 群专属标题行 - 仅当有 title 时显示 */}
-              {screenshotTitle && (
-                <div className="text-sm text-primary font-medium mb-1 truncate">
-                  {screenshotTitle}
-                </div>
-              )}
-              {/* 时间和服务信息行 */}
-              <div className="flex items-center justify-between">
-                <span className="font-mono">{screenshotTimestamp}</span>
-                <span>
-                  {filteredData.length} 个服务 | {timeRange}
-                </span>
-              </div>
-            </div>
+            <ScreenshotHeader
+              title={screenshotTitle}
+              timestamp={screenshotTimestamp}
+              count={filteredData.length}
+              timeRange={timeRange}
+            />
           )}
 
           {/* 内容区域 */}
           {/* 冷板提示条 - 截图模式下隐藏 */}
-          {!isScreenshotMode && boardsEnabled && board === 'cold' && (
-            <div className="mb-4 px-4 py-3 bg-info/10 border border-info/30 rounded-lg text-info text-sm flex items-center gap-2">
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span>{t('controls.boards.coldNotice')}</span>
-            </div>
-          )}
+          {!isScreenshotMode && boardsEnabled && board === 'cold' && <ColdBoardNotice />}
           {error ? (
-            <div className="flex flex-col items-center justify-center py-20 text-danger">
-              <Server size={64} className="mb-4 opacity-20" />
-              <p className="text-lg">{t('common.error', { message: error })}</p>
-            </div>
+            <ErrorPlaceholder message={error} />
           ) : loading && data.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-muted gap-4">
-              <div className="w-12 h-12 border-4 border-accent/20 rounded-full animate-spin" style={{ borderTopColor: 'hsl(var(--accent))' }} />
-              <p className="animate-pulse">{t('common.loading')}</p>
-            </div>
+            <LoadingPlaceholder />
           ) : data.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-muted">
-              <Server size={64} className="mb-4 opacity-20" />
-              <p className="text-lg">{t('common.noData')}</p>
-            </div>
+            <NoDataPlaceholder />
           ) : showFavoritesOnly && filteredData.length === 0 ? (
             // 开启收藏筛选但无收藏时显示空状态
             <EmptyFavorites onClearFilter={exitFavoritesMode} />
@@ -416,23 +397,18 @@ function App() {
               )}
 
               {effectiveViewMode === 'grid' && (
-                <div data-heatmap-container className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {filteredData.map((item) => (
-                    <StatusCard
-                      key={item.id}
-                      item={item}
-                      timeRange={timeRange}
-                      slowLatencyMs={slowLatencyMs}
-                      enableAnnotations={enableAnnotations}
-                      isFavorite={isFavorite}
-                      onToggleFavorite={toggleFavorite}
-                      hidePriceColumn={hidePriceColumn}
-                      showVendorColumn={showVendorColumn}
-                      onBlockHover={handleBlockHover}
-                      onBlockLeave={handleBlockLeave}
-                    />
-                  ))}
-                </div>
+                <StatusCardGrid
+                  data={filteredData}
+                  timeRange={timeRange}
+                  slowLatencyMs={slowLatencyMs}
+                  enableAnnotations={enableAnnotations}
+                  isFavorite={isFavorite}
+                  onToggleFavorite={toggleFavorite}
+                  hidePriceColumn={hidePriceColumn}
+                  showVendorColumn={showVendorColumn}
+                  onBlockHover={handleBlockHover}
+                  onBlockLeave={handleBlockLeave}
+                />
               )}
             </>
           )}
