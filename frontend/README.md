@@ -27,43 +27,13 @@ LLM 服务监测系统的前端界面，使用 React + TypeScript + TailwindCSS 
 
 ## 项目结构
 
-```
-frontend/
-├── src/
-│   ├── components/       # React 组件
-│   │   ├── Header.tsx
-│   │   ├── Controls.tsx
-│   │   ├── StatusTable.tsx
-│   │   ├── StatusCard.tsx
-│   │   ├── StatusDot.tsx
-│   │   ├── HeatmapBlock.tsx
-│   │   ├── Tooltip.tsx
-│   │   └── Footer.tsx
-│   ├── hooks/           # 自定义 Hooks
-│   │   └── useMonitorData.ts
-│   ├── i18n/            # 国际化配置
-│   │   ├── index.ts           # i18n 配置入口
-│   │   └── locales/           # 翻译文件
-│   │       ├── zh-CN.json     # 简体中文
-│   │       ├── en-US.json     # 英语
-│   │       ├── ru-RU.json     # 俄语
-│   │       └── ja-JP.json     # 日语
-│   ├── types/           # TypeScript 类型定义
-│   │   └── index.ts
-│   ├── constants/       # 常量配置
-│   │   └── index.ts
-│   ├── utils/           # 工具函数
-│   │   ├── color.ts
-│   │   ├── heatmapAggregator.ts
-│   │   └── mediaQuery.ts
-│   ├── App.tsx          # 主应用组件
-│   ├── router.tsx       # 路由配置
-│   ├── main.tsx         # 应用入口
-│   └── index.css        # 全局样式
-├── .env.development     # 开发环境变量
-├── .env.production      # 生产环境变量
-└── package.json
-```
+`src/` 下按职责分目录，**目录清单直接看代码**（`ls src/*`），这里只说约定：
+
+- `components/` — 展示组件；`components/table`（状态表拆件）、`components/quality`（质量列）、`components/home`（首页占位/信息条/卡片网格）等子目录按所属界面聚合。
+- `hooks/` — 自定义 Hook，页面级状态（数据拉取、URL 同步、收藏、筛选选项、埋点等）都在这里，页面组件只负责编排与渲染。
+- `i18n/` — i18next 配置与 `locales/` 四语言词条（zh-CN / en-US / ru-RU / ja-JP）。
+- `types/`、`constants/`、`utils/` — 类型定义、常量、纯函数工具。
+- `App.tsx` 首页、`pages/` 其余页面、`router.tsx` 路由、`main.tsx` 入口、`index.css` 全局样式。
 
 ## 快速开始
 
