@@ -357,10 +357,10 @@ HTTP 响应
 
 ### Onboarding 通道标识派生
 
-收录申请提交时，channel code 由 `deriveChannelCode(channelType, channelSource, channelGroup)` 派生为三段 `{type}-{source}-{group}`（全小写；group 为空时回退两段，仅用于兼容旧数据）。例如 type="O" + source="max" + group="us" → `o-max-us`。提交即强制校验（见 `internal/onboarding/service.go`）：
+收录申请提交时，channel code 由 `deriveChannelCode(channelType, channelSource, channelGroup)` 派生为三段 `{type}-{source}-{group}`（全小写；group 为空时回退两段，仅用于兼容旧数据）。例如 type="O" + source="max" + group="us" → `o-max-us`。提交即强制校验（提交流程在 `internal/onboarding/submit.go`，通道标识词表与派生在 `channel_source_catalog.go` / `channel_code.go`）：
 - **provider_name** 为服务商展示名（经 `displayname.ValidateProviderName`：允许中文等常规可见 Unicode 文本，≤100 rune，拒控制字符 Cc/格式字符 Cf 含 bidi·零宽/行段分隔符 Zl·Zp，**必填**；首尾「空白∪Cc/Cf/Zl/Zp」规范化剥除，仅内部出现才拒），用户提交与 AdminUpdate 均过同一校验；发布时 provider PSC slug 由 `BuildServiceConfigFromSubmission` 从它派生（`lower(空格转-)`，仅 ASCII 名可得合法 slug）或由管理员 `target_provider` 覆盖——非 ASCII 展示名派生出非法 slug 且未填 `target_provider` 时，`AdminPublish` 返 `InvalidProviderSlugError`（handler 特判为 4xx 可操作指引、不落文件），提示管理员填英文代号；`AdminConfigJSON` 整份覆盖发布不经此字段级校验（管理员逃生口）。（`change-request` submit/apply 现也过同一 `displayname` 校验——submit 把规范值写回 `proposed_changes`、apply 再校验防历史脏数据，**v2.63.0 起 item -16 已闭合**。发布门校验从 `pscSegmentPattern` 改用 loader 同一函数 `config.ValidateProviderSlug`，消 `a--b` 派生 slug「写盘成功热加载失败」= item -17b。）
 - **channel_source** 必须是 `ChannelSourceCatalog`（per-service 受控词表，单一真相源，同时供 `/api/onboarding/meta` 下发前端）中的 2-5 位小写代码；如需新增来源改这一处 map；
-- **channel_type ↔ channel_source 须自洽**：`channelTypeAllowedCategories`（service.go 另一单一真相源，同样经 `/api/onboarding/meta` 下发）规定 O→{subscription,official,cloud}、R→{reverse}、M→{mixed}；`validateChannelTypeSource` 在 Submit 与 AdminUpdate 四元组重派生前校验所选来源的 Category 落在该类型允许集合内，否则拒绝（官方通道不可选 kiro 等逆向来源）。前端来源下拉据此 map 同步过滤；
+- **channel_type ↔ channel_source 须自洽**：`channelTypeAllowedCategories`（`channel_source_catalog.go` 里与词表并列的另一单一真相源，同样经 `/api/onboarding/meta` 下发）规定 O→{subscription,official,cloud}、R→{reverse}、M→{mixed}；`validateChannelTypeSource` 在 Submit 与 AdminUpdate 四元组重派生前校验所选来源的 Category 落在该类型允许集合内，否则拒绝（官方通道不可选 kiro 等逆向来源）。前端来源下拉据此 map 同步过滤；
 - **channel_group** 为 1-8 位小写字母/数字（中转商自定义分组代号，仅用于派生 channel_code，不作展示），留空默认 `main`；
 - **channel_name** 为可选的通道展示名（经 `displayname.ValidateChannelName`：允许中文等常规可见 Unicode 文本，≤40 rune，拒绝控制字符 Cc/格式字符 Cf 含 bidi·零宽/行段分隔符 Zl·Zp；首尾规范化同 provider），仅用于 UI 显示、不参与 channel_code/PSC 派生；用户提交、AdminUpdate 与 change-request submit/apply 均过同一校验，留空时前端回退显示 channel code。注意 `AdminConfigJSON` 整份覆盖发布与 admin monitors CRUD 不经此字段级校验——与 `target_channel` 同属故意保留的管理员逃生口。
 
