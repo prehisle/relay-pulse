@@ -267,7 +267,7 @@ curl -X POST http://localhost:8080/api/status/batch \
 
 ## 📈 Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=prehisle/relay-pulse&type=Date)](https://star-history.com/#prehisle/relay-pulse&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=prehisle/relay-pulse&type=Date)](https://star-history.dera.page/#prehisle/relay-pulse&Date)
 
 ## ⚠️ 免责声明
 
