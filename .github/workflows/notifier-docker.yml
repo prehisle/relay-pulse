@@ -34,7 +34,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.26'
+          # 与 notifier/Dockerfile 的 golang:1.27-bookworm 保持一致，升镜像时同步这里。
+          go-version: '1.27'
           cache-dependency-path: notifier/go.sum
 
       - name: Go format check

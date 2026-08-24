@@ -39,9 +39,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          # 跟随最新 1.26.x（与生产 Dockerfile golang:1.26-alpine 一致），
+          # 跟随最新 1.27.x（与生产 Dockerfile golang:1.27-alpine 一致），
           # 确保 govulncheck 跑在含安全补丁的工具链上。
-          go-version: '1.26'
+          # 升 Dockerfile 基础镜像时**必须同步这里**，否则漏洞闸不再跑在生产等价工具链上。
+          go-version: '1.27'
           # check-latest 必开：否则 setup-go 优先用 runner 预装/缓存的 Go（常滞后一个
           # 补丁，如 1.25.10），而新 stdlib CVE（GO-2026-5037/5039，fixed in 1.25.11）
           # 一发布 govulncheck 立即判红、阻断所有 release——这是 toolchain-lag race，
