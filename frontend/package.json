@@ -28,7 +28,7 @@
     "lucide-react": "^0.577.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-helmet-async": "^2.0.5",
+    "react-helmet-async": "^3.0.0",
     "react-i18next": "^17.0.12",
     "react-router-dom": "^6.30.4",
     "react-window": "^2.3.0"
