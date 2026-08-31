@@ -870,7 +870,7 @@
       "targetChannel": "Channel Override",
       "targetChannelHint": "Machine code; leave blank to use the derived value",
       "suggestedChannel": "Suggested",
-      "pscOverrideInvalid": "This is the URL code, not a display name: lowercase letters, digits and hyphens only, no leading/trailing hyphen and no consecutive hyphens",
+      "pscOverrideInvalid": "This is the URL code, not a display name: lowercase letters, digits and hyphens only, no leading/trailing hyphen and no consecutive hyphens, max 100 characters",
       "listedSince": "Listed Since",
       "priceMin": "Min Price Ratio",
       "priceMax": "Max Price Ratio",

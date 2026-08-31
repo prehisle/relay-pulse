@@ -870,7 +870,7 @@
       "targetChannel": "Channel 上書き",
       "targetChannelHint": "英数字コード。空欄で派生値を使用",
       "suggestedChannel": "推奨",
-      "pscOverrideInvalid": "ここは表示名ではなく URL 用のコードです：小文字・数字・ハイフンのみ、先頭と末尾のハイフンおよび連続ハイフンは不可",
+      "pscOverrideInvalid": "ここは表示名ではなく URL 用のコードです：小文字・数字・ハイフンのみ、先頭と末尾のハイフンおよび連続ハイフンは不可、100文字以内",
       "listedSince": "掲載開始日",
       "priceMin": "最低価格倍率",
       "priceMax": "最高価格倍率",

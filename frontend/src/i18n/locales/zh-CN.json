@@ -870,7 +870,7 @@
       "targetChannel": "Channel 覆盖",
       "targetChannelHint": "英文代号，留空使用派生值",
       "suggestedChannel": "建议",
-      "pscOverrideInvalid": "这里填的是英文网址代号、不是显示名称：只能用小写字母、数字、短横线，不能以短横线开头或结尾，也不能出现连续短横线",
+      "pscOverrideInvalid": "这里填的是英文网址代号、不是显示名称：只能用小写字母、数字、短横线，不能以短横线开头或结尾，也不能出现连续短横线，长度不超过 100 个字符",
       "listedSince": "收录日期",
       "priceMin": "最低倍率",
       "priceMax": "最高倍率",

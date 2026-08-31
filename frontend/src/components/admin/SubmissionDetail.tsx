@@ -123,14 +123,20 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
   // 后端保存与上架都会拒非法值，这里只是把提示提前到输入的那一刻——不然管理员容易把它当成
   // 「服务商名称的覆盖」填中文，直到点上架才发现。
   const overrideErrorText = t('admin.detail.pscOverrideInvalid', {
-    defaultValue: '只能填小写字母、数字、短横线，且不能以短横线开头/结尾或出现连续短横线',
+    defaultValue: '只能填小写字母、数字、短横线，且不能以短横线开头/结尾或出现连续短横线，长度不超过 100',
   });
   const overrideErrors: Partial<Record<EditableKey, string>> = {};
+  // 只有「本次改动过的」非法值才锁保存：handleSave 只发送有变化的字段，后端也只校验请求里带来的
+  // 字段，故库里那条本闸上线前存下的脏值不该连累管理员改备注。提示照常显示（他仍需要知道它坏了）。
+  let hasBlockingOverrideError = false;
   for (const k of ['target_provider', 'target_service', 'target_channel'] as const) {
     const v = draft[k].trim();
-    if (v && !isValidPscSlug(v)) overrideErrors[k] = overrideErrorText;
+    if (!v || isValidPscSlug(v)) continue;
+    overrideErrors[k] = overrideErrorText;
+    if (draft[k] !== ((submission[k] as string | number)?.toString() ?? '')) {
+      hasBlockingOverrideError = true;
+    }
   }
-  const hasOverrideError = Object.keys(overrideErrors).length > 0;
 
   // provider 代号建议：优先按官网域名（`api.yintu.cc` → `yintu`），退回展示名（中文名推不出，
   // 则不给建议——宁可不给，也不给一个管理员一采纳就被后端拒的值）。
@@ -210,7 +216,7 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
   };
 
   const handleSave = async () => {
-    if (!dirty || hasOverrideError) return;
+    if (!dirty || hasBlockingOverrideError) return;
     setIsSaving(true);
     try {
       // 只发送有变化的字段
@@ -260,8 +266,8 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
       {dirty && (
         <button
           onClick={handleSave}
-          disabled={isSaving || hasOverrideError}
-          title={hasOverrideError ? overrideErrorText : undefined}
+          disabled={isSaving || hasBlockingOverrideError}
+          title={hasBlockingOverrideError ? overrideErrorText : undefined}
           className="px-4 py-2 text-sm font-medium rounded-md border
                      bg-accent/10 border-accent/40 text-accent
                      hover:bg-accent/20 transition-colors

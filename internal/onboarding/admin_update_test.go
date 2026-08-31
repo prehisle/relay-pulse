@@ -213,10 +213,18 @@ func TestAdminUpdate_PSCOverrideValidation(t *testing.T) {
 		svc, store := newTestService(t)
 		saveSubmission(t, store, "ovr-hyphen", "pending", 100)
 
-		if _, err := svc.AdminUpdate(ctx, "ovr-hyphen", map[string]any{
+		_, err := svc.AdminUpdate(ctx, "ovr-hyphen", map[string]any{
 			"target_provider": "sai--ai",
-		}); err == nil {
-			t.Error("连续短横线覆盖值应被拒绝（会让 monitors.d/ 文件名分段解析错位 + 热加载失败）")
+		})
+		if err == nil {
+			t.Fatal("连续短横线覆盖值应被拒绝（会让 monitors.d/ 文件名分段解析错位 + 热加载失败）")
+		}
+		var overrideErr *InvalidPSCOverrideError
+		if !errors.As(err, &overrideErr) {
+			t.Fatalf("期望 *InvalidPSCOverrideError，实际 %T: %v", err, err)
+		}
+		if overrideErr.Field != "target_provider" {
+			t.Errorf("Field = %q，期望 target_provider", overrideErr.Field)
 		}
 	})
 
@@ -264,8 +272,20 @@ func TestAdminUpdate_PSCOverrideValidation(t *testing.T) {
 			t.Fatalf("store.Update: %v", err)
 		}
 
-		if _, err := svc.AdminUpdate(ctx, "ovr-legacy", map[string]any{"admin_note": "只改备注"}); err != nil {
+		got, err := svc.AdminUpdate(ctx, "ovr-legacy", map[string]any{"admin_note": "只改备注"})
+		if err != nil {
 			t.Fatalf("无关字段编辑不应被存量脏数据卡住，实际 %v", err)
+		}
+		// 断言真落库：只测「没报错」的话，实现改成「有脏值就直接 return，什么也不写」也照样绿。
+		persisted, err := store.GetByPublicID(ctx, "ovr-legacy")
+		if err != nil {
+			t.Fatalf("GetByPublicID: %v", err)
+		}
+		if got.AdminNote != "只改备注" || persisted.AdminNote != "只改备注" {
+			t.Errorf("admin_note 未落库：返回 %q，库内 %q", got.AdminNote, persisted.AdminNote)
+		}
+		if persisted.TargetProvider != "银兔" {
+			t.Errorf("无关编辑不应改动存量脏值，实际 %q", persisted.TargetProvider)
 		}
 	})
 }
