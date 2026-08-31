@@ -179,12 +179,11 @@ func TestAdminPublish_InvalidProviderSlug(t *testing.T) {
 		}
 	})
 
-	// 边界锁定：管理员填了非法 target_provider 覆盖值（如又填了中文）属**本轮范围外**的另一类
-	// 问题——它与非法 target_service/target_channel 覆盖对称，同属预存的通用校验缺口，不由本轮的
-	// InvalidProviderSlugError 承接。护栏刻意只在 target_provider 为空（即走展示名自动派生路径）时
-	// 触发；填了覆盖值就交给下方 validateMonitorConfig 通用校验（当前呈现为 500，是既有对称技术债）。
-	// 本用例守住这条边界：非法覆盖值**不**返回 InvalidProviderSlugError，但仍返回非 nil 错误且不写盘。
-	t.Run("非法target_provider覆盖值落回通用校验错误_不由InvalidProviderSlugError承接", func(t *testing.T) {
+	// 管理员填了非法覆盖值：与「没填覆盖值」是两类不同处置（那条让你去填，这条让你改这一格），
+	// 故走独立的 InvalidPSCOverrideError、由 handler 映射 400。此前这条落进通用校验被报成 500，
+	// 管理员看到的是一个像服务端故障的错误、却说不出该改哪里。错误里必须带得出字段名与原值，
+	// 否则前端无法把提示落到具体输入框上。
+	t.Run("非法target_provider覆盖值返回InvalidPSCOverrideError且不写盘", func(t *testing.T) {
 		svc, store, monitorStore := newPublishTestService(t)
 		savePublishableSubmission(t, svc, store, "pub-cn-bad-override", "赛博AI", "还是中文")
 
@@ -193,17 +192,24 @@ func TestAdminPublish_InvalidProviderSlug(t *testing.T) {
 			t.Fatal("期望 AdminPublish 返回错误，实际 nil")
 		}
 
-		var slugErr *InvalidProviderSlugError
-		if errors.As(err, &slugErr) {
-			t.Fatalf("非法 target_provider 覆盖值属范围外，不应返回 *InvalidProviderSlugError，实际却返回了：%v", err)
+		var overrideErr *InvalidPSCOverrideError
+		if !errors.As(err, &overrideErr) {
+			t.Fatalf("期望错误类型 *InvalidPSCOverrideError，实际 %T: %v", err, err)
+		}
+		if overrideErr.Field != "target_provider" {
+			t.Errorf("Field = %q，期望 target_provider", overrideErr.Field)
+		}
+		if overrideErr.Value != "还是中文" {
+			t.Errorf("Value = %q，期望 还是中文", overrideErr.Value)
+		}
+		// 消息要能自解释：既指出是哪一格，也说清合法格式。
+		if !strings.Contains(err.Error(), "Provider 覆盖") {
+			t.Errorf("错误消息应点名「Provider 覆盖」输入框，实际 %v", err)
 		}
 
-		// 进一步锁定"落回通用校验"这条路径：错误须来自 validatePSCSegment（其消息含稳定子串
-		// "格式无效"，经 validateMonitorConfig→AdminPublish 包装为「待发布 monitor 配置无效: ...」），
-		// 而非任何更早的异常（解密失败/申请不存在/状态非法等）。这样即便将来护栏或错误分流被改动，
-		// 也能 fail-loud 提示边界移位。
-		if !strings.Contains(err.Error(), "格式无效") {
-			t.Errorf("期望错误来自通用 PSC 校验（消息含「格式无效」），实际 %v", err)
+		var slugErr *InvalidProviderSlugError
+		if errors.As(err, &slugErr) {
+			t.Fatalf("填了覆盖值就不该再报「派生失败、请去填覆盖值」，实际 %v", err)
 		}
 
 		summaries, err := monitorStore.List()
@@ -212,6 +218,70 @@ func TestAdminPublish_InvalidProviderSlug(t *testing.T) {
 		}
 		if len(summaries) != 0 {
 			t.Errorf("monitors.d/ 应为空，实际写入 %d 个文件: %+v", len(summaries), summaries)
+		}
+	})
+
+	// -17b 的覆盖路径版本：`sai--ai` 这类连续短横线值过得了历史的宽松 PSC 正则，却过不了 loader 的
+	// ValidateProviderSlug，且段内的 `--` 还会让 monitors.d/ 文件名分段解析错位。放行 = 上架返回
+	// 200、热加载整份配置失败、重启拉不起来，是本轮最该堵死的形状。
+	t.Run("连续短横线target_provider覆盖值应被拒且不写盘", func(t *testing.T) {
+		svc, store, monitorStore := newPublishTestService(t)
+		savePublishableSubmission(t, svc, store, "pub-double-hyphen-override", "SaiAI", "sai--ai")
+
+		err := svc.AdminPublish(ctx, "pub-double-hyphen-override", "hot")
+		if err == nil {
+			t.Fatal("期望 AdminPublish 拒绝连续短横线覆盖值，实际 nil（会造出热加载失败的坏文件）")
+		}
+		var overrideErr *InvalidPSCOverrideError
+		if !errors.As(err, &overrideErr) {
+			t.Fatalf("期望错误类型 *InvalidPSCOverrideError，实际 %T: %v", err, err)
+		}
+
+		summaries, err := monitorStore.List()
+		if err != nil {
+			t.Fatalf("monitorStore.List: %v", err)
+		}
+		if len(summaries) != 0 {
+			t.Errorf("monitors.d/ 应为空，实际写入 %d 个文件: %+v", len(summaries), summaries)
+		}
+	})
+
+	// 对称锁定：service/channel 两个覆盖值走同一条分流，别只修 provider 一格。
+	t.Run("非法target_service与target_channel覆盖值同样返回InvalidPSCOverrideError", func(t *testing.T) {
+		for _, tc := range []struct {
+			name     string
+			publicID string
+			field    string
+			apply    func(*Submission)
+		}{
+			{"target_service", "pub-bad-service", "target_service", func(s *Submission) { s.TargetService = "CC" }},
+			{"target_channel", "pub-bad-channel", "target_channel", func(s *Submission) { s.TargetChannel = "o-max-" }},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				svc, store, monitorStore := newPublishTestService(t)
+				sub := savePublishableSubmission(t, svc, store, tc.publicID, "SaiAI", "")
+				tc.apply(sub)
+				if err := store.Update(ctx, sub); err != nil {
+					t.Fatalf("store.Update: %v", err)
+				}
+
+				err := svc.AdminPublish(ctx, tc.publicID, "hot")
+				var overrideErr *InvalidPSCOverrideError
+				if !errors.As(err, &overrideErr) {
+					t.Fatalf("期望错误类型 *InvalidPSCOverrideError，实际 %T: %v", err, err)
+				}
+				if overrideErr.Field != tc.field {
+					t.Errorf("Field = %q，期望 %s", overrideErr.Field, tc.field)
+				}
+
+				summaries, err := monitorStore.List()
+				if err != nil {
+					t.Fatalf("monitorStore.List: %v", err)
+				}
+				if len(summaries) != 0 {
+					t.Errorf("monitors.d/ 应为空，实际写入 %d 个文件: %+v", len(summaries), summaries)
+				}
+			})
 		}
 	})
 

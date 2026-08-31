@@ -5,16 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"monitor/internal/config"
 	"monitor/internal/logger"
 )
-
-// pscSegmentPattern 校验 PSC 段仅允许小写字母、数字、短横线，且不能以短横线开头或结尾。
-var pscSegmentPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
 
 // PSCConflictError 表示 PSC 冲突错误，包含冲突信息和建议值。
 type PSCConflictError struct {
@@ -40,6 +36,68 @@ type InvalidProviderSlugError struct {
 func (e *InvalidProviderSlugError) Error() string {
 	return fmt.Sprintf("服务商名 %q 无法自动生成合法的网址代号（派生值 %q 含中文或其它无法用于网址的字符）；请在「Provider 覆盖」(target_provider) 填写英文代号（小写字母、数字、短横线）后再上架。",
 		e.ProviderName, e.DerivedSlug)
+}
+
+// pscOverrideFieldLabels 把字段名映射成管理后台里的可见标签，让错误消息能直接指向那个输入框。
+var pscOverrideFieldLabels = map[string]string{
+	"target_provider": "Provider 覆盖",
+	"target_service":  "Service 覆盖",
+	"target_channel":  "Channel 覆盖",
+}
+
+// InvalidPSCOverrideError 表示管理员填写的 PSC 覆盖值本身非法。
+//
+// 与 InvalidProviderSlugError 分成两个类型是因为处置动作不同：那条说的是「展示名派生不出代号、
+// 你还没填覆盖值」，这条说的是「你填的这个值不能用」。此前后者没有专属类型，一路落进
+// validateMonitorConfig 的通用校验、在 handler 被当成服务端故障报 500——管理员看到的是一个
+// 5xx，而实际是自己填错了一格。
+type InvalidPSCOverrideError struct {
+	Field  string // target_provider / target_service / target_channel
+	Value  string // 管理员填写的原值（已 TrimSpace）
+	Reason error  // 来自 config.ValidateProviderSlug 的具体原因
+}
+
+func (e *InvalidPSCOverrideError) Error() string {
+	label := pscOverrideFieldLabels[e.Field]
+	if label == "" {
+		label = e.Field
+	}
+	return fmt.Sprintf("「%s」(%s) 填写的 %q 不能用作通道代号（%v）；它是英文网址代号、不是展示名称，仅允许小写字母、数字、短横线，不能以短横线开头或结尾、不能出现连续短横线，长度 ≤100。",
+		label, e.Field, e.Value, e.Reason)
+}
+
+func (e *InvalidPSCOverrideError) Unwrap() error { return e.Reason }
+
+// validatePSCOverride 校验单个管理员填写的 PSC 覆盖值；空值表示「不覆盖」，直接放行。
+//
+// 校验规则刻意与 loader 的 config.ValidateProviderSlug 同源：覆盖值最终会成为 monitors.d/
+// 的文件名分段与公开 URL slug，用任何更宽松的规则都会造出「写盘成功、热加载失败」的坏文件。
+func validatePSCOverride(field, value string) error {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return nil
+	}
+	if err := config.ValidateProviderSlug(v); err != nil {
+		return &InvalidPSCOverrideError{Field: field, Value: v, Reason: err}
+	}
+	return nil
+}
+
+// validatePSCOverrides 校验申请上三个 PSC 覆盖值。
+func validatePSCOverrides(sub *Submission) error {
+	for _, f := range []struct {
+		name  string
+		value string
+	}{
+		{"target_provider", sub.TargetProvider},
+		{"target_service", sub.TargetService},
+		{"target_channel", sub.TargetChannel},
+	} {
+		if err := validatePSCOverride(f.name, f.value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // AdminPublish 上架：生成 ServiceConfig 并写入 monitors.d/。
@@ -72,15 +130,21 @@ func (s *Service) AdminPublish(ctx context.Context, publicID, board string) erro
 	// 构建 ServiceConfig
 	monitorCfg := s.buildServiceConfig(sub, apiKey)
 
-	// 派生路径下（无 AdminConfigJSON 整份覆盖）：若展示名派生出的 provider slug 非法且未覆盖
-	// target_provider，返回可操作指引（区别于下方通用 PSC 校验的难懂错误 + 500）。
-	// AdminConfigJSON 覆盖路径自带 Provider，仍走下方 validateMonitorConfig 通用校验；
-	// 管理员填了非法 target_provider/target_service/target_channel 覆盖值属另一类（预存、对称）
-	// 问题，本轮不在此处理，仍走通用校验。
-	if sub.AdminConfigJSON == "" &&
-		strings.TrimSpace(sub.TargetProvider) == "" &&
-		config.ValidateProviderSlug(monitorCfg.Provider) != nil {
-		return &InvalidProviderSlugError{ProviderName: sub.ProviderName, DerivedSlug: monitorCfg.Provider}
+	// 派生路径下（无 AdminConfigJSON 整份覆盖）先分流两类「管理员填错了」的错误，让它们带着
+	// 可操作指引以 4xx 返回，而不是落进下方通用校验被当成服务端故障报 500：
+	//   1. 管理员填了非法覆盖值 → InvalidPSCOverrideError（指名是哪一格、合法格式是什么）；
+	//   2. 覆盖值留空、展示名又派生不出合法 slug（中文名的常态）→ InvalidProviderSlugError。
+	// AdminConfigJSON 整份覆盖路径不经这两道分流：那条逃生口自带完整 Provider/Service/Channel，
+	// 三个 target_* 根本不参与最终配置，在这里拦它们等于拦一个不生效的字段。它仍由下方
+	// validateMonitorConfig 兜底（同源规则，坏值绝进不了 monitors.d/）。
+	if sub.AdminConfigJSON == "" {
+		if err := validatePSCOverrides(sub); err != nil {
+			return err
+		}
+		if strings.TrimSpace(sub.TargetProvider) == "" &&
+			config.ValidateProviderSlug(monitorCfg.Provider) != nil {
+			return &InvalidProviderSlugError{ProviderName: sub.ProviderName, DerivedSlug: monitorCfg.Provider}
+		}
 	}
 
 	// 如果管理员有自定义配置，覆盖
@@ -216,14 +280,20 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// validatePSCSegment 校验 PSC 段格式
+// validatePSCSegment 校验 PSC 段格式。
+//
+// 规则直接复用 loader 的 config.ValidateProviderSlug（比历史正则多禁「连续短横线」与「>100 字符」），
+// 这是写盘前的最后一道闸，必须比加载期更严或等严，否则就会造出「上架返回 200、热加载整份配置失败」
+// 的坏文件——重启即拉不起来。连续短横线尤其危险：monitors.d/ 的文件名是
+// `{provider}--{service}--{channel}`，段内再出现 `--` 会让 ParseMonitorFileKey 把分段切错位
+// （provider=`sai--ai` 会被解析成 provider=`sai`、service=`ai`），文件从此对不上自己的 PSC。
 func validatePSCSegment(field, value string) error {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return fmt.Errorf("%s 不能为空", field)
 	}
-	if !pscSegmentPattern.MatchString(value) {
-		return fmt.Errorf("%s 格式无效（%q），仅允许小写字母、数字、短横线，且不能以短横线开头或结尾", field, value)
+	if err := config.ValidateProviderSlug(value); err != nil {
+		return fmt.Errorf("%s 格式无效（%q）: %w", field, value, err)
 	}
 	return nil
 }

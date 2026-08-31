@@ -377,7 +377,7 @@ HTTP 响应
   - **模板闸 `resolveSelfServeTemplate`** 不变：模板必须是**本 service** 已注册变体且 `self_serve_visible`——管理员改 `template_name` 上架内部模板仍是有意保留的逃生口。
   - **wire 变更**：`/api/onboarding/meta` 的 `request_shapes_by_service` 字段已删除（它只服务于「自填模型」那条已下线的路径）；`model_vendors` 保留——主表格厂商列（`useModelVendors`）、模型下拉的 optgroup 分组标题、admin 表单都还在消费它。
 
-PSC 各段仍只允许小写字母、数字、短横线（`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`）。`AdminUpdate` 仅当 service/type/source/group 四元组真正变化时才重派生 channel_code（保护 legacy 两段记录），并对 channel_type(O/R/M)、service_type(cc/cx/gm) 做枚举校验。管理员可在发布前通过 `target_channel` 覆盖派生值（**故意保留的逃生口，不受三段约束**，用于 legacy 与特殊命名）。前端 `ChannelTypeIcon` 通过首字母（大小写不敏感）识别通道类型图标（o→官方、r→逆向、m→混合）。
+**PSC 各段（含三个 `target_*` 覆盖值）一律走 `config.ValidateProviderSlug`**——小写字母、数字、短横线，不能首尾短横线、**不能连续短横线**、≤100 字符。收紧到与 loader 同源是必须的：段内出现 `--` 会让 `ParseMonitorFileKey`（`SplitN(key,"--",3)`）把 `{provider}--{service}--{channel}` 文件名切错位，且加载期的 `ValidateProviderSlug` 会拒掉整份配置 = 「上架 200、热加载失败、重启拉不起来」。管理员填错覆盖值时返 `InvalidPSCOverrideError`（handler 映射 400、消息点名是哪一格），与「没填覆盖值、展示名又派生不出合法 slug」的 `InvalidProviderSlugError` 分开——两者处置动作不同。`AdminUpdate` 保存时对本次请求带来的 `target_*` 同规则 fail-fast（空串合法=清空覆盖；只校验本次改的字段，故存量脏值不会卡死无关编辑）。`AdminUpdate` 仅当 service/type/source/group 四元组真正变化时才重派生 channel_code（保护 legacy 两段记录），并对 channel_type(O/R/M)、service_type(cc/cx/gm) 做枚举校验。管理员可在发布前通过 `target_channel` 覆盖派生值（**故意保留的逃生口，不受三段命名约束**——但字符集规则同上，用于 legacy 与特殊命名）。前端 `ChannelTypeIcon` 通过首字母（大小写不敏感）识别通道类型图标（o→官方、r→逆向、m→混合）。
 
 **入驻须知逐条确认**：`SubmitRequest.AgreementAccepted` 必须为 true（前端 `ConfirmStep` 据《入驻须知与确认》拆 6 条独立勾选，全勾才放行），否则 Submit 在前置环节即拒。落库时后端盖戳 `agreement_accepted/agreement_accepted_at/agreement_version`（`const AgreementVersion`，不信客户端），store 三列沿用 `channel_group` 幂等迁移模式（sqlite PRAGMA 预检 / pgx `ADD COLUMN IF NOT EXISTS`）。
 

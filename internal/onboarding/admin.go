@@ -106,14 +106,25 @@ func (s *Service) AdminUpdate(ctx context.Context, publicID string, updates map[
 	if v, ok := updates["channel_group"].(string); ok {
 		sub.ChannelGroup = strings.ToLower(strings.TrimSpace(v))
 	}
-	if v, ok := updates["target_provider"].(string); ok {
-		sub.TargetProvider = v
-	}
-	if v, ok := updates["target_service"].(string); ok {
-		sub.TargetService = v
-	}
-	if v, ok := updates["target_channel"].(string); ok {
-		sub.TargetChannel = v
+	// 三个 PSC 覆盖值在保存时就校验，别等到上架才报错：它们最终会成为 monitors.d/ 的文件名分段
+	// 与公开 URL slug，坏值先入库只会让「保存成功、上架失败」多绕一圈。空串是合法输入（表示清空
+	// 覆盖、回到派生值），故这里刻意不带 `v != ""` 短路；存量脏数据由 AdminPublish 的同源校验兜底。
+	for _, f := range []struct {
+		key    string
+		assign func(string)
+	}{
+		{"target_provider", func(s string) { sub.TargetProvider = s }},
+		{"target_service", func(s string) { sub.TargetService = s }},
+		{"target_channel", func(s string) { sub.TargetChannel = s }},
+	} {
+		v, ok := updates[f.key].(string)
+		if !ok {
+			continue
+		}
+		if err := validatePSCOverride(f.key, v); err != nil {
+			return nil, err
+		}
+		f.assign(strings.TrimSpace(v))
 	}
 	if v, ok := updates["base_url"].(string); ok && v != "" {
 		sub.BaseURL = v

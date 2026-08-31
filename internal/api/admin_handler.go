@@ -255,6 +255,13 @@ func (h *Handler) AdminPublishSubmission(c *gin.Context) {
 			})
 			return
 		}
+		var invalidOverride *onboarding.InvalidPSCOverrideError
+		if errors.As(err, &invalidOverride) {
+			logger.Warn("admin", "上架失败：PSC 覆盖值非法", "public_id", publicID,
+				"field", invalidOverride.Field, "value", invalidOverride.Value)
+			apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, invalidOverride.Error())
+			return
+		}
 		var invalidSlug *onboarding.InvalidProviderSlugError
 		if errors.As(err, &invalidSlug) {
 			logger.Warn("admin", "上架失败：provider slug 需覆盖", "public_id", publicID,

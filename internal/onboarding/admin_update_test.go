@@ -2,6 +2,7 @@ package onboarding
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -176,6 +177,95 @@ func TestAdminUpdate_RederiveGuard(t *testing.T) {
 			"channel_name": "a\u202eb", // bidi 方向控制符
 		}); err == nil {
 			t.Errorf("含 bidi 控制符的 channel_name 应被拒绝")
+		}
+	})
+}
+
+// TestAdminUpdate_PSCOverrideValidation 锁定「PSC 覆盖值在保存期就 fail-fast」这条契约。
+// 此前三个 target_* 原样入库、直到上架才报错，管理员会看到「保存成功 → 上架失败」的错位反馈；
+// 而它们最终是 monitors.d/ 的文件名分段与公开 URL slug，坏值根本不该落库。
+func TestAdminUpdate_PSCOverrideValidation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("中文覆盖值被拒且不落库", func(t *testing.T) {
+		svc, store := newTestService(t)
+		saveSubmission(t, store, "ovr-cn", "pending", 100)
+
+		_, err := svc.AdminUpdate(ctx, "ovr-cn", map[string]any{"target_provider": "银兔"})
+		if err == nil {
+			t.Fatal("中文 target_provider 应被拒绝")
+		}
+		var overrideErr *InvalidPSCOverrideError
+		if !errors.As(err, &overrideErr) {
+			t.Fatalf("期望 *InvalidPSCOverrideError，实际 %T: %v", err, err)
+		}
+
+		sub, err := store.GetByPublicID(ctx, "ovr-cn")
+		if err != nil {
+			t.Fatalf("GetByPublicID: %v", err)
+		}
+		if sub.TargetProvider != "" {
+			t.Errorf("被拒的覆盖值不应落库，实际 %q", sub.TargetProvider)
+		}
+	})
+
+	t.Run("连续短横线覆盖值被拒", func(t *testing.T) {
+		svc, store := newTestService(t)
+		saveSubmission(t, store, "ovr-hyphen", "pending", 100)
+
+		if _, err := svc.AdminUpdate(ctx, "ovr-hyphen", map[string]any{
+			"target_provider": "sai--ai",
+		}); err == nil {
+			t.Error("连续短横线覆盖值应被拒绝（会让 monitors.d/ 文件名分段解析错位 + 热加载失败）")
+		}
+	})
+
+	t.Run("合法覆盖值写入并剪除首尾空白", func(t *testing.T) {
+		svc, store := newTestService(t)
+		saveSubmission(t, store, "ovr-ok", "pending", 100)
+
+		got, err := svc.AdminUpdate(ctx, "ovr-ok", map[string]any{"target_provider": "  yintu "})
+		if err != nil {
+			t.Fatalf("AdminUpdate: %v", err)
+		}
+		if got.TargetProvider != "yintu" {
+			t.Errorf("TargetProvider = %q，期望 yintu（已剪空白）", got.TargetProvider)
+		}
+	})
+
+	// 空串是合法输入：表示清空覆盖、回落到从展示名派生。校验若带 `!= ""` 短路以外的写法把空串
+	// 也拦掉，管理员就再也删不掉一个填错的代号了。
+	t.Run("空串可清空覆盖值", func(t *testing.T) {
+		svc, store := newTestService(t)
+		saveSubmission(t, store, "ovr-clear", "pending", 100)
+
+		if _, err := svc.AdminUpdate(ctx, "ovr-clear", map[string]any{"target_provider": "yintu"}); err != nil {
+			t.Fatalf("AdminUpdate(set): %v", err)
+		}
+		got, err := svc.AdminUpdate(ctx, "ovr-clear", map[string]any{"target_provider": ""})
+		if err != nil {
+			t.Fatalf("AdminUpdate(clear): %v", err)
+		}
+		if got.TargetProvider != "" {
+			t.Errorf("空串应清空覆盖值，实际 %q", got.TargetProvider)
+		}
+	})
+
+	// 存量脏数据不该被无关编辑卡死：只校验本次请求真正带来的字段。
+	t.Run("库内已有脏覆盖值时编辑无关字段仍放行", func(t *testing.T) {
+		svc, store := newTestService(t)
+		saveSubmission(t, store, "ovr-legacy", "pending", 100)
+		sub, err := store.GetByPublicID(ctx, "ovr-legacy")
+		if err != nil {
+			t.Fatalf("GetByPublicID: %v", err)
+		}
+		sub.TargetProvider = "银兔" // 模拟本闸上线前存进去的脏值
+		if err := store.Update(ctx, sub); err != nil {
+			t.Fatalf("store.Update: %v", err)
+		}
+
+		if _, err := svc.AdminUpdate(ctx, "ovr-legacy", map[string]any{"admin_note": "只改备注"}); err != nil {
+			t.Fatalf("无关字段编辑不应被存量脏数据卡住，实际 %v", err)
 		}
 	})
 }
