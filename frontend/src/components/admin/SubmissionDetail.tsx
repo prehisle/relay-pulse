@@ -5,6 +5,7 @@ import type { AdminSubmission, OnboardingTestResult } from '../../types/onboardi
 import { FormField, SelectField, ReadOnlyField } from './FormControls';
 import { buildVendorOptions, useModelVendors } from '../../hooks/useModelVendors';
 import { CurlCommandBlock } from './CurlCommandBlock';
+import { isValidPscSlug, suggestSlugFromName, suggestSlugFromUrl } from '../../utils/pscSlug';
 
 /** 可编辑字段列表 — 用于本地 draft 初始化和脏检测 */
 const EDITABLE_FIELDS = [
@@ -118,6 +119,26 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
   const dirty = hasDraftChanged(draft, submission);
   const [isSaving, setIsSaving] = useState(false);
 
+  // 三个 PSC 覆盖值是英文机器代号（monitors.d/ 文件名分段 + 公开 URL slug），不是展示名。
+  // 后端保存与上架都会拒非法值，这里只是把提示提前到输入的那一刻——不然管理员容易把它当成
+  // 「服务商名称的覆盖」填中文，直到点上架才发现。
+  const overrideErrorText = t('admin.detail.pscOverrideInvalid', {
+    defaultValue: '只能填小写字母、数字、短横线，且不能以短横线开头/结尾或出现连续短横线',
+  });
+  const overrideErrors: Partial<Record<EditableKey, string>> = {};
+  for (const k of ['target_provider', 'target_service', 'target_channel'] as const) {
+    const v = draft[k].trim();
+    if (v && !isValidPscSlug(v)) overrideErrors[k] = overrideErrorText;
+  }
+  const hasOverrideError = Object.keys(overrideErrors).length > 0;
+
+  // provider 代号建议：优先按官网域名（`api.yintu.cc` → `yintu`），退回展示名（中文名推不出，
+  // 则不给建议——宁可不给，也不给一个管理员一采纳就被后端拒的值）。
+  const providerSlugSuggestion =
+    suggestSlugFromUrl(draft.website_url) || suggestSlugFromName(draft.provider_name);
+  const showProviderSuggestion =
+    !!providerSlugSuggestion && providerSlugSuggestion !== draft.target_provider.trim();
+
   // 模板下拉：按 draft.service_type 动态拉取，避免硬编码列表与 templates/ 目录漂移。
   // 选 service_type 才有意义——templates/ 目录按 cc-/cx-/gm- 前缀划分。
   const [templates, setTemplates] = useState<string[]>([]);
@@ -189,7 +210,7 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
   };
 
   const handleSave = async () => {
-    if (!dirty) return;
+    if (!dirty || hasOverrideError) return;
     setIsSaving(true);
     try {
       // 只发送有变化的字段
@@ -239,7 +260,8 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
       {dirty && (
         <button
           onClick={handleSave}
-          disabled={isSaving}
+          disabled={isSaving || hasOverrideError}
+          title={hasOverrideError ? overrideErrorText : undefined}
           className="px-4 py-2 text-sm font-medium rounded-md border
                      bg-accent/10 border-accent/40 text-accent
                      hover:bg-accent/20 transition-colors
@@ -541,17 +563,32 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
             onChange={(v) => updateField('expires_at', v)}
             type="date"
           />
-          <FormField
-            label={t('admin.detail.targetProvider', { defaultValue: 'Provider 覆盖' })}
-            value={draft.target_provider}
-            onChange={(v) => updateField('target_provider', v)}
-            placeholder={t('admin.detail.targetProviderHint', { defaultValue: '留空使用派生值' })}
-          />
+          <div>
+            <FormField
+              label={t('admin.detail.targetProvider', { defaultValue: 'Provider 覆盖' })}
+              value={draft.target_provider}
+              onChange={(v) => updateField('target_provider', v)}
+              placeholder={t('admin.detail.targetProviderHint', {
+                defaultValue: '英文代号，留空则由服务商名称派生',
+              })}
+              error={overrideErrors.target_provider}
+            />
+            {showProviderSuggestion && (
+              <button
+                type="button"
+                className="mt-1 text-xs px-2 py-1 rounded bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors"
+                onClick={() => updateField('target_provider', providerSlugSuggestion)}
+              >
+                {t('admin.detail.suggestedChannel', { defaultValue: '建议' })}: {providerSlugSuggestion}
+              </button>
+            )}
+          </div>
           <FormField
             label={t('admin.detail.targetService', { defaultValue: 'Service 覆盖' })}
             value={draft.target_service}
             onChange={(v) => updateField('target_service', v)}
             placeholder={t('admin.detail.targetServiceHint', { defaultValue: '留空使用派生值' })}
+            error={overrideErrors.target_service}
           />
           <div>
             <FormField
@@ -559,6 +596,7 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
               value={draft.target_channel}
               onChange={(v) => updateField('target_channel', v)}
               placeholder={t('admin.detail.targetChannelHint', { defaultValue: '留空使用派生值' })}
+              error={overrideErrors.target_channel}
             />
             {suggestedChannel && (
               <button
