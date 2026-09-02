@@ -105,3 +105,81 @@ export function matchesModelKeys(
   if (selectedKeys.size === 0) return true;
   return collectModelOptions(entries).some((option) => selectedKeys.has(option.key));
 }
+
+/** 下拉里的一个模型选项（MultiSelectOption 的结构，utils 层不依赖组件类型）。 */
+export interface ModelFilterOptionView {
+  value: string;
+  label: string;
+  groupKey: string;
+  groupLabel: string;
+}
+
+interface BuildModelOptionsParams {
+  /** 已按**其它**维度联动过滤的数据，决定每个选项的计数与是否出现。 */
+  scoped: readonly { modelEntries?: readonly ModelEntryLike[] }[];
+  /** **未经任何筛选器过滤**的数据，只用来定 label 与 family（理由见下）。 */
+  all: readonly { modelEntries?: readonly ModelEntryLike[] }[];
+  /** 当前已选的 canonical key。 */
+  selected: readonly string[];
+  /** 家族 code → 本地化组标题。 */
+  familyLabel: (code: string) => string;
+}
+
+/**
+ * 构建「模型」筛选器的下拉选项。首页与服务商页共用这一份——两页的筛选链路本就是
+ * 各写一套的平行实现，模型这根轴不能再复制第三份。
+ *
+ * 三条不能省的规矩：
+ *   ① label/family 取自 `all` 而非 `scoped`。已选项被联动条件排除后仍要标 `(0)`
+ *      保留可见，此时它已不在 scoped 里；Gemini 尤其明显——展示名被剥了厂商前缀
+ *      （gemini-2.5-flash → 2.5-flash），从 key 反推不出家族，只有全量映射知道。
+ *   ② 计数口径是「含该模型的**通道**数」（collectModelOptions 已在通道内去重）。
+ *      模型是通道内的多值属性，各选项计数之和会大于通道总数，这与「选它能看到
+ *      几行」一致。
+ *   ③ 输出**按家族分段连续**。MultiSelect 按数组里首次出现的顺序聚合分组，
+ *      同家族选项被打散就会分裂出多个重名组。
+ */
+export function buildModelOptions({
+  scoped,
+  all,
+  selected,
+  familyLabel,
+}: BuildModelOptionsParams): ModelFilterOptionView[] {
+  const metadata = new Map<string, ModelFilterOption>();
+  for (const item of all) {
+    for (const option of collectModelOptions(item.modelEntries)) {
+      const existing = metadata.get(option.key);
+      metadata.set(option.key, existing ? preferredModelOption(option, existing) : option);
+    }
+  }
+
+  const counts = new Map<string, number>();
+  for (const item of scoped) {
+    for (const option of collectModelOptions(item.modelEntries)) {
+      counts.set(option.key, (counts.get(option.key) ?? 0) + 1);
+    }
+  }
+
+  const selectedSet = new Set(selected);
+  selectedSet.forEach((key) => {
+    if (!counts.has(key)) counts.set(key, 0);
+  });
+
+  return Array.from(counts.entries())
+    .map(([key, count]) => {
+      // 全量里也没有的 key（用户手改 URL）只能就 key 本身尽力归族。
+      const meta = metadata.get(key) ?? { key, label: key, family: deriveModelFamily('', key) };
+      return { ...meta, count };
+    })
+    .sort((a, b) => {
+      const byFamily = familyRank(a.family) - familyRank(b.family);
+      if (byFamily !== 0) return byFamily;
+      return a.label.localeCompare(b.label, 'zh-CN');
+    })
+    .map(({ key, label, family, count }) => ({
+      value: key,
+      label: count === 0 && selectedSet.has(key) ? `${label} (0)` : label,
+      groupKey: family,
+      groupLabel: familyLabel(family),
+    }));
+}

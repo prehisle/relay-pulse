@@ -17,6 +17,8 @@ import { Footer } from '../components/Footer';
 import { EmptyFavorites } from '../components/EmptyFavorites';
 import { useBreakpointMatch } from '../hooks/useBreakpoint';
 import { canonicalize } from '../utils/monitorDataProcessor';
+import { modelFamilyLabel } from '../utils/modelFamily';
+import { buildModelOptions, matchesModelKeys } from '../utils/modelFilter';
 import type { MultiSelectOption } from '../components/MultiSelect';
 import type { ViewMode, SortConfig, TooltipState, ProcessedMonitorData, ChannelOption, BoardFilter } from '../types';
 
@@ -35,9 +37,13 @@ interface ProviderPageSnapshot {
   /** 2026-08 加入的厂商筛选。**故意留在 version 1**：旧会话快照没有这个键，
    *  升 version 会让那份快照整体作废。解析时缺失降级为空数组，见 parseProviderPageSnapshot。 */
   filterVendor: string[];
+  /** 2026-09 加入的模型筛选。理由同 filterVendor：**故意留在 version 1**，
+   *  缺失即降级成空数组，不让旧快照整份作废。 */
+  filterModel: string[];
 }
 
-/** 解析 ProviderPage 收藏模式快照：结构不对返回 null；仅新增的 filterVendor 允许缺失。 */
+/** 解析 ProviderPage 收藏模式快照：结构不对返回 null；仅后加的 filterVendor /
+ *  filterModel 允许缺失。 */
 function parseProviderPageSnapshot(raw: string | null): ProviderPageSnapshot | null {
   if (!raw) return null;
   let parsed: unknown;
@@ -62,6 +68,7 @@ function parseProviderPageSnapshot(raw: string | null): ProviderPageSnapshot | n
     filterService,
     filterChannel,
     filterVendor: asStringArray(candidate.filterVendor) ?? [],
+    filterModel: asStringArray(candidate.filterModel) ?? [],
   };
 }
 
@@ -105,6 +112,7 @@ export default function ProviderPage() {
   const [filterService, setFilterService] = useState<string[]>([]);
   const [filterChannel, setFilterChannel] = useState<string[]>([]);
   const [filterVendor, setFilterVendor] = useState<string[]>([]);
+  const [filterModel, setFilterModel] = useState<string[]>([]);
   // filterCategory 在 Provider 页面固定为空数组（全部），不需要状态
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -166,9 +174,7 @@ export default function ProviderPage() {
     filterChannel,
     filterCategory: [], // Provider页面不筛选分类，空数组表示全部
     filterVendor,
-    // 模型筛选尚未接入服务商页（本页的筛选链路与首页各自独立维护，见本文件顶部注释）。
-    // 恒空 = 不参与过滤，本页行为与接入前完全一致。
-    filterModel: [],
+    filterModel,
     sortConfig,
     isInitialSort: false, // Provider页面禁用置顶
     // 冷板数据不更新，禁用自动刷新以节省资源
@@ -245,6 +251,7 @@ export default function ProviderPage() {
     filterService.length > 0,
     filterChannel.length > 0,
     filterVendor.length > 0,
+    filterModel.length > 0,
   ].filter(Boolean).length;
 
   // 基础数据：应用收藏筛选后的数据（如适用）
@@ -275,8 +282,13 @@ export default function ProviderPage() {
       // 未声明厂商的通道在厂商筛选生效时排除（与 useMonitorData 口径一致）
       filtered = filtered.filter(item => !!item.modelVendor && filterVendor.includes(item.modelVendor));
     }
+    if (filterModel.length > 0) {
+      // 模型是 any 语义：任一 layer 命中即保留整条通道（口径同首页）
+      const modelSet = new Set(filterModel);
+      filtered = filtered.filter(item => matchesModelKeys(item.modelEntries, modelSet));
+    }
     return filtered;
-  }, [baseData, filterService, filterChannel, filterVendor]);
+  }, [baseData, filterService, filterChannel, filterVendor, filterModel]);
 
   // 动态 Service 选项：基于 channel 筛选后的数据
   const effectiveServices = useMemo(() => {
@@ -287,10 +299,14 @@ export default function ProviderPage() {
     if (filterVendor.length > 0) {
       filtered = filtered.filter(item => !!item.modelVendor && filterVendor.includes(item.modelVendor));
     }
+    if (filterModel.length > 0) {
+      const modelSet = new Set(filterModel);
+      filtered = filtered.filter(item => matchesModelKeys(item.modelEntries, modelSet));
+    }
     const set = new Set<string>();
     filtered.forEach(item => set.add(item.serviceType.toLowerCase()));
     return Array.from(set).sort();
-  }, [optionsBaseData, filterChannel, filterVendor]);
+  }, [optionsBaseData, filterChannel, filterVendor, filterModel]);
 
   // 动态 Channel 选项：基于 service 筛选后的数据
   const effectiveChannels = useMemo<ChannelOption[]>(() => {
@@ -300,6 +316,10 @@ export default function ProviderPage() {
     }
     if (filterVendor.length > 0) {
       filtered = filtered.filter(item => !!item.modelVendor && filterVendor.includes(item.modelVendor));
+    }
+    if (filterModel.length > 0) {
+      const modelSet = new Set(filterModel);
+      filtered = filtered.filter(item => matchesModelKeys(item.modelEntries, modelSet));
     }
     // 收集 channel -> channelName 映射
     const map = new Map<string, string>();
@@ -312,7 +332,7 @@ export default function ProviderPage() {
     return Array.from(map.entries())
       .sort((a, b) => a[1].localeCompare(b[1], 'zh-CN'))
       .map(([value, label]) => ({ value, label }));
-  }, [optionsBaseData, filterService, filterVendor]);
+  }, [optionsBaseData, filterService, filterVendor, filterModel]);
 
   // 动态厂商选项：基于 service/channel 筛选后的数据（不含 vendor 自身），label 本地化后排序
   const effectiveVendors = useMemo<MultiSelectOption[]>(() => {
@@ -323,6 +343,10 @@ export default function ProviderPage() {
     if (filterChannel.length > 0) {
       filtered = filtered.filter(item => item.channel && filterChannel.includes(item.channel));
     }
+    if (filterModel.length > 0) {
+      const modelSet = new Set(filterModel);
+      filtered = filtered.filter(item => matchesModelKeys(item.modelEntries, modelSet));
+    }
     const set = new Set<string>();
     filtered.forEach(item => { if (item.modelVendor) set.add(item.modelVendor); });
     // 已选项即使被其他筛选筛没了也保持可见，否则用户取消不掉自己选的条件
@@ -330,7 +354,29 @@ export default function ProviderPage() {
     return Array.from(set)
       .map(value => ({ value, label: vendorLabel(t, value) }))
       .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
-  }, [optionsBaseData, filterService, filterChannel, filterVendor, t]);
+  }, [optionsBaseData, filterService, filterChannel, filterVendor, filterModel, t]);
+
+  // 动态模型选项：基于 service/channel/vendor 筛选后的数据（不含 model 自身）。
+  // 选项构建与首页共用 buildModelOptions——计数口径、已选保留、家族分段连续
+  // 那几条规矩都在那里，本页不再复写一份。
+  const effectiveModels = useMemo<MultiSelectOption[]>(() => {
+    let filtered = optionsBaseData;
+    if (filterService.length > 0) {
+      filtered = filtered.filter(item => filterService.includes(item.serviceType.toLowerCase()));
+    }
+    if (filterChannel.length > 0) {
+      filtered = filtered.filter(item => item.channel && filterChannel.includes(item.channel));
+    }
+    if (filterVendor.length > 0) {
+      filtered = filtered.filter(item => !!item.modelVendor && filterVendor.includes(item.modelVendor));
+    }
+    return buildModelOptions({
+      scoped: filtered,
+      all: optionsBaseData,
+      selected: filterModel,
+      familyLabel: (code) => modelFamilyLabel(t, code),
+    });
+  }, [optionsBaseData, filterService, filterChannel, filterVendor, filterModel, t]);
 
   // 厂商列显隐：基于**本 provider** 的未筛数据。用全站 allData 会让「别家有厂商、
   // 本家没有」的服务商页凭空多出一整列 '-'；用已筛的 data 又会随筛选抖动。
@@ -357,6 +403,7 @@ export default function ProviderPage() {
         filterService,
         filterChannel,
         filterVendor,
+        filterModel,
       };
       try {
         sessionStorage.setItem(getSnapshotKey(normalizedProvider), JSON.stringify(snapshot));
@@ -367,6 +414,7 @@ export default function ProviderPage() {
       setFilterService([]);
       setFilterChannel([]);
       setFilterVendor([]);
+      setFilterModel([]);
       setShowFavoritesOnly(true);
     } else {
       // 恢复快照
@@ -388,15 +436,17 @@ export default function ProviderPage() {
         setFilterService(snapshot.filterService);
         setFilterChannel(snapshot.filterChannel);
         setFilterVendor(snapshot.filterVendor);
+        setFilterModel(snapshot.filterModel);
       } else {
         // 无快照时恢复为默认
         setFilterService([]);
         setFilterChannel([]);
         setFilterVendor([]);
+        setFilterModel([]);
       }
       setShowFavoritesOnly(false);
     }
-  }, [normalizedProvider, filterService, filterChannel, filterVendor, showFavoritesOnly]);
+  }, [normalizedProvider, filterService, filterChannel, filterVendor, filterModel, showFavoritesOnly]);
 
   // 移动端强制使用 table 视图
   const effectiveViewMode = isMobile ? 'table' : viewMode;
@@ -492,12 +542,10 @@ export default function ProviderPage() {
         )}
 
         {/* 控制面板 - 隐藏 provider 和 category 筛选器，只显示当前 provider 的通道 */}
-        {/* 模型筛选尚未接入本页：选项恒空 → Controls 内 showModelFilter 为 false，
-            整个筛选器不渲染，本页外观与行为均与接入前一致。 */}
         <Controls
-          filterModel={[]}
-          effectiveModels={[]}
-          onModelChange={() => {}}
+          filterModel={filterModel}
+          effectiveModels={effectiveModels}
+          onModelChange={setFilterModel}
           timeRange={timeRange}
           timeAlign={timeAlign}
           timeFilter={timeFilter}

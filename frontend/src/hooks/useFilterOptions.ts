@@ -3,13 +3,8 @@ import type { TFunction } from 'i18next';
 import { vendorLabel } from '../components/VendorBadge';
 import type { MultiSelectOption } from '../components/MultiSelect';
 import type { ChannelOption, ProcessedMonitorData, ProviderOption } from '../types';
-import { MODEL_FAMILIES, deriveModelFamily, modelFamilyLabel } from '../utils/modelFamily';
-import { collectModelOptions, matchesModelKeys, preferredModelOption } from '../utils/modelFilter';
-import type { ModelFilterOption } from '../utils/modelFilter';
-
-/** 家族 code → 展示顺序。下拉分组按此排布，未知家族垫底。 */
-const FAMILY_RANK = new Map(MODEL_FAMILIES.map((family, index) => [family.code, index]));
-const familyRank = (family: string) => FAMILY_RANK.get(family) ?? MODEL_FAMILIES.length;
+import { modelFamilyLabel } from '../utils/modelFamily';
+import { buildModelOptions, matchesModelKeys } from '../utils/modelFilter';
 
 export interface FilterOptionsParams {
   /** 选项基础数据：基于 rawData（未被筛选器过滤），避免筛选器之间循环收敛。 */
@@ -296,23 +291,6 @@ export function useFilterOptions({
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
     const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
     const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
-    const modelSet = new Set(filterModel);
-
-    // 0. 全量元数据：key → {label, family}。同一 key 由多条 layer 派生出不同
-    //    label/family 时由 preferredModelOption 做确定性裁决，不看遍历顺序。
-    //
-    //    已知边界：收藏模式下 optionsBaseData 只含收藏项（见 useFilteredData），
-    //    此时深链里一个不在收藏集中的已选模型拿不到 metadata，会退回按 key 归族——
-    //    对 Gemini 那类 key 里没有厂商前缀的模型意味着落进「其他」组。这与既有
-    //    provider/channel 选项在收藏模式下同样只从收藏集补 label 是一致的行为
-    //    （provider 甚至是直接不显示该已选项），且只影响分组归属、不影响筛选结果。
-    const metadata = new Map<string, ModelFilterOption>();
-    optionsBaseData.forEach(item => {
-      collectModelOptions(item.modelEntries).forEach(option => {
-        const existing = metadata.get(option.key);
-        metadata.set(option.key, existing ? preferredModelOption(option, existing) : option);
-      });
-    });
 
     // 1. 应用其他筛选条件（不包括 model 自身）
     const filtered = optionsBaseData.filter(item => {
@@ -324,38 +302,14 @@ export function useFilterOptions({
       return true;
     });
 
-    // 2. 收集当前可用的 model（计数口径 = 通道数，collectModelOptions 已在通道内去重）
-    const availableMap = new Map<string, number>();
-    filtered.forEach(item => {
-      collectModelOptions(item.modelEntries).forEach(option => {
-        availableMap.set(option.key, (availableMap.get(option.key) || 0) + 1);
-      });
+    // 2. 选项构建与服务商页共用 buildModelOptions（计数口径、已选保留、家族分段
+    //    连续等规矩都在那里，别在这里重写一份）
+    return buildModelOptions({
+      scoped: filtered,
+      all: optionsBaseData,
+      selected: filterModel,
+      familyLabel: (code) => modelFamilyLabel(t, code),
     });
-
-    // 3. 确保已选的 model 始终可见
-    filterModel.forEach(key => {
-      if (!availableMap.has(key)) availableMap.set(key, 0);
-    });
-
-    // 4. 转换为选项数组：先按家族顺序、组内按 label。**同家族必须连续**——
-    //    MultiSelect 按选项数组里的首次出现顺序聚合分组，打散了会分裂成多个同名组。
-    return Array.from(availableMap.entries())
-      .map(([key, count]) => {
-        // 全量映射里都没有的 key（例如用户手改 URL）只能就 key 本身尽力归族。
-        const meta = metadata.get(key) ?? { key, label: key, family: deriveModelFamily('', key) };
-        return { ...meta, count };
-      })
-      .sort((a, b) => {
-        const byFamily = familyRank(a.family) - familyRank(b.family);
-        if (byFamily !== 0) return byFamily;
-        return a.label.localeCompare(b.label, 'zh-CN');
-      })
-      .map(({ key, label, family, count }) => ({
-        value: key,
-        label: count === 0 && modelSet.has(key) ? `${label} (0)` : label,
-        groupKey: family,
-        groupLabel: modelFamilyLabel(t, family),
-      }));
   }, [optionsBaseData, filterProvider, filterService, filterChannel, effectiveFilterCategory, filterVendor, filterModel, t]);
 
   return {
