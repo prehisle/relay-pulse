@@ -1,0 +1,39 @@
+{
+	"self_serve_label": "Claude Fable 5.1",
+	"_comment": "Claude Fable 5.1 ping 探针（2026-09-02 成型，已对 api.saiai.top 活体验证为绿）。**body 不是一次独立抓包**，而是 cc-fable-ping-20260806 那次真抓包（claude-cli 2.1.220，mitmproxy 拦 api.anthropic.com 官方端点）的字节，加两处派生改动：① 模型串换成 claude-fable-5-1；② billing header 按 2.1.251 档整体重算成 cc_version=2.1.251.76b / cch=14254，UA 同步抬到 2.1.251。文件名用成型日而非 20260806，就是为了不让人误以为这是一次 2.1.220 的纯抓包。**为什么必须抬版本**：上游对 fable-5.1 设了客户端版本闸——2.1.220 的形态被 400 拒，报文逐字为「Claude Code 2.1.220 does not support this model; version 2.1.251 or newer is required」；同一次验证里 claude-fable-5 与 claude-opus-5 两个 2.1.220 模板都是绿，故这是模型级版本要求、不是 key/网关问题。**为什么 UA 与 body 必须一起抬**：只抬 UA、body 留 2.1.220 的变体被 saiai 反篡改门 400 拒（「Please use the official Claude Code client…」），实证网关交叉校验 UA 与 body 内 cc_version，两者必须同版本。**重算依据**：cc_version 后缀由 prompt 文本+版本号算、cch 由整个 body 算，工具是 saiai backend 的 cmd/claudebilling（算法在 internal/pkg/claudebilling，2.1.172+ 走 CCHInputModeFilteredBodyV2 同一档）。校准过：同一个 body 按 -version 2.1.220 重算能逐字复现母模板冻结的 2.1.220.04c / 078e5，并顺带证实 cch 输入确实排除 model 值（5.1 与 5 的 body 在同版本档下 cch 同值）。**改 body 任一字节都必须连 cc_version 后缀与 cch 一起重算，且 UA 跟着改**，否则严格网关直接拒。抓包相对原始形态的四处有意改动继承自母模板，每一处都不可随手回退：① 删 <system-reminder> 日期块（含冻结日期，留着会永久漂移）；② **fable 族例外：thinking 保持 adaptive** —— fable-5 实测不接受 thinking.type.disabled（官方规格即 always-on adaptive），只能把 max_tokens 放大到 1024 让思考完还有余量吐 pong；5.1 沿用该形态并已验证为绿，故未去试 disabled——真要改 thinking 就是改 body、必须重算 cch；③ max_tokens 1024（同上，adaptive 下的思考预算），代价是必然产生思考 output token，比 opus/sonnet 探针贵；④ **删掉抓包里的 fallbacks:[{model:claude-opus-4-8}]** —— 那是服务端回退，留着会在目标模型不可用时自动改服 opus、让探针照样变绿，直接废掉本站要监测的命题。metadata 三项是合成常量（device_id 为固定串的 sha256、account_uuid 空、session_id 固定 UUID）：既不把抓包机器的真实身份烤进公开仓库，也因为 cch 是整包 attestation、body 内不能放逐通道占位符。顶层 model 取 \"Fable 5.1\"（不是 \"Fable\"）：model 是 DB 业务键 (provider,service,channel,model)，与仍在生产跑的 cc-fable-ping-20260806（model=\"Fable\"）刻意区分，两代各自一条独立序列、同通道同挂也不撞键。**已知近似**：没有真的 2.1.251 抓包，故 X-Stainless-* 与 anthropic-beta 仍是 2.1.220 客户端的取值，只有 UA 与 billing header 抬到了 2.1.251。saiai 收；若将来撞上校验更细的网关，需要用 2.1.251+ 的 CLI 重抓一次。",
+	"model": "Fable 5.1",
+	"request_model": "claude-fable-5-1",
+	"model_vendor": "anthropic",
+	"url": "{{BASE_URL}}/v1/messages?beta=true",
+	"method": "POST",
+	"headers": {
+		"Accept": "application/json",
+		"Accept-Encoding": "gzip, deflate, br, zstd",
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"User-Agent": "claude-cli/2.1.251 (external, sdk-cli)",
+		"X-Claude-Code-Session-Id": "3f7a1c58-9d24-4b6e-8a03-5c19e7d2f486",
+		"x-client-request-id": "{{RAND_UUID2}}",
+		"X-Stainless-Arch": "x64",
+		"X-Stainless-Lang": "js",
+		"X-Stainless-OS": "Linux",
+		"X-Stainless-Package-Version": "0.94.0",
+		"X-Stainless-Retry-Count": "0",
+		"X-Stainless-Runtime": "node",
+		"X-Stainless-Runtime-Version": "v26.3.0",
+		"X-Stainless-Timeout": "600",
+		"anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,effort-2025-11-24,server-side-fallback-2026-06-01,fallback-credit-2026-06-01,afk-mode-2026-01-31,extended-cache-ttl-2025-04-11",
+		"anthropic-dangerous-direct-browser-access": "true",
+		"anthropic-version": "2023-06-01",
+		"x-app": "cli"
+	},
+	"body": {"model":"claude-fable-5-1","messages":[{"role":"user","content":[{"type":"text","text":"ping","cache_control":{"type":"ephemeral","ttl":"1h"}}]}],"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.251.76b; cc_entrypoint=sdk-cli; cch=14254;"},{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK.","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"Only reply pong.","cache_control":{"type":"ephemeral","ttl":"1h"}}],"tools":[],"metadata":{"user_id":"{\"device_id\":\"73afe81a689ab2d103b251c6ae40fa53be4e3c786d88dbd71bbc241d64ae678a\",\"account_uuid\":\"\",\"session_id\":\"3f7a1c58-9d24-4b6e-8a03-5c19e7d2f486\"}"},"max_tokens":1024,"thinking":{"type":"adaptive","display":"omitted"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"output_config":{"effort":"low"},"stream":true},
+	"response": {
+		"success_contains": "pong"
+	},
+	"probe": {
+		"slow_latency": "8s",
+		"timeout": "15s",
+		"retry": 0
+	}
+}
