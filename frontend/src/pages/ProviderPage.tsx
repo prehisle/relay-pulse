@@ -536,7 +536,7 @@ export default function ProviderPage() {
           </div>
         )}
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4 py-4 sm:py-6 sm:px-6 lg:px-8">
+        <div className="relative z-10 max-w-[1536px] mx-auto px-4 py-4 sm:py-6 sm:px-6 lg:px-8">
         {/* 完整模式：显示 Header */}
         {!isEmbedMode && (
           <Header

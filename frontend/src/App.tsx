@@ -279,7 +279,7 @@ function App() {
 
         <div className={isScreenshotMode
           ? "relative z-10 w-[1200px] mx-auto px-4 py-4"
-          : "relative z-10 max-w-7xl mx-auto px-4 py-4 sm:py-6 sm:px-6 lg:px-8"
+          : "relative z-10 max-w-[1536px] mx-auto px-4 py-4 sm:py-6 sm:px-6 lg:px-8"
         }>
           {/* 头部 - 截图模式下隐藏 */}
           {!isScreenshotMode && (
