@@ -200,7 +200,7 @@ HTTP 响应
 - `max_concurrency` 的 `-1` = 无限，不是禁用。
 - `degraded_weight`（默认 0.7）是黄色状态计入可用率的权重，不是阈值。
 - `cache_ttl` 按 period 分档：90m/24h=10s，7d/30d=60s。
-- `hide_price_column` / `hide_category_filter` 是**运行时**开关，改 yaml 热更新即生效、经 `/api/status` meta 下发前端。**`hide_category_filter` 只隐藏筛选入口**：`category` 字段照常下发，URL 里残留的 `?category=` 视为未选中（参数保留不删，关掉开关即恢复原选择）。
+- `hide_price_column` / `hide_category_filter` / `hide_vendor_filter` 是**运行时**开关，改 yaml 热更新即生效、经 `/api/status` meta 下发前端。**后两个只隐藏筛选入口**：`category`/`model_vendor` 字段照常下发（`hide_vendor_filter` 下**厂商列也照常渲染**——列是观察维度、筛选器是操作轴，刻意解耦），URL 里残留的 `?category=`/`?vendor=` 视为未选中（参数保留不删，关掉开关即恢复原选择）。三者都走 `useMonitorData` 内的 **effective 派生**而非 effect 抹 URL——后者已被证伪（`setSearchParams` 的 prev 是上一次渲染的，会被紧随其后的 sort 清理覆盖回去）。
 - Onboarding 的 `enabled` **改了要重启容器**（不是热更新）；启用 onboarding 时允许**零 monitors 启动**。
 - `storage.archive.keep_days` 的 `0` = 永久保留，不是「不保留」。
 
@@ -243,7 +243,7 @@ HTTP 响应
 - **收录来源**：`ChannelSourceCatalog` 的 `cc`/`cx` 各有一条 `nat`「厂商官方 API（自有模型）」（`Category=official` → 自动落 `O`）。`gm` 不加，Gemini 的 `api`（AI Studio）本身就是第一方入口。
 - **「一个通道一个厂商」不变量**：同一 PSC 三元组下**均非空**的 vendor 必须一致。只比非空值是刻意的——回填期必然出现同通道半填状态。聚合平台请按厂商拆成不同通道（复用 `channel_group`）。
 - **禁止从 `request_model` 前缀反推 vendor**（无论 relay-pulse 还是 rpdiag）：模型 ID 命名不稳、中转商可改写、同模型多别名，必然产生 join 漂移。vendor 是**声明**的，不是猜的。
-- **前端（Phase 2 已落）**：「模型厂商」列位于「模型」列右侧，可排序（sort key `modelVendor`，按 **code** 字典序、未声明厂商恒沉底）、可筛选（URL 参数 `vendor`）。三个渲染出口（桌面表 / 移动卡片 / grid `StatusCard`）共用同一个 `showVendorColumn` 开关——`StatusCard` 那个 prop **刻意是必填**：它原本可选带 `false` 默认值，两个 grid 调用点都漏传，卡片视图便永远不显示厂商（Phase 3 修复），现在漏传直接编译不过。
+- **前端（Phase 2 已落）**：「模型厂商」列位于「模型」列右侧，可排序（sort key `modelVendor`，按 **code** 字典序、未声明厂商恒沉底）、可筛选（URL 参数 `vendor`，**受 `hide_vendor_filter` 运行时开关门控**）。三个渲染出口（桌面表 / 移动卡片 / grid `StatusCard`）共用同一个 `showVendorColumn` 开关——`StatusCard` 那个 prop **刻意是必填**：它原本可选带 `false` 默认值，两个 grid 调用点都漏传，卡片视图便永远不显示厂商（Phase 3 修复），现在漏传直接编译不过。
   - **列显隐是数据驱动的，且基于「未筛选」数据判定**（App 用 `rawData`、ProviderPage 用按本 provider 过滤的 `rawData`）：全站没有任何通道声明厂商时（回填前的现状）整列 + 筛选器 + 服务列 ⓘ 全部不渲染，对用户零变化；用已筛数据算会让「筛一下列就冒出来/消失」。
   - **通道级厂商由 `deriveChannelVendor` 从各 layer 推导，规则严于后端校验**：后端只要求同通道**非空**值一致（回填期半填合法），前端要求**所有** layer 非空且同值，否则视为未知显示 `-`。半填状态显示成某厂商 = 用一半证据给出十成确定性，而厂商列的全部价值就是「别把 GLM 当成 Claude」。
   - 厂商展示名 `vendors.<code>` 四语言在前端，**词表本身仍只有后端一份**；未收录的 code 原样显示 code、不出图标，绝不猜名字。
@@ -252,6 +252,13 @@ HTTP 响应
 - **第一家第一方厂商已接（2026-08-05，v2.73.0）**：火山方舟 `ark`，5 厂商 × cc/cx 共 10 条通道，`channel_type=O` + `channel_source=nat` + `key_type=user`，**board=secondary 观察期**。故生产厂商值现有 8 种（原厂三家 + bytedance/zhipu/moonshot/minimax/deepseek）。
   - ⚠️ **收录 native 模板通道必须走 admin API，不能手写 monitors.d**：手写文件缺 `model_id` 会被 fail-closed 闸拒绝整份加载，admin 写路径（`MonitorStore.Create/Update` → `BackfillFileIDs`）才会自动补 `model_id`/`channel_id`。
   - ⚠️ **admin JSON API 传不了 `request_model`**（`ServiceConfig.RequestModel` 标了 `json:"-"`，admin UI 也没这个字段——历史上它一律来自模板，native 族是第一个要求行级填的）。解法是 `model` 直接写完整模型 ID，靠 `{{MODEL}}` 的 `request_model → model` 回退链；副作用正面：`model` 作 DB 业务键更稳、不会因改展示名断历史。若将来要「短展示名 + 长请求 ID」，得先给 `RequestModel` 开 json tag。
+**⚠️ 「模型」筛选器（v2.82+，前端独有，不进 wire）**：按**版本级模型名**筛（`opus-4.8` / `gpt-5.6-terra`），下拉按**家族**分组、组标题一键全选该家族全部版本。四条踩过的坑：
+
+- **命中是 any（通道级）语义，绝不能照搬 vendor 的 all-agree**。`deriveChannelVendor` 要求一个通道所有 layer 同厂商才认，这在 vendor 上零成本（生产 0 个通道跨厂商）；但生产 18 个多 layer 通道**全部是多模型**（saiai 的 `[Opus, Sonnet, Fable 5.1]`、modelflare 的四个 GPT 变体…），要求「所有 layer 同模型」会让它们一条都筛不出来。
+- **过滤必须在 `useFilteredData` 与 `useMonitorData` 两处同时加**（两者是复制关系，注释里写明「逐字一致」）。顶部「正常运行/异常告警」统计走后者，只改前者会让表格 6 行、统计仍显示 66/18。
+- **家族是展示层反推，不越「模型是声明的、不是反推的」那条红线**：模型列渲染的本来就是 `shortenModelName(request_model)` 的派生结果，家族只是同一条既有派生链上再分一桶，不进 wire、不参与可信性判断、归错只影响分组。判定用「前缀 + 段边界」而非穷举模型 ID——后者会让新上的 `claude-opus-5-1` 静默掉进「其他」组且不报错。词表在 `frontend/src/utils/modelFamily.ts`，家族间前缀互不吞并有结构性断言守着。
+- **选项的 label/family 取自未经筛选的全量数据**。已选项被联动条件排除后仍要标 `(0)` 保留，此时它已不在子集里；Gemini 尤其明显——展示名被剥了厂商前缀（`gemini-2.5-flash` → `2.5-flash`），从 canonical key 反推不出家族，只有全量映射知道。选项构建由 `utils/modelFilter.buildModelOptions` 单一提供，首页与服务商页共用（那两页的筛选链路本就是各写一套的平行实现，别落下第三份）。
+
 - **残**：`internal/api/meta.go` 四语言 SSR 首页描述**仍未提**第一方厂商（原因是此前一条都没有，现已具备条件、属独立文案决策）；这批通道**未接 rpdiag 质量盲评**（落地顺序第 3 步，成本在给每 vendor 定档位阶梯 + 攒基线）。
 
 **模板占位符**: URL/headers/body 中的占位符在探测时由 `internal/monitor/probe.go` 的 `InjectVariables` 统一替换。支持：`{{BASE_URL}}`、`{{API_KEY}}`、`{{MODEL}}`（=`request_model`，为空回退 `model`）、`{{REQUEST_MODEL}}`、`{{USER_ID}}`、`{{USER_ID_HASH}}`、`{{USER_ACCOUNT_UUID}}`、`{{RAND_UUID}}`、`{{RAND_UUID2}}`、`{{PROMPT}}`、`{{EXPECTED_ANSWER}}`、`{{ARITH_A}}`、`{{ARITH_B}}`（同一次注入中两个 `{{RAND_UUID}}` 取同一值）。注意：`body` 按模板文件中的**原始字节**发送（仅 `TrimSpace`，不 re-marshal/不 compact），占位符按字符串替换；需与抓包字节一致时 body 要写成压缩单行、且不放占位符。
