@@ -1,10 +1,10 @@
 import { shortenModelName } from './modelName';
 import { MODEL_FAMILIES, MODEL_FAMILY_OTHER, deriveModelFamily } from './modelFamily';
 
-/** 家族在声明表里的位置；未知家族排在最后。 */
+/** 家族在声明表里的位置；未知家族排在最后。排序比较器里高频调用，故建表查而非线性扫。 */
+const FAMILY_RANK = new Map(MODEL_FAMILIES.map((entry, index) => [entry.code, index]));
 function familyRank(family: string): number {
-  const index = MODEL_FAMILIES.findIndex((entry) => entry.code === family);
-  return index === -1 ? MODEL_FAMILIES.length : index;
+  return FAMILY_RANK.get(family) ?? MODEL_FAMILIES.length;
 }
 
 /** 与 ProcessedMonitorData.modelEntries 兼容的最小形状。 */

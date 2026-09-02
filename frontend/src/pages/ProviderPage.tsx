@@ -232,9 +232,12 @@ export default function ProviderPage() {
     cleanupMissingFavorites(allMonitorIds);
   }, [loading, error, allMonitorIds, allMonitorIdsSupported, favorites.size, cleanupMissingFavorites]);
 
-  // 构建 slug -> providerId 映射
+  // 构建 slug -> providerId 映射。
+  // ⚠️ 必须用 rawData（未过筛选器）而不是 allData：筛选条件把本页数据筛空时，
+  // 映射会是空的，realProviderId 便回落成 slug 字符串，后面按 providerId 过滤
+  // 就再也匹配不上——清掉筛选也回不来。
   const slugToProviderId = new Map<string, string>();
-  allData.forEach((item) => {
+  rawData.forEach((item) => {
     slugToProviderId.set(item.providerSlug, item.providerId);
   });
 
@@ -453,7 +456,12 @@ export default function ProviderPage() {
 
   // 软 404 处理：只在 provider slug 真正不存在时返回 404
   // 避免网络错误或筛选条件导致的空数据被误判为 404
-  const providerExists = allData.some((item) => item.providerSlug === normalizedProvider);
+  //
+  // ⚠️ 判据必须是 rawData（未过筛选器）。用 allData（= useMonitorData 已应用全部
+  // 筛选器的结果）会让「筛选筛空」被当成「服务商不存在」：实测 /p/aimz 选中只有
+  // 主板才有的 gpt-5.5 后切到冷板，页面直接弹 404——而该服务商在冷板明明有通道。
+  // 筛选器状态跨 board 保留，所以这条路径很容易走到。
+  const providerExists = rawData.some((item) => item.providerSlug === normalizedProvider);
 
   if (!loading && !error && !providerExists) {
     return <ProviderNotFound providerSlug={provider || ''} isEmbedMode={isEmbedMode} />;
