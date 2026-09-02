@@ -9,8 +9,8 @@ export interface MultiSelectOption {
    * 可选分组键。带该字段的选项会聚合到同一分组下，**分组顺序由选项在数组中的
    * 首次出现顺序决定**——调用方按业务顺序排好数组即可，组件不重排。
    *
-   * 不传 = 扁平模式，渲染与交互与分组特性引入前逐字一致（provider/service/
-   * channel/vendor 四个既有筛选器都走这条路径）。
+   * 不传 = 扁平模式，渲染与交互与分组特性引入前逐字一致（category/provider/
+   * service/channel/vendor 五个筛选器都走这条路径，只有「模型」用分组）。
    */
   groupKey?: string;
   /** 分组标题展示名。缺省时回退用 groupKey 本身，避免标题空着。 */
@@ -114,7 +114,7 @@ export function MultiSelect({
     return ordered;
   }, [filteredOptions]);
 
-  /** 没有任何选项声明 groupKey 时走扁平模式（既有四个筛选器均如此）。 */
+  /** 没有任何选项声明 groupKey 时走扁平模式（除「模型」外的五个筛选器均如此）。 */
   const isGrouped = groups.length > 0;
 
   /** 分组模式下仍可能有未归组的散项，它们排在所有分组之后。 */

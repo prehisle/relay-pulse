@@ -187,7 +187,7 @@ function App() {
     stats,
   });
 
-  // 五个筛选器的动态选项（联动筛选 + 保留已选项，逐项口径见 hook 内注释）
+  // 六个筛选器的动态选项（联动筛选 + 保留已选项，逐项口径见 hook 内注释）
   const {
     effectiveProviders,
     effectiveServices,
