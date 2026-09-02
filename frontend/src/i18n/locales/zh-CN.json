@@ -917,5 +917,19 @@
     "minimax": "MiniMax",
     "deepseek": "DeepSeek",
     "qwen": "通义千问"
+  },
+  "modelFamilies": {
+    "opus": "Opus",
+    "sonnet": "Sonnet",
+    "haiku": "Haiku",
+    "fable": "Fable",
+    "gpt": "GPT",
+    "gemini": "Gemini",
+    "deepseek": "DeepSeek",
+    "doubao": "豆包",
+    "glm": "GLM",
+    "kimi": "Kimi",
+    "minimax": "MiniMax",
+    "other": "其他"
   }
 }

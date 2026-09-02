@@ -917,5 +917,19 @@
     "minimax": "MiniMax",
     "deepseek": "DeepSeek",
     "qwen": "Qwen"
+  },
+  "modelFamilies": {
+    "opus": "Opus",
+    "sonnet": "Sonnet",
+    "haiku": "Haiku",
+    "fable": "Fable",
+    "gpt": "GPT",
+    "gemini": "Gemini",
+    "deepseek": "DeepSeek",
+    "doubao": "Doubao",
+    "glm": "GLM",
+    "kimi": "Kimi",
+    "minimax": "MiniMax",
+    "other": "Other"
   }
 }
