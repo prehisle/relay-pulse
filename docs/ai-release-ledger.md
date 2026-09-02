@@ -6,7 +6,25 @@
 
 ## 检查点（最新在最上）
 
-- **最后同步**: 2026-09-02（HEAD=`597fd64`，已发版 **v2.84.0** + **已部署生产**[prod git_commit=597fd64、go1.27.1、health/ready=200、`配置加载完成 monitors=305`、`调度器已启动 monitors=305`、启动日志无 panic/error；回滚锚点 `rollback-20260902-width1536-pre`=部署前 37d2fe9/v2.83.0；**无 schema、无迁移**（纯前端一个 class + 一个 indirect 依赖版本号），故未新做 DB 备份]）。本轮两件事：**页面容器上限 1280→1536**（`e6c3e6a`）+ **go-jose 升 v3.0.5 关掉外部扫描器报的 CVE**（`af424f3`），另合入三个 dependabot 补丁级 PR（`4205599` brotli 1.2.2→1.2.3 / `5b7a444` 前端 5 个 devDep 小版本 / `597fd64` jsdom 29→30）。
+- **最后同步**: 2026-09-02（HEAD=`4bf84d4`，已发版 **v2.84.1** + **已部署生产**[prod git_commit=4bf84d4、go1.27.1、health/ready=200、`配置加载完成 monitors=305`、启动日志无 panic/error；回滚锚点 `rollback-20260902-scheduler-pre`=部署前 597fd64/v2.84.0；**无 schema、无迁移**（只动 internal/scheduler 一个文件），故未新做 DB 备份]）。本轮**修调度器两件事**，1 commit（`4bf84d4`）：热更新不再重排未变更通道 + 修 dispatchDue 堆外窗口的任务重复。
+
+  **起因是站长问「2 分钟检测一次的通道为什么只有 18 个热力块」。** 先纠正两个前提：现网最短是 **2m30s（150000ms）不是 2 分钟**（只有 4 条：LinkAPI cc、SSSAiCode claude2/cx、YunDou o-plus）；而且**块数不是固定格子数**——`determineBucketStrategy` 对 `90m` 返回 `count=0`，走 `buildRawTimeline`，窗口里有几条真实探测记录就画几个块，不补齐不截断（24h/7d/30d 才是固定 24/7/30 格）。所以「只有 18 块」= 这 90 分钟里真的只探测了 18 次。
+
+  **根因定位靠时间戳与 mtime 对表**：LinkAPI/cc/Opus 的相邻间隔要么严格 2.50 分钟，要么突然跳到 7~12 分钟，而**每一个大间隔都精确对应一次配置热更新**（21:30 我传 config.yaml、21:37–21:42 站长在后台连改 10 个 monitors.d 文件、22:04/22:08 又两次、22:25 容器重建）。机理：`rebuildTasks` 热更新时把整个任务堆推倒重建，所有组的下次探测重新按组间错峰排队，而生产日志一直在报 `热更新模式组间错峰总展开超过最小巡检周期 group_count=95 group_base_delay=6.667s total_spread=10m33s interval=2m30s`——**展开是最短周期的 4.2 倍**，排在后面的组每次热更新被推迟最多 10 分半。基距被顶高的原因是现网有两个 4 模型通道（modelflare o-pro-us、saiai O-web），组内展开 6s → `requiredBaseDelay=6/0.9≈6.67s`，压过了 `idealBaseDelay=150s/95≈1.58s`。**这是老问题复发**：`ca9077f` 当年改的正是这里，但它只改了「理想基距」的算法，没能防住 `requiredBaseDelay` 反超。
+
+  **四条代码读不出来的设计决策**：① **保留粒度是「组」不是「单个任务」**（codex 提出、采纳）——组内模型按固定 2s 排布，多模型热力图靠时间戳对齐渲染，只重排组内一个成员会让那一行错位出空洞。② **身份键 = `ModelID` 非空时用它、为空回退 PSCM 四元组**——`config.validateModelIDs` 明确允许空 `ModelID`（`validate.go:594`「回填前的既有行」），只有 `cmd/server` 的两处 `CheckRuntimeModelIDs` 才保证非空，而 `internal/scheduler` 是库、其单测 `mkMonitor` 本来就不填；只用 ModelID 会让所有空值挤进同一个键、整组误判为可继承。③ **重排的组要把首次延迟封顶到自己的 interval**，否则「把 interval 改短」反而要多等一整个错峰展开；**但 startup 路径刻意不封顶**（那时本就该铺开填满周期，封顶会让短周期通道在启动瞬间挤成一堆）。④ **`stagger_probes` 有效状态切换时强制全量重排**，否则关掉开关后旧任务一直留着错峰相位、开关看起来不生效；比的是有效值 `useInterGroupStagger` 而非配置字段（单组时即使配置为 true 实际也是 false）。
+
+  **顺带修的既有竞态**：`dispatchDue` 弹出到期任务后解锁执行探测、再加锁推回（`scheduler.go:616` 解锁 / `:633` 推回），这段窗口内任务不在堆里；若期间发生 `rebuildTasks`（`:388` 清空重建），旧任务再无条件推回就会让**同一通道每周期被探测两次**，直到下次重建才自愈。加调度器代次解决：重建与 `Stop` 时递增（**含空配置、全 disabled/cold 两条提前 return**——codex 抓到的，漏了就等于闸失效），回填前比对代次与 `running`。⚠️ **代次写错的后果不是「多探一次」而是「从此不再探测」**：新建任务若没带当前代次，第一次跑完就被判成旧代丢弃，该通道永久从堆里消失——为此专门加了 `TestDispatchDue_NewTaskIsRequeuedAfterItsFirstRun`。
+
+  **与 codex 的分歧（驳回三条）**：它想为 interval 变化新增 `lastDispatch` 字段（拿新代码标准要求既有代码——今天所有通道每次热更新都是这个行为，不是本次引入的回归）；想顺手修 semaphore 换代导致新旧两代并发叠加、`wg.Add` 在获取信号量之后（既有问题、与本次正交，生产 `max_concurrency=-1` 不会阻塞，**仍未修**）；想用「弹出后先算 nextRun 再推回堆」的占位任务替代代次（它自己也承认会改掉「拿到信号量后才算下次时间」的至少间隔语义）。它 review 后列了 12 处未覆盖路径，只补了 6 条真正守着东西的。
+
+  **测试 15 个用例、11 条 bite-test 全部咬住**。⚠️ **其中两条初版是真空的，全靠 bite-test 才暴露**，形态值得记：① 封顶断言原本放在只有 3 个组的场景里，错峰延迟根本超不过 interval、封顶逻辑从未被触发，去掉封顶代码测试照样绿——重写成复刻生产的 21 组/展开 2m13s vs interval 30s 后，不封顶时延迟到 1m40s 才咬住；② 「startup 不封顶」断言写的是 `delay > interval`，而被封顶的任务延迟恰好是 `interval + 函数内外取 now 的间隔`，那点微秒差让封顶后的任务也算进「未封顶」，改成 `> 2×interval` 才咬住。另外把测试对「组按 `firstCfgIndex` 排序」的隐藏依赖去掉了（那是 `buildMonitorGroupsFiltered` 内部实现，将来改了会让断言静默失效）。
+
+  **prod 实证**：version=4bf84d4、health/ready=200、monitors=305、`启动模式：探测将按组错峰执行 group_count=95 total_spread=11m52.5s`（startup 路径行为不变，符合预期）。**决定性验证 = 一次内容逐字不变的空操作热更新**（先脱敏 diff 确认本地与生产一致再传）：日志出 `任务堆已重建 groups=95 preserved_groups=95 replanned_groups=0 stagger_mode_changed=false`——修复前这一次热更新会把全部 95 个组推迟最多 10 分半。
+
+  **残**：① 本地与 CI **都没跑 `-race`**（本机无 gcc，`ci-release.yml` 的 `go test ./...` 也未开），不过本竞态是锁保护下的逻辑原子性问题、`-race` 本就不一定报；② **部署重启仍会留空洞**——startup 错峰最靠后的组要等约 11m52s 才第一次探测，本次刻意没治（要治得启动时从 DB 读各通道上次探测时间来播种相位，不是一个量级）；③ semaphore 换代与 `wg.Add` 位置两个既有问题未动。
+
+- **上一同步**: 2026-09-02（HEAD=`597fd64`，已发版 **v2.84.0** + **已部署生产**[prod git_commit=597fd64、go1.27.1、health/ready=200、`配置加载完成 monitors=305`、`调度器已启动 monitors=305`、启动日志无 panic/error；回滚锚点 `rollback-20260902-width1536-pre`=部署前 37d2fe9/v2.83.0；**无 schema、无迁移**（纯前端一个 class + 一个 indirect 依赖版本号），故未新做 DB 备份]）。本轮两件事：**页面容器上限 1280→1536**（`e6c3e6a`）+ **go-jose 升 v3.0.5 关掉外部扫描器报的 CVE**（`af424f3`），另合入三个 dependabot 补丁级 PR（`4205599` brotli 1.2.2→1.2.3 / `5b7a444` 前端 5 个 devDep 小版本 / `597fd64` jsdom 29→30）。
 
   **容器放宽的起因**：价格列（`hide_price_column`）重新打开后表格更宽，站长问「是不是也有配置参数能隐藏厂商列，或者整体调宽」。**两个都先实测再下结论**：① **没有隐藏厂商列的开关**，`hide_vendor_filter` 按设计只藏筛选器不藏列（列的显隐是 `App.tsx` 里 `rawData.some(item => !!item.modelVendor)` 的纯数据驱动）；② **厂商列不该藏**——playwright 量出来它只占 **52px**、而 86 行**全部有值**（渲染的是 icon-only 的 SVG 徽章 + title tooltip）。⚠️ **量它的时候差点误判**：用 `innerText` 统计得出「86 行全空」，那是假阴性——纯图标单元格没有文本节点（同 `playwright-cli` 已知坑「伪元素/图标对 textContent 不可见」）。真正被浪费的是容器 `max-w-7xl`=**1280px 硬顶**，1920 屏上右侧 640px 全丢，藏厂商列只能救回 52px，差 12 倍。
 
