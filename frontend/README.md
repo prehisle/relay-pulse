@@ -22,7 +22,7 @@ LLM 服务监测系统的前端界面，使用 React + TypeScript + TailwindCSS 
 - **图标**: lucide-react
 - **HTTP**: Fetch API
 - **国际化**: react-i18next + i18next
-- **路由**: react-router-dom v6
+- **路由**: react-router-dom v7
 - **SEO**: react-helmet-async
 
 ## 项目结构

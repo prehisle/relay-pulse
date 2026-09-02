@@ -6,7 +6,23 @@
 
 ## 检查点（最新在最上）
 
-- **最后同步**: 2026-09-02（HEAD=`4bf84d4`，已发版 **v2.84.1** + **已部署生产**[prod git_commit=4bf84d4、go1.27.1、health/ready=200、`配置加载完成 monitors=305`、启动日志无 panic/error；回滚锚点 `rollback-20260902-scheduler-pre`=部署前 597fd64/v2.84.0；**无 schema、无迁移**（只动 internal/scheduler 一个文件），故未新做 DB 备份]）。本轮**修调度器两件事**，1 commit（`4bf84d4`）：热更新不再重排未变更通道 + 修 dispatchDue 堆外窗口的任务重复。
+- **最后同步**: 2026-09-02（HEAD=`e12c1d4`，已发版 **v2.84.2**，⚠️ **尚未部署生产**——生产仍跑 v2.84.1/`4bf84d4`）。本轮**只清 dependabot 积压的三个前端大版本 PR**，无自有代码改动：合入 `e844e57`（react-helmet-async 2.0.5→3.0.0，#191）与 `e12c1d4`（react-router-dom 6.30.4→7.18.2，#192），关掉 #193（typescript 5.9.3→7.0.2）。
+
+  **#193 关掉的理由是生态卡口不是我方代码**：CI 挂在 `Error: typescript-eslint does not support TS 7.0.`，留着只会周期性红一次。用 `@dependabot ignore this major version` 关闭，等 typescript-eslint 支持后手动升。
+
+  **helmet 3.0.0 的实质变化只有一条**：peerDependencies 加了 `^19.0.0`（2.0.5 只声明到 `^18`，而本仓跑 React 19.2.8，等于一直在 peer 不匹配下装）。npm registry 元数据核过：同一 maintainer（wonderboymusic），runtime deps 一字未变；dependabot 提示的 "modifies prepare script" 只是包内 yarn→pnpm + 换 tsconfig，不是可疑注入。
+
+  **router v7 的风险面被用到的 API 圈死了**：全仓只用 `BrowserRouter`/`MemoryRouter`/`Routes`/`Route`/`Outlet`/`Navigate`/`useNavigate`/`useLocation`/`useSearchParams`/`useParams`，v6→v7 真正 breaking 的 data router / loader / `json()` / `defer` 一个都没碰；engines 从 `>=14` 抬到 `>=20`，CI 与本机都是 Node 24。`router.tsx` 里用 `<>...</>` 包 `<Route>`（靠 `createRoutesFromChildren` 展开 Fragment）这个非常规写法在 v7 下实测照常工作。
+
+  **验证方法值得复用——升级组与对照组跑同一套探针**。按 [[reference_rp_frontend_ui_verify_against_prod]] 起 `DEV_PROXY_TARGET=https://relaypulse.top` 的本地 vite + playwright，走了：四语言路径 / `/apply` 与 `/en/apply` 重定向 / `*` catch-all / `/p/:provider` 命中与未命中 / `?vendor=&category=&model=` 三参筛选（85 行→4 行）/ UI 切语言 + 跨语言前缀导航 + 浏览器后退 / console。**中途发现 `/contact/apply` 与 `/admin` 的 `<title>` 是空的，一度当成 v3 回归**；把两个包降回 6.30.4 + 2.0.5 跑同一套探针，**每条观察逐字复现**（含空 title、以及 SPA 导航离开首页后 `<html lang>` 被清空），才确认是既有行为。没有这组对照就会误判并回滚一个好升级。
+
+  **两个既有问题（本次未修，非本轮引入）**：① `<title>{t('...')} | RelayPulse</title>` 这种**多子节点写法 react-helmet-async 不支持**，渲染成空 title，命中 `OnboardingPage`/`AdminPage` 两处；两页都是 `noindex` 故 SEO 无损，但浏览器标签页空白，改成模板字符串即可。② `<html lang>` 只有 `App.tsx` 经 Helmet 设置，SPA 导航离开首页后被 Helmet 清空，子页面 lang 变空串。
+
+  **合并后 lockfile 是 GitHub 三方自动合并的产物，专门验过有效性**：`reference_dependabot_split_major_peer_invalid_lock` 警告过「`npm ci` 不重解 peer，故 peer 非法的 lock 也能一路绿」，所以除 `npm ci` 外补跑 `npm install --package-lock-only`（**重解 peer**）确认 lock 是不动点、`npm ls --all` 全树 0 个 invalid peer。本次两包互不为 peer，那条失效模式不适用，但结论是实测的不是推断的。最终闸：build ✅ / lint 0 error ✅ / vitest 460 passed ✅。
+
+  **残**：dependabot 钉的是 7.18.2，上游已 7.18.3，下一轮它还会再提一个 PR。
+
+- **上一同步**: 2026-09-02（HEAD=`4bf84d4`，已发版 **v2.84.1** + **已部署生产**[prod git_commit=4bf84d4、go1.27.1、health/ready=200、`配置加载完成 monitors=305`、启动日志无 panic/error；回滚锚点 `rollback-20260902-scheduler-pre`=部署前 597fd64/v2.84.0；**无 schema、无迁移**（只动 internal/scheduler 一个文件），故未新做 DB 备份]）。本轮**修调度器两件事**，1 commit（`4bf84d4`）：热更新不再重排未变更通道 + 修 dispatchDue 堆外窗口的任务重复。
 
   **起因是站长问「2 分钟检测一次的通道为什么只有 18 个热力块」。** 先纠正两个前提：现网最短是 **2m30s（150000ms）不是 2 分钟**（只有 4 条：LinkAPI cc、SSSAiCode claude2/cx、YunDou o-plus）；而且**块数不是固定格子数**——`determineBucketStrategy` 对 `90m` 返回 `count=0`，走 `buildRawTimeline`，窗口里有几条真实探测记录就画几个块，不补齐不截断（24h/7d/30d 才是固定 24/7/30 格）。所以「只有 18 块」= 这 90 分钟里真的只探测了 18 次。
 
