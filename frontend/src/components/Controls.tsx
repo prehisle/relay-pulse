@@ -41,6 +41,7 @@ interface ControlsProps {
    *  空数组 = 当前数据里一个模型都没有 → 整个筛选器不渲染。 */
   effectiveModels: MultiSelectOption[];
   showCategoryFilter?: boolean; // 是否显示分类筛选器，默认 true（用于服务商专属页面）
+  showVendorFilter?: boolean;   // 是否显示厂商筛选器，默认 true（runtime 开关 hide_vendor_filter 的反面）
   refreshCooldown?: boolean; // 刷新冷却中，显示提示
   autoRefresh?: boolean; // 自动刷新开关
   isMobile?: boolean; // 是否为移动端，用于隐藏视图切换按钮
@@ -88,6 +89,7 @@ export function Controls({
   effectiveVendors,
   effectiveModels,
   showCategoryFilter = true,
+  showVendorFilter = true,
   refreshCooldown = false,
   autoRefresh = true,
   isMobile = false,
@@ -137,8 +139,9 @@ export function Controls({
   // 通道选项（已经是 ChannelOption[] 格式，直接转换为 MultiSelectOption[]）
   const channelOptions = useMemo<MultiSelectOption[]>(() => channels, [channels]);
 
-  // 厂商筛选器：数据里没有任何厂商声明时整个筛选器不渲染（Phase 3 回填前恒不可见）
-  const showVendorFilter = effectiveVendors.length > 0;
+  // 厂商筛选器：runtime 开关关掉、或数据里没有任何厂商声明时都不渲染。
+  // 两个条件缺一不可——开关是运营决定，空数据是「回填前恒不可见」的既有行为。
+  const vendorFilterVisible = showVendorFilter && effectiveVendors.length > 0;
 
   // 模型筛选器：同款数据驱动，本屏一个模型都没有时不渲染空下拉
   const showModelFilter = effectiveModels.length > 0;
@@ -150,7 +153,7 @@ export function Controls({
     providers.length > 0 && filterProvider.length > 0,
     filterService.length > 0,
     filterChannel.length > 0,
-    showVendorFilter && filterVendor.length > 0,
+    vendorFilterVisible && filterVendor.length > 0,
     showModelFilter && filterModel.length > 0,
   ].filter(Boolean).length;
 
@@ -210,7 +213,7 @@ export function Controls({
       )}
 
       {/* 模型厂商筛选器 - 数据里出现过厂商声明才渲染 */}
-      {showVendorFilter && (
+      {vendorFilterVisible && (
         <MultiSelect
           value={filterVendor}
           options={effectiveVendors}
@@ -521,7 +524,7 @@ export function Controls({
                     if (providers.length > 0) onProviderChange([]);
                     onServiceChange([]);
                     onChannelChange([]);
-                    if (showVendorFilter) onVendorChange([]);
+                    if (vendorFilterVisible) onVendorChange([]);
                     if (showModelFilter) onModelChange([]);
                   }}
                   className="w-full py-3 bg-elevated text-secondary rounded-lg hover:bg-muted transition-colors font-medium focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:outline-none"

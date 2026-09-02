@@ -134,6 +134,7 @@ export interface ApiResponse {
     enable_annotations?: boolean;   // 注解系统总开关（默认 true）
     hide_price_column?: boolean;    // 运行时控制：是否隐藏价格列（默认 false / 旧后端缺失）
     hide_category_filter?: boolean; // 运行时控制：是否隐藏分类筛选器（默认 false / 旧后端缺失）
+    hide_vendor_filter?: boolean;   // 运行时控制：是否隐藏厂商筛选器（默认 false / 旧后端缺失）
     rpdiag_enabled?: boolean;       // 质量列/diag 外链入口总开关；私有部署未接 rpdiag 时为 false（旧后端缺失→fail-open 默认显示）
     sponsor_pin?: SponsorPinConfig;  // 赞助商置顶配置
     boards?: BoardsConfig;     // 板块配置

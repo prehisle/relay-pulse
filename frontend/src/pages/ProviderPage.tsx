@@ -164,7 +164,7 @@ export default function ProviderPage() {
 
   // 数据获取 - 先获取全部数据用于构建映射
   // Provider 页面不启用置顶功能（isInitialSort=false）
-  const { data: allData, rawData, loading, error, stats, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, rpdiagEnabled, refetch } = useMonitorData({
+  const { data: allData, rawData, loading, error, stats, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, hideVendorFilter, effectiveFilterVendor, rpdiagEnabled, refetch } = useMonitorData({
     timeRange,
     timeAlign,
     timeFilter,
@@ -250,7 +250,7 @@ export default function ProviderPage() {
     showFavoritesOnly,
     filterService.length > 0,
     filterChannel.length > 0,
-    filterVendor.length > 0,
+    effectiveFilterVendor.length > 0,
     filterModel.length > 0,
   ].filter(Boolean).length;
 
@@ -278,9 +278,9 @@ export default function ProviderPage() {
     if (filterChannel.length > 0) {
       filtered = filtered.filter(item => item.channel && filterChannel.includes(item.channel));
     }
-    if (filterVendor.length > 0) {
+    if (effectiveFilterVendor.length > 0) {
       // 未声明厂商的通道在厂商筛选生效时排除（与 useMonitorData 口径一致）
-      filtered = filtered.filter(item => !!item.modelVendor && filterVendor.includes(item.modelVendor));
+      filtered = filtered.filter(item => !!item.modelVendor && effectiveFilterVendor.includes(item.modelVendor));
     }
     if (filterModel.length > 0) {
       // 模型是 any 语义：任一 layer 命中即保留整条通道（口径同首页）
@@ -288,7 +288,7 @@ export default function ProviderPage() {
       filtered = filtered.filter(item => matchesModelKeys(item.modelEntries, modelSet));
     }
     return filtered;
-  }, [baseData, filterService, filterChannel, filterVendor, filterModel]);
+  }, [baseData, filterService, filterChannel, effectiveFilterVendor, filterModel]);
 
   // 动态 Service 选项：基于 channel 筛选后的数据
   const effectiveServices = useMemo(() => {
@@ -296,8 +296,8 @@ export default function ProviderPage() {
     if (filterChannel.length > 0) {
       filtered = filtered.filter(item => item.channel && filterChannel.includes(item.channel));
     }
-    if (filterVendor.length > 0) {
-      filtered = filtered.filter(item => !!item.modelVendor && filterVendor.includes(item.modelVendor));
+    if (effectiveFilterVendor.length > 0) {
+      filtered = filtered.filter(item => !!item.modelVendor && effectiveFilterVendor.includes(item.modelVendor));
     }
     if (filterModel.length > 0) {
       const modelSet = new Set(filterModel);
@@ -306,7 +306,7 @@ export default function ProviderPage() {
     const set = new Set<string>();
     filtered.forEach(item => set.add(item.serviceType.toLowerCase()));
     return Array.from(set).sort();
-  }, [optionsBaseData, filterChannel, filterVendor, filterModel]);
+  }, [optionsBaseData, filterChannel, effectiveFilterVendor, filterModel]);
 
   // 动态 Channel 选项：基于 service 筛选后的数据
   const effectiveChannels = useMemo<ChannelOption[]>(() => {
@@ -314,8 +314,8 @@ export default function ProviderPage() {
     if (filterService.length > 0) {
       filtered = filtered.filter(item => filterService.includes(item.serviceType.toLowerCase()));
     }
-    if (filterVendor.length > 0) {
-      filtered = filtered.filter(item => !!item.modelVendor && filterVendor.includes(item.modelVendor));
+    if (effectiveFilterVendor.length > 0) {
+      filtered = filtered.filter(item => !!item.modelVendor && effectiveFilterVendor.includes(item.modelVendor));
     }
     if (filterModel.length > 0) {
       const modelSet = new Set(filterModel);
@@ -332,7 +332,7 @@ export default function ProviderPage() {
     return Array.from(map.entries())
       .sort((a, b) => a[1].localeCompare(b[1], 'zh-CN'))
       .map(([value, label]) => ({ value, label }));
-  }, [optionsBaseData, filterService, filterVendor, filterModel]);
+  }, [optionsBaseData, filterService, effectiveFilterVendor, filterModel]);
 
   // 动态厂商选项：基于 service/channel 筛选后的数据（不含 vendor 自身），label 本地化后排序
   const effectiveVendors = useMemo<MultiSelectOption[]>(() => {
@@ -350,11 +350,11 @@ export default function ProviderPage() {
     const set = new Set<string>();
     filtered.forEach(item => { if (item.modelVendor) set.add(item.modelVendor); });
     // 已选项即使被其他筛选筛没了也保持可见，否则用户取消不掉自己选的条件
-    filterVendor.forEach(vendor => set.add(vendor));
+    effectiveFilterVendor.forEach(vendor => set.add(vendor));
     return Array.from(set)
       .map(value => ({ value, label: vendorLabel(t, value) }))
       .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
-  }, [optionsBaseData, filterService, filterChannel, filterVendor, filterModel, t]);
+  }, [optionsBaseData, filterService, filterChannel, effectiveFilterVendor, filterModel, t]);
 
   // 动态模型选项：基于 service/channel/vendor 筛选后的数据（不含 model 自身）。
   // 选项构建与首页共用 buildModelOptions——计数口径、已选保留、家族分段连续
@@ -367,8 +367,8 @@ export default function ProviderPage() {
     if (filterChannel.length > 0) {
       filtered = filtered.filter(item => item.channel && filterChannel.includes(item.channel));
     }
-    if (filterVendor.length > 0) {
-      filtered = filtered.filter(item => !!item.modelVendor && filterVendor.includes(item.modelVendor));
+    if (effectiveFilterVendor.length > 0) {
+      filtered = filtered.filter(item => !!item.modelVendor && effectiveFilterVendor.includes(item.modelVendor));
     }
     return buildModelOptions({
       scoped: filtered,
@@ -376,7 +376,7 @@ export default function ProviderPage() {
       selected: filterModel,
       familyLabel: (code) => modelFamilyLabel(t, code),
     });
-  }, [optionsBaseData, filterService, filterChannel, filterVendor, filterModel, t]);
+  }, [optionsBaseData, filterService, filterChannel, effectiveFilterVendor, filterModel, t]);
 
   // 厂商列显隐：基于**本 provider** 的未筛数据。用全站 allData 会让「别家有厂商、
   // 本家没有」的服务商页凭空多出一整列 '-'；用已筛的 data 又会随筛选抖动。
@@ -543,6 +543,7 @@ export default function ProviderPage() {
 
         {/* 控制面板 - 隐藏 provider 和 category 筛选器，只显示当前 provider 的通道 */}
         <Controls
+          showVendorFilter={!hideVendorFilter}
           filterModel={filterModel}
           effectiveModels={effectiveModels}
           onModelChange={setFilterModel}
@@ -555,7 +556,7 @@ export default function ProviderPage() {
           filterProvider={[]}
           filterChannel={filterChannel}
           filterCategory={[]}
-          filterVendor={filterVendor}
+          filterVendor={effectiveFilterVendor}
           showFavoritesOnly={showFavoritesOnly}
           favorites={favorites}
           favoritesCount={effectiveFavoritesCount}

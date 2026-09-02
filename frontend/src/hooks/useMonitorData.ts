@@ -83,6 +83,7 @@ export function useMonitorData({
   // runtime 分类筛选器隐藏开关。与价格列不同，这里**不设 build-time 兜底常量**：
   // 它只是个展示入口开关，没有"打包时就要定"的场景，缺失即显示（旧后端行为零变化）。
   const [hideCategoryFilter, setHideCategoryFilter] = useState<boolean>(false);
+  const [hideVendorFilter, setHideVendorFilter] = useState<boolean>(false);
   // rpdiag 质量功能总开关。默认 true（fail-open）：滚动发布或旧后端缺 meta.rpdiag_enabled 时
   // 行为零变化；仅当新后端明确返回 false（私有部署未接 rpdiag）才隐藏质量列 + diag 外链入口。
   const [rpdiagEnabled, setRpdiagEnabled] = useState<boolean>(true);
@@ -170,6 +171,7 @@ export function useMonitorData({
 
           // 提取分类筛选器隐藏开关（兼容旧后端：字段缺失即显示）
           setHideCategoryFilter(json.meta.hide_category_filter === true);
+          setHideVendorFilter(json.meta.hide_vendor_filter === true);
 
           // 提取 rpdiag 质量功能总开关（fail-open：仅显式 false 才关，缺失/undefined 视为启用）
           setRpdiagEnabled(json.meta.rpdiag_enabled !== false);
@@ -346,6 +348,15 @@ export function useMonitorData({
     [hideCategoryFilter, filterCategory],
   );
 
+  // 厂商筛选器同款派生。理由与上面那段注释逐条适用（尤其别改回用 effect 抹 URL
+  // 参数——那条路已经被 setSearchParams 的陈旧 prev 覆盖问题证伪过一次）。
+  // 少了这一步，开关打开后 URL 里残留的 ?vendor= 仍在过滤数据，而界面上已经没有
+  // 任何控件能看到或清除它——数据被筛了却无从解释，即「幽灵筛选」。
+  const effectiveFilterVendor = useMemo(
+    () => (hideVendorFilter ? EMPTY_FILTER : filterVendor),
+    [hideVendorFilter, filterVendor],
+  );
+
   // 数据过滤和排序
   const processedData = useMemo(() => {
     // 多选过滤：空数组表示"全部"
@@ -353,7 +364,7 @@ export function useMonitorData({
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
     const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
-    const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
+    const vendorSet = effectiveFilterVendor.length > 0 ? new Set(effectiveFilterVendor) : null;
     const modelSet = filterModel.length > 0 ? new Set(filterModel) : null;
 
     const filtered = rawData.filter((item) => {
@@ -383,7 +394,7 @@ export function useMonitorData({
 
     // 使用带置顶逻辑的排序函数
     return sortMonitorsWithPinning(enriched, sortConfig, sponsorPinConfig, isInitialSort);
-  }, [rawData, filterService, filterProvider, filterChannel, effectiveFilterCategory, filterVendor, filterModel, sortConfig, sponsorPinConfig, isInitialSort, rpdiagScores, rpdiagScoresLoaded, rpdiagEnabled]);
+  }, [rawData, filterService, filterProvider, filterChannel, effectiveFilterCategory, effectiveFilterVendor, filterModel, sortConfig, sponsorPinConfig, isInitialSort, rpdiagScores, rpdiagScoresLoaded, rpdiagEnabled]);
 
   // 统计数据
   const stats = useMemo(() => {
@@ -410,6 +421,8 @@ export function useMonitorData({
     allMonitorIdsSupported, // 后端是否支持 all_monitor_ids（用于区分"空列表"和"不支持"）
     hidePriceColumn, // runtime 价格列隐藏开关（meta.hide_price_column 优先，缺失时回落 build-time）
     hideCategoryFilter, // runtime 分类筛选器隐藏开关（meta.hide_category_filter；缺失即显示）
+    hideVendorFilter, // runtime 厂商筛选器隐藏开关（meta.hide_vendor_filter；缺失即显示）
+    effectiveFilterVendor, // 经开关裁决后的厂商筛选值——调用方一律用它，别再自己判 hideVendorFilter
     effectiveFilterCategory, // 经开关裁决后的分类筛选值——调用方一律用它，别再自己判 hideCategoryFilter
     rpdiagEnabled, // rpdiag 质量功能总开关（meta.rpdiag_enabled；fail-open 默认 true）
     refetch: triggerRefetch,

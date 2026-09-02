@@ -280,6 +280,7 @@ func (c *AppConfig) clone() *AppConfig {
 		AllowPrivateNetworks:    c.AllowPrivateNetworks,
 		HidePriceColumn:         c.HidePriceColumn,
 		HideCategoryFilter:      c.HideCategoryFilter,
+		HideVendorFilter:        c.HideVendorFilter,
 		Boards:                  c.Boards, // Boards 是值类型（含 AutoMove），直接复制
 		ExposeChannelDetails:    exposeChannelDetailsPtr,
 		ChannelDetailsProviders: make([]channelDetailsProviderConfig, len(c.ChannelDetailsProviders)),

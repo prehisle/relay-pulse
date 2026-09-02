@@ -108,7 +108,7 @@ function App() {
 
   const { scores: rpdiagScores, loaded: rpdiagScoresLoaded } = useRpdiagScores();
 
-  const { loading, error, data, rawData, stats, providers, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, boardCounts, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, hideCategoryFilter, effectiveFilterCategory, rpdiagEnabled, refetch } = useMonitorData({
+  const { loading, error, data, rawData, stats, providers, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, boardCounts, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, hideCategoryFilter, effectiveFilterCategory, hideVendorFilter, effectiveFilterVendor, rpdiagEnabled, refetch } = useMonitorData({
     timeRange,
     timeAlign,
     timeFilter,
@@ -168,7 +168,7 @@ function App() {
     providers.length > 0 && filterProvider.length > 0,
     filterService.length > 0,
     filterChannel.length > 0,
-    filterVendor.length > 0,
+    effectiveFilterVendor.length > 0,
     filterModel.length > 0,
   ].filter(Boolean).length;
 
@@ -182,7 +182,7 @@ function App() {
     filterService,
     filterChannel,
     effectiveFilterCategory,
-    filterVendor,
+    filterVendor: effectiveFilterVendor,
     filterModel,
     stats,
   });
@@ -201,7 +201,7 @@ function App() {
     filterService,
     filterChannel,
     effectiveFilterCategory,
-    filterVendor,
+    filterVendor: effectiveFilterVendor,
     filterModel,
     t,
   });
@@ -221,7 +221,7 @@ function App() {
     filterProvider,
     filterService,
     filterChannel,
-    filterVendor,
+    filterVendor: effectiveFilterVendor,
     filterModel,
     effectiveFilterCategory,
     effectiveViewMode,
@@ -313,7 +313,7 @@ function App() {
               filterService={filterService}
               filterChannel={filterChannel}
               filterCategory={effectiveFilterCategory}
-              filterVendor={filterVendor}
+              filterVendor={effectiveFilterVendor}
               filterModel={filterModel}
               showFavoritesOnly={showFavoritesOnly}
               favorites={favorites}
@@ -333,6 +333,7 @@ function App() {
               effectiveVendors={effectiveVendors}
               effectiveModels={effectiveModels}
               showCategoryFilter={!hideCategoryFilter}
+              showVendorFilter={!hideVendorFilter}
               isMobile={isMobile}
               showFilterDrawer={showFilterDrawer}
               onFilterDrawerClose={() => setShowFilterDrawer(false)}
