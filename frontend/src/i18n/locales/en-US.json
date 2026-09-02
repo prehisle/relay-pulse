@@ -57,7 +57,8 @@
       "provider": "All providers",
       "service": "All services",
       "channel": "All channels",
-      "vendor": "All vendors"
+      "vendor": "All vendors",
+      "model": "All models"
     },
     "categories": {
       "charity": "Charity",

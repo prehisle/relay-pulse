@@ -13,6 +13,7 @@ import { API_BASE_URL, HIDE_PRICE_COLUMN, USE_MOCK_DATA } from '../constants';
 import { fetchMockMonitorData } from '../utils/mockMonitor';
 import { trackAPIPerformance, trackAPIError } from '../utils/analytics';
 import { sortMonitorsWithPinning } from '../utils/sortMonitors';
+import { matchesModelKeys } from '../utils/modelFilter';
 import { convertLegacyDataToProcessedData, convertGroupToProcessedData } from '../utils/monitorDataProcessor';
 import { lookupRpdiagScore } from './useRpdiagScores';
 import type { RpdiagScoresResponse } from '../types/monitor';
@@ -36,6 +37,7 @@ interface UseMonitorDataOptions {
   filterChannel: string[];   // 多选通道，空数组表示"全部"
   filterCategory: string[];  // 多选分类，空数组表示"全部"
   filterVendor: string[];    // 多选模型厂商，空数组表示"全部"
+  filterModel: string[];     // 多选模型（版本级 canonical key），空数组表示"全部"
   sortConfig: SortConfig;
   isInitialSort: boolean;    // 是否为初始排序状态（用于赞助商置顶）
   autoRefresh?: boolean;     // 自动刷新开关，默认开启
@@ -55,6 +57,7 @@ export function useMonitorData({
   filterChannel,
   filterCategory,
   filterVendor,
+  filterModel,
   sortConfig,
   isInitialSort,
   autoRefresh = true,
@@ -351,6 +354,7 @@ export function useMonitorData({
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
     const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
     const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
+    const modelSet = filterModel.length > 0 ? new Set(filterModel) : null;
 
     const filtered = rawData.filter((item) => {
       const matchService = serviceSet === null || serviceSet.has(item.serviceType.toLowerCase());
@@ -359,7 +363,11 @@ export function useMonitorData({
       const matchCategory = categorySet === null || (item.category && categorySet.has(item.category));
       // 未声明厂商的通道在厂商筛选生效时一律排除（"未知"不属于任何一家）
       const matchVendor = vendorSet === null || (!!item.modelVendor && vendorSet.has(item.modelVendor));
-      return matchService && matchProvider && matchChannel && matchCategory && matchVendor;
+      // 模型是 any 语义：任一 layer 命中即保留整条通道。必须与 useFilteredData 同步——
+      // 顶部「正常运行/异常告警」统计走的是本函数的结果，只改那边会让表格行数与
+      // 统计数字对不上。
+      const matchModel = modelSet === null || matchesModelKeys(item.modelEntries, modelSet);
+      return matchService && matchProvider && matchChannel && matchCategory && matchVendor && matchModel;
     });
 
     // 在排序前给每项注入 qualityScore（来自 rpdiag 三元组查表）。
@@ -375,7 +383,7 @@ export function useMonitorData({
 
     // 使用带置顶逻辑的排序函数
     return sortMonitorsWithPinning(enriched, sortConfig, sponsorPinConfig, isInitialSort);
-  }, [rawData, filterService, filterProvider, filterChannel, effectiveFilterCategory, filterVendor, sortConfig, sponsorPinConfig, isInitialSort, rpdiagScores, rpdiagScoresLoaded, rpdiagEnabled]);
+  }, [rawData, filterService, filterProvider, filterChannel, effectiveFilterCategory, filterVendor, filterModel, sortConfig, sponsorPinConfig, isInitialSort, rpdiagScores, rpdiagScoresLoaded, rpdiagEnabled]);
 
   // 统计数据
   const stats = useMemo(() => {

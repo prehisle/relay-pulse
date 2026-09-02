@@ -57,7 +57,8 @@
       "provider": "所有服务商",
       "service": "所有服务",
       "channel": "所有通道",
-      "vendor": "所有厂商"
+      "vendor": "所有厂商",
+      "model": "所有模型"
     },
     "categories": {
       "charity": "公益站",

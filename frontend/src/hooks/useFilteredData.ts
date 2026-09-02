@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { ProcessedMonitorData } from '../types';
+import { matchesModelKeys } from '../utils/modelFilter';
 
 /** 顶部状态统计（总数 / 健康数 / 异常数）。 */
 export interface MonitorStats {
@@ -20,6 +21,8 @@ export interface FilteredDataParams {
   filterChannel: string[];
   effectiveFilterCategory: string[];
   filterVendor: string[];
+  /** 模型筛选值：版本级展示名的 canonical key（见 utils/modelFilter）。 */
+  filterModel: string[];
   /** 全板块状态统计（非收藏模式下原样透传）。 */
   stats: MonitorStats;
 }
@@ -46,6 +49,7 @@ export function useFilteredData({
   filterChannel,
   effectiveFilterCategory,
   filterVendor,
+  filterModel,
   stats,
 }: FilteredDataParams): FilteredData {
   // 基础数据：应用收藏筛选后的数据（如适用）
@@ -69,6 +73,7 @@ export function useFilteredData({
     const channelSet = filterChannel.length > 0 ? new Set(filterChannel) : null;
     const categorySet = effectiveFilterCategory.length > 0 ? new Set(effectiveFilterCategory) : null;
     const vendorSet = filterVendor.length > 0 ? new Set(filterVendor) : null;
+    const modelSet = filterModel.length > 0 ? new Set(filterModel) : null;
 
     return baseData.filter(item => {
       if (providerSet && !providerSet.has(item.providerId)) return false;
@@ -77,9 +82,11 @@ export function useFilteredData({
       if (categorySet && !categorySet.has(item.category)) return false;
       // 未声明厂商的通道在厂商筛选生效时排除（与 useMonitorData 的过滤口径逐字一致）
       if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
+      // 模型是 any 语义：任一 layer 命中即保留整条通道（口径同样与 useMonitorData 一致）
+      if (modelSet && !matchesModelKeys(item.modelEntries, modelSet)) return false;
       return true;
     });
-  }, [baseData, filterProvider, filterService, filterChannel, effectiveFilterCategory, filterVendor]);
+  }, [baseData, filterProvider, filterService, filterChannel, effectiveFilterCategory, filterVendor, filterModel]);
 
   // 收藏模式下重新计算状态统计（基于 filteredData 而非全板块数据）
   const effectiveStats = useMemo(() => {

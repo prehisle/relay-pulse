@@ -8,6 +8,7 @@ export interface HomeAnalyticsParams {
   filterService: string[];
   filterChannel: string[];
   filterVendor: string[];
+  filterModel: string[];
   effectiveFilterCategory: string[];
   /** 实际显示的视图模式（移动端/截图模式会强制 table）。 */
   effectiveViewMode: ViewMode;
@@ -25,6 +26,7 @@ export function useHomeAnalytics({
   filterService,
   filterChannel,
   filterVendor,
+  filterModel,
   effectiveFilterCategory,
   effectiveViewMode,
 }: HomeAnalyticsParams): void {
@@ -54,6 +56,12 @@ export function useHomeAnalytics({
       trackEvent('filter_model_vendor', { vendor: filterVendor.join(',') });
     }
   }, [filterVendor]);
+
+  useEffect(() => {
+    if (filterModel.length > 0) {
+      trackEvent('filter_model', { model: filterModel.join(',') });
+    }
+  }, [filterModel]);
 
   // 追踪分类筛选变化
   useEffect(() => {

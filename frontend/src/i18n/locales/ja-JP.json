@@ -57,7 +57,8 @@
       "provider": "すべてのプロバイダ",
       "service": "すべてのサービス",
       "channel": "すべてのチャネル",
-      "vendor": "すべてのベンダー"
+      "vendor": "すべてのベンダー",
+      "model": "すべてのモデル"
     },
     "categories": {
       "charity": "チャリティサイト",

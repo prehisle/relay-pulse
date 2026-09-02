@@ -16,6 +16,7 @@ interface ControlsProps {
   filterChannel: string[];   // 多选通道，空数组表示"全部"
   filterCategory: string[];  // 多选分类，空数组表示"全部"
   filterVendor: string[];    // 多选模型厂商，空数组表示"全部"
+  filterModel: string[];     // 多选模型（版本级 canonical key），空数组表示"全部"
   showFavoritesOnly: boolean; // 仅显示收藏
   favorites: Set<string>;     // 收藏项集合
   favoritesCount: number;     // 收藏数量
@@ -35,6 +36,10 @@ interface ControlsProps {
    *  空数组 = 当前数据里没有任何通道声明了厂商 → 整个筛选器不渲染，
    *  而不是给一个永远打不开的空下拉。Phase 3 回填前生产恒为空。 */
   effectiveVendors: MultiSelectOption[];
+  /** 动态模型选项（{value:canonical key, label:版本级展示名}，按家族分组、组内按名排序）。
+   *  每项带 groupKey/groupLabel，MultiSelect 据此渲染可一键全选的家族分组。
+   *  空数组 = 当前数据里一个模型都没有 → 整个筛选器不渲染。 */
+  effectiveModels: MultiSelectOption[];
   showCategoryFilter?: boolean; // 是否显示分类筛选器，默认 true（用于服务商专属页面）
   refreshCooldown?: boolean; // 刷新冷却中，显示提示
   autoRefresh?: boolean; // 自动刷新开关
@@ -47,6 +52,7 @@ interface ControlsProps {
   onChannelChange: (channels: string[]) => void;    // 多选回调
   onCategoryChange: (categories: string[]) => void; // 多选回调
   onVendorChange: (vendors: string[]) => void;      // 多选回调
+  onModelChange: (models: string[]) => void;        // 多选回调
   onShowFavoritesOnlyChange: (value: boolean) => void; // 收藏筛选回调
   onTimeRangeChange: (range: string) => void;
   onTimeAlignChange: (align: string) => void;       // 切换时间对齐模式
@@ -63,6 +69,7 @@ export function Controls({
   filterChannel,
   filterCategory,
   filterVendor,
+  filterModel,
   showFavoritesOnly,
   favorites,
   favoritesCount,
@@ -79,6 +86,7 @@ export function Controls({
   effectiveServices,
   effectiveCategories,
   effectiveVendors,
+  effectiveModels,
   showCategoryFilter = true,
   refreshCooldown = false,
   autoRefresh = true,
@@ -91,6 +99,7 @@ export function Controls({
   onChannelChange,
   onCategoryChange,
   onVendorChange,
+  onModelChange,
   onShowFavoritesOnlyChange,
   onTimeRangeChange,
   onTimeAlignChange,
@@ -131,6 +140,9 @@ export function Controls({
   // 厂商筛选器：数据里没有任何厂商声明时整个筛选器不渲染（Phase 3 回填前恒不可见）
   const showVendorFilter = effectiveVendors.length > 0;
 
+  // 模型筛选器：同款数据驱动，本屏一个模型都没有时不渲染空下拉
+  const showModelFilter = effectiveModels.length > 0;
+
   // 统计激活的筛选器数量（仅计入可见的筛选器）
   const activeFiltersCount = [
     showFavoritesOnly,
@@ -139,6 +151,7 @@ export function Controls({
     filterService.length > 0,
     filterChannel.length > 0,
     showVendorFilter && filterVendor.length > 0,
+    showModelFilter && filterModel.length > 0,
   ].filter(Boolean).length;
 
   // 筛选器组件（桌面和移动端共用）
@@ -183,6 +196,18 @@ export function Controls({
         placeholder={t('controls.filters.channel')}
         searchable={channels.length > 5}
       />
+
+      {/* 模型筛选器 - 按家族分组，组标题可一键全选整个家族（如所有 Opus 版本）。
+          恒可搜索：版本级选项有二十来个，比其它维度都长。 */}
+      {showModelFilter && (
+        <MultiSelect
+          value={filterModel}
+          options={effectiveModels}
+          onChange={onModelChange}
+          placeholder={t('controls.filters.model')}
+          searchable
+        />
+      )}
 
       {/* 模型厂商筛选器 - 数据里出现过厂商声明才渲染 */}
       {showVendorFilter && (
@@ -497,6 +522,7 @@ export function Controls({
                     onServiceChange([]);
                     onChannelChange([]);
                     if (showVendorFilter) onVendorChange([]);
+                    if (showModelFilter) onModelChange([]);
                   }}
                   className="w-full py-3 bg-elevated text-secondary rounded-lg hover:bg-muted transition-colors font-medium focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:outline-none"
                 >

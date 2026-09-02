@@ -26,6 +26,7 @@ interface UrlState {
   filterChannel: string[];   // 多选通道，空数组表示"全部"
   filterCategory: string[];  // 多选分类，空数组表示"全部"
   filterVendor: string[];    // 多选模型厂商，空数组表示"全部"
+  filterModel: string[];     // 多选模型（版本级 canonical key），空数组表示"全部"
   showFavoritesOnly: boolean; // 仅显示收藏
   viewMode: ViewMode;
   sortConfig: SortConfig;
@@ -41,6 +42,7 @@ interface UrlStateActions {
   setFilterChannel: (value: string[]) => void;   // 多选通道
   setFilterCategory: (value: string[]) => void;  // 多选分类
   setFilterVendor: (value: string[]) => void;    // 多选模型厂商
+  setFilterModel: (value: string[]) => void;     // 多选模型
   setShowFavoritesOnly: (value: boolean) => void; // 仅显示收藏
   setViewMode: (value: ViewMode) => void;
   setSortConfig: (value: SortConfig) => void;
@@ -66,6 +68,7 @@ const DEFAULTS = {
   filterChannel: [] as string[],   // 空数组表示"全部"
   filterCategory: [] as string[],  // 空数组表示"全部"
   filterVendor: [] as string[],    // 空数组表示"全部"
+  filterModel: [] as string[],     // 空数组表示"全部"
   showFavoritesOnly: false,        // 默认显示全部
   viewMode: 'table' as ViewMode,
   sortKey: 'uptime',
@@ -85,6 +88,7 @@ const PARAM_KEYS = {
   filterChannel: 'channel',
   filterCategory: 'category',
   filterVendor: 'vendor',
+  filterModel: 'model',
   showFavoritesOnly: 'fav',  // 仅显示收藏
   viewMode: 'view',
   sort: 'sort',
@@ -104,10 +108,14 @@ interface ListStateSnapshot {
    *  升 version 会让那份快照整体作废（用户退出收藏模式时筛选凭空清空）。
    *  解析走 parseListStateSnapshot，缺失/非法一律降级成空数组而不是整份丢弃。 */
   filterVendor: string[];
+  /** 2026-09 加入的模型筛选。理由同 filterVendor：**故意留在 version 1**，
+   *  缺失即降级成空数组，不让旧快照整份作废。 */
+  filterModel: string[];
 }
 
-/** 从 sessionStorage 原始值解析快照：结构不对返回 null；只有 filterVendor 这一新增键
- *  允许缺失（旧会话快照），其余四个数组仍是必需——它们缺失说明这根本不是本结构。 */
+/** 从 sessionStorage 原始值解析快照：结构不对返回 null；只有 filterVendor / filterModel
+ *  这两个后加的键允许缺失（旧会话快照），其余四个数组仍是必需——它们缺失说明这
+ *  根本不是本结构。 */
 function parseListStateSnapshot(raw: string | null): ListStateSnapshot | null {
   if (!raw) return null;
   let parsed: unknown;
@@ -136,6 +144,7 @@ function parseListStateSnapshot(raw: string | null): ListStateSnapshot | null {
     filterChannel,
     filterCategory,
     filterVendor: asStringArray(candidate.filterVendor) ?? [],
+    filterModel: asStringArray(candidate.filterModel) ?? [],
   };
 }
 
@@ -298,6 +307,8 @@ export function useUrlState(): [UrlState, UrlStateActions] {
       filterChannel: parseArrayParam(PARAM_KEYS.filterChannel, normalizePreserveCase),
       filterCategory: parseArrayParam(PARAM_KEYS.filterCategory, normalizeLower),
       filterVendor: parseArrayParam(PARAM_KEYS.filterVendor, normalizeLower),
+      // 模型 canonical key 本身就是小写折叠的（utils/modelFilter），故同走 normalizeLower
+      filterModel: parseArrayParam(PARAM_KEYS.filterModel, normalizeLower),
       showFavoritesOnly,
       viewMode,
       sortConfig: parseSortParam(rawSortParam),
@@ -381,6 +392,13 @@ export function useUrlState(): [UrlState, UrlStateActions] {
     setArrayParam(PARAM_KEYS.filterVendor, values, normalizeLower);
   }, [setArrayParam, normalizeLower]);
 
+  // 模型筛选值是 canonical key（modelFilterKey 已做 trim + 小写折叠），故同款归一。
+  // 注意别改成 normalizePreserveCase：URL 里的大小写变体必须折叠到同一个选项，
+  // 否则 MultiSelect 按 value 精确比对时选中态会对不上、按钮上裸露原始串。
+  const setFilterModel = useCallback((values: string[]) => {
+    setArrayParam(PARAM_KEYS.filterModel, values, normalizeLower);
+  }, [setArrayParam, normalizeLower]);
+
   // 仅显示收藏 setter（true='1'，false=移除参数）
   const setShowFavoritesOnly = useCallback((value: boolean) => {
     commitParams((next) => {
@@ -444,6 +462,7 @@ export function useUrlState(): [UrlState, UrlStateActions] {
       filterChannel: state.filterChannel,
       filterCategory: state.filterCategory,
       filterVendor: state.filterVendor,
+      filterModel: state.filterModel,
     };
     try {
       sessionStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
@@ -458,9 +477,10 @@ export function useUrlState(): [UrlState, UrlStateActions] {
       next.delete(PARAM_KEYS.filterChannel);
       next.delete(PARAM_KEYS.filterCategory);
       next.delete(PARAM_KEYS.filterVendor);
+      next.delete(PARAM_KEYS.filterModel);
       next.set(PARAM_KEYS.showFavoritesOnly, '1');
     });
-  }, [state.showFavoritesOnly, state.filterProvider, state.filterService, state.filterChannel, state.filterCategory, state.filterVendor, commitParams]);
+  }, [state.showFavoritesOnly, state.filterProvider, state.filterService, state.filterChannel, state.filterCategory, state.filterVendor, state.filterModel, commitParams]);
 
   // 退出收藏模式：恢复快照中的筛选状态，移除收藏模式标记
   const exitFavoritesMode = useCallback(() => {
@@ -488,6 +508,7 @@ export function useUrlState(): [UrlState, UrlStateActions] {
       next.delete(PARAM_KEYS.filterChannel);
       next.delete(PARAM_KEYS.filterCategory);
       next.delete(PARAM_KEYS.filterVendor);
+      next.delete(PARAM_KEYS.filterModel);
 
       // 恢复筛选器（如果快照存在）
       if (snapshot) {
@@ -506,6 +527,9 @@ export function useUrlState(): [UrlState, UrlStateActions] {
         if (snapshot.filterVendor.length > 0) {
           next.set(PARAM_KEYS.filterVendor, snapshot.filterVendor.join(','));
         }
+        if (snapshot.filterModel.length > 0) {
+          next.set(PARAM_KEYS.filterModel, snapshot.filterModel.join(','));
+        }
       }
       // 无快照时恢复为默认（空数组），即不设置参数
     });
@@ -520,6 +544,7 @@ export function useUrlState(): [UrlState, UrlStateActions] {
     setFilterChannel,
     setFilterCategory,
     setFilterVendor,
+    setFilterModel,
     setShowFavoritesOnly,
     setViewMode,
     setSortConfig,

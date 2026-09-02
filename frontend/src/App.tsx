@@ -52,6 +52,7 @@ function App() {
     filterChannel,
     filterCategory,
     filterVendor,
+    filterModel,
     showFavoritesOnly,  // 仅显示收藏
     viewMode,
     sortConfig,
@@ -69,6 +70,7 @@ function App() {
     setFilterChannel,
     setFilterCategory,
     setFilterVendor,
+    setFilterModel,
     setViewMode,
     setSortConfig,
     clearPriceRatioSort,
@@ -116,6 +118,7 @@ function App() {
     filterChannel,
     filterCategory,
     filterVendor,
+    filterModel,
     sortConfig,
     isInitialSort,
     // 冷板数据不更新，禁用自动刷新以节省资源
@@ -166,6 +169,7 @@ function App() {
     filterService.length > 0,
     filterChannel.length > 0,
     filterVendor.length > 0,
+    filterModel.length > 0,
   ].filter(Boolean).length;
 
   // 数据筛选链：收藏筛选 → 全筛选器 → 状态统计
@@ -179,6 +183,7 @@ function App() {
     filterChannel,
     effectiveFilterCategory,
     filterVendor,
+    filterModel,
     stats,
   });
 
@@ -189,6 +194,7 @@ function App() {
     effectiveChannels,
     effectiveCategories,
     effectiveVendors,
+    effectiveModels,
   } = useFilterOptions({
     optionsBaseData,
     filterProvider,
@@ -196,6 +202,7 @@ function App() {
     filterChannel,
     effectiveFilterCategory,
     filterVendor,
+    filterModel,
     t,
   });
 
@@ -215,6 +222,7 @@ function App() {
     filterService,
     filterChannel,
     filterVendor,
+    filterModel,
     effectiveFilterCategory,
     effectiveViewMode,
   });
@@ -306,6 +314,7 @@ function App() {
               filterChannel={filterChannel}
               filterCategory={effectiveFilterCategory}
               filterVendor={filterVendor}
+              filterModel={filterModel}
               showFavoritesOnly={showFavoritesOnly}
               favorites={favorites}
               favoritesCount={effectiveFavoritesCount}
@@ -322,6 +331,7 @@ function App() {
               effectiveServices={effectiveServices}
               effectiveCategories={effectiveCategories}
               effectiveVendors={effectiveVendors}
+              effectiveModels={effectiveModels}
               showCategoryFilter={!hideCategoryFilter}
               isMobile={isMobile}
               showFilterDrawer={showFilterDrawer}
@@ -331,6 +341,7 @@ function App() {
               onChannelChange={setFilterChannel}
               onCategoryChange={setFilterCategory}
               onVendorChange={setFilterVendor}
+              onModelChange={setFilterModel}
               onShowFavoritesOnlyChange={handleFavoritesModeChange}
               onTimeRangeChange={setTimeRange}
               onTimeAlignChange={setTimeAlign}

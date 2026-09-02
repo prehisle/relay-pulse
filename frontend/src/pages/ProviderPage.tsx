@@ -166,6 +166,9 @@ export default function ProviderPage() {
     filterChannel,
     filterCategory: [], // Provider页面不筛选分类，空数组表示全部
     filterVendor,
+    // 模型筛选尚未接入服务商页（本页的筛选链路与首页各自独立维护，见本文件顶部注释）。
+    // 恒空 = 不参与过滤，本页行为与接入前完全一致。
+    filterModel: [],
     sortConfig,
     isInitialSort: false, // Provider页面禁用置顶
     // 冷板数据不更新，禁用自动刷新以节省资源
@@ -489,7 +492,12 @@ export default function ProviderPage() {
         )}
 
         {/* 控制面板 - 隐藏 provider 和 category 筛选器，只显示当前 provider 的通道 */}
+        {/* 模型筛选尚未接入本页：选项恒空 → Controls 内 showModelFilter 为 false，
+            整个筛选器不渲染，本页外观与行为均与接入前一致。 */}
         <Controls
+          filterModel={[]}
+          effectiveModels={[]}
+          onModelChange={() => {}}
           timeRange={timeRange}
           timeAlign={timeAlign}
           timeFilter={timeFilter}
