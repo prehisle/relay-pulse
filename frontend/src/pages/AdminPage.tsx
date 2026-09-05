@@ -49,7 +49,7 @@ export default function AdminPage() {
   return (
     <>
       <Helmet>
-        <title>{t('admin.meta.title')} | RelayPulse</title>
+        <title>{`${t('admin.meta.title')} | RelayPulse`}</title>
         <meta name="robots" content="noindex,nofollow" />
       </Helmet>
 
