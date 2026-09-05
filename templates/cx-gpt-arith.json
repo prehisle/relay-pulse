@@ -1,7 +1,7 @@
 {
-	"self_serve_label": "GPT-5.5",
+	"self_serve_label": "GPT-5.6",
 	"model": "GPT",
-	"request_model": "gpt-5.5",
+	"request_model": "gpt-5.6-sol",
 	"model_vendor": "openai",
 	"self_serve_default": true,
 	"url": "{{BASE_URL}}/v1/responses",
