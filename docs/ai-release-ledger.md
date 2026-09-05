@@ -6,7 +6,17 @@
 
 ## 检查点（最新在最上）
 
-- **最后同步**: 2026-09-02（HEAD=`e12c1d4`，已发版 **v2.84.2**，⚠️ **尚未部署生产**——生产仍跑 v2.84.1/`4bf84d4`）。本轮**只清 dependabot 积压的三个前端大版本 PR**，无自有代码改动：合入 `e844e57`（react-helmet-async 2.0.5→3.0.0，#191）与 `e12c1d4`（react-router-dom 6.30.4→7.18.2，#192），关掉 #193（typescript 5.9.3→7.0.2）。
+- **最后同步**: 2026-09-05（HEAD=`b041257`，已发版 **v2.85.1** + **已部署生产**[prod git_commit=b041257、go1.27.1、health/ready=200、`配置加载完成 monitors=305`、`探测模板已刷新 variants=42 defaults="cc=cc-haiku-arith cx=cx-gpt-arith gm=gm-flash-arith"`、启动日志无 panic/error；**同日两次部署两个锚点**：`rollback-20260905-gpt6astra-pre`=部署前 4bf84d4/v2.84.1、`rollback-20260905-helmet-pre`=26e06dd/v2.85.0；**无 schema、无迁移**（一份新探针模板 + 两行前端字符串），故未新做 DB 备份]）。本轮两件事：**新增 gpt-6-astra 探针模板**（`26e06dd`/v2.85.0）+ **修两页空 title**（`b041257`/v2.85.1）；同时把积压 4 版的 v2.84.1→v2.84.2 一起带上了生产（含 9-02 合入的 react-router-dom 7 与 react-helmet-async 3 两个大版本）。
+
+  **① `cx-gpt6astra-arith`（gpt-6-astra，OpenAI 2026-09-03 发布）**：由 `cx-gpt56-arith` 复制，只改三处——display `GPT-6-Astra`、`self_serve_label` `GPT-6 Astra`、`request_model` `gpt-6-astra`，其余（`openai-beta` 头、Codex 身份 instructions、`reasoning.effort=low`、`model_vendor=openai`、5s/10s 超时）逐字节不动，命名沿用 terra/luna 口径。填官方 slug；effort 保 `low` 与同族一致（探针问的是「通道还能不能打通这个模型」不是推理质量，实测 low 档 `reasoning_tokens=0`、单次约 63 token）。
+  **三条只有实打才知道的事**：⚠️ **saiai 的 `/v1/models` 不列 `gpt-6-astra` 却能正常路由**（19 个模型里只有 gpt-5.6 系列），与 `claude-opus-4-8` 同一形态——**catalog 不是可用性判据**，见 [[reference_saiai_oauth_beta_gate]]；**新一代取消了 `reasoning.effort=none` 档**（支持 low..max），照抄带 none 的形态会 400；**发布头两天上游有过载尖峰**——首批 5 次采样见到 82.8s（`server_is_overloaded`）/63.3s/23.6s，约一小时后连续 6 次回到 1.9~3.3s、与 gpt-5.6-sol 对照（2.1s）持平，故**超时刻意沿用 5s/10s 没放宽**（放宽等于给可用性判定放水；真出现成片假红再退到 8s/15s，`cc-opus-arith` 已有先例）。
+  **验证**：`go test ./...` 全绿（含 `TestBundledTemplatesDeclareModelVendor` / `TestInitTemplates_BundledDefaultsAreExplicit`；未声明 `self_serve_default`，cx 默认仍是 `cx-gpt-arith`）；**verify-live 走真探测内核**（`config.Load` → `InlineProber.ProbeConfig`）打 api.saiai.top 得 `status=1 sub=none 1368ms`，同批 `cx-gpt56-arith` 对照 1121ms。**prod 实证**：`variants` 41→**42**、cx 默认模板未被抢走、容器内模板文件在、`/api/onboarding/meta` 的 cx 可选模型 10→**11** 且新增 `{label: "GPT-6 Astra", request_model: "gpt-6-astra"}`。**残**：模板**尚未挂任何 monitor**，站长自行在 `saiai/cx/O-web` 上配置子行（追加子行必须显式写 `model` 展示名，否则撞 `model_id` 复制，见 [[reference_rp_admin_add_child_model_id_collision]]）。
+
+  **② 两页空 `<title>` 已修**（`OnboardingPage` / `AdminPage`）：`<title>{t('x')} | RelayPulse</title>` 的 children 是数组 `[值, ' | RelayPulse']`，react-helmet-async 渲染成空 `<title></title>`——页面照常渲染、控制台零报错，只有标签页标题空白。改成模板字符串让 children 回到单个字符串即可。另加静态守卫 `frontend/src/pages/helmetTitle.test.ts`（扫全部 `.tsx`，禁「表达式 + 字面量」形态），**bite-test 验非真空**：把 `OnboardingPage` 改回旧写法，守卫如期变红并点名该文件。
+  ⚠️ **更正 `b041257` 的 commit message 归因**：它写成「随今天 react-helmet-async 2→3 升级引入」，**是错的**。下方 v2.84.2 那条已记载：9-02 那轮把两个包降回 6.30.4 + 2.0.5 跑同一套探针，**空 title 逐字复现** → 这是既有问题、v2 同样不支持多子节点 title，v3 只是没修它。main 禁 force-push 故不改历史，以本条为准。
+  **验证**：本地 jsdom 下用真 `HelmetProvider` 复现两种写法差异；tsc -b + eslint 干净 + vitest **461** 全绿；**prod 实证**（ssh 隧道打 `127.0.0.1:8080` 的真 SPA，playwright 逐路由读 `document.title`）：修前 `/contact/apply` 与 `/admin` 为 `""`、其余三条正常；修后两页分别为 `申请收录 | RelayPulse` / `管理后台 | RelayPulse`，`/`、`/contact`、`/p/saiai` 不变。**残**：v2.84.2 记的另一条既有问题——SPA 导航离开首页后 `<html lang>` 被 Helmet 清空——**未修**。
+
+- **上一同步**: 2026-09-02（HEAD=`e12c1d4`，已发版 **v2.84.2**，⚠️ ~~尚未部署生产~~ **已随 2026-09-05 那轮带上生产**）。本轮**只清 dependabot 积压的三个前端大版本 PR**，无自有代码改动：合入 `e844e57`（react-helmet-async 2.0.5→3.0.0，#191）与 `e12c1d4`（react-router-dom 6.30.4→7.18.2，#192），关掉 #193（typescript 5.9.3→7.0.2）。
 
   **#193 关掉的理由是生态卡口不是我方代码**：CI 挂在 `Error: typescript-eslint does not support TS 7.0.`，留着只会周期性红一次。用 `@dependabot ignore this major version` 关闭，等 typescript-eslint 支持后手动升。
 
