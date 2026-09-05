@@ -1,0 +1,39 @@
+{
+	"self_serve_label": "GPT-6 Astra",
+	"model": "GPT-6-Astra",
+	"request_model": "gpt-6-astra",
+	"model_vendor": "openai",
+	"url": "{{BASE_URL}}/v1/responses",
+	"method": "POST",
+	"headers": {
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"openai-beta": "responses=experimental",
+		"User-Agent": "Codex-CLI/1.0"
+	},
+	"body": {
+		"model": "{{MODEL}}",
+		"instructions": "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer.",
+		"input": [
+			{
+				"type": "message",
+				"role": "user",
+				"content": [{ "type": "input_text", "text": "{{PROMPT}}" }]
+			}
+		],
+		"tools": [],
+		"tool_choice": "auto",
+		"parallel_tool_calls": false,
+		"reasoning": { "effort": "low", "summary": "auto" },
+		"store": false,
+		"stream": true
+	},
+	"response": {
+		"success_contains": "{{EXPECTED_ANSWER}}"
+	},
+	"probe": {
+		"slow_latency": "5s",
+		"timeout": "10s",
+		"retry": 0
+	}
+}
