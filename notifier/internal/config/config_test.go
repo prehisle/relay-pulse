@@ -108,6 +108,7 @@ func TestConfigSetDefaults(t *testing.T) {
 		{"Screenshot.BaseURL", cfg.Screenshot.BaseURL, "https://relaypulse.top"},
 		{"Screenshot.Timeout", cfg.Screenshot.Timeout, 30 * time.Second},
 		{"Screenshot.MaxConcurrent", cfg.Screenshot.MaxConcurrent, 3},
+		{"Screenshot.IdleTimeout", cfg.Screenshot.IdleTimeout, 10 * time.Minute},
 	}
 
 	for _, c := range checks {
@@ -200,6 +201,18 @@ func TestConfigValidate(t *testing.T) {
 					APIToken:  "token",
 				},
 			},
+		},
+		{
+			// 零值走默认 10m，负数是写错了，不能静默回退
+			name: "screenshot.idle_timeout 为负数",
+			cfg: &Config{
+				RelayPulse: RelayPulseConfig{
+					EventsURL: "https://example.com/api/events",
+					APIToken:  "token",
+				},
+				Screenshot: ScreenshotConfig{IdleTimeout: -time.Second},
+			},
+			wantErrPart: "screenshot.idle_timeout",
 		},
 	}
 

@@ -22,31 +22,92 @@ type CaptureOptions struct {
 	Board string // 板块过滤（如 "active"），为空时不传 board 参数（API 默认 hot）
 }
 
+// defaultIdleTimeout 是浏览器空闲多久后被回收的兜底值
+const defaultIdleTimeout = 10 * time.Minute
+
 // Service 提供基于 Playwright 的截图服务
 //
 // 设计要点：
 // - Browser 进程级复用，懒加载初始化
 // - 每次请求创建/销毁 BrowserContext + Page
 // - 信号量限制并发
+// - 空闲超过 idleTimeout 由后台协程关掉浏览器，下次请求重新懒加载
 type Service struct {
 	pw          *playwright.Playwright
 	browser     playwright.Browser
 	baseURL     string
 	timeout     time.Duration
+	idleTimeout time.Duration
 	sem         chan struct{}
 	mu          sync.Mutex
 	initialized bool
+	lastUsed    time.Time
+	// closeErr 记住一次失败的关闭。关不掉意味着旧 chromium 可能还活着，
+	// 此后必须拒绝再起一个（否则内存翻倍），由人重启容器收拾。
+	closeErr error
+
+	// closeMu 串行化关闭流程（reaper / 进程退出 / 重复 Close 三个入口）
+	closeMu    sync.Mutex
+	stopCh     chan struct{}
+	stopOnce   sync.Once
+	reaperDone chan struct{}
 }
 
 // NewService 创建截图服务
-func NewService(baseURL string, timeout time.Duration, maxConcurrent int) *Service {
+//
+// idleTimeout ≤ 0 时取 defaultIdleTimeout。返回的 Service 会启动一个后台回收协程，
+// 调用方必须在不再使用时调用 Close 停止它。
+func NewService(baseURL string, timeout time.Duration, maxConcurrent int, idleTimeout time.Duration) *Service {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 3
 	}
-	return &Service{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		timeout: timeout,
-		sem:     make(chan struct{}, maxConcurrent),
+	if idleTimeout <= 0 {
+		idleTimeout = defaultIdleTimeout
+	}
+	s := &Service{
+		baseURL:     strings.TrimRight(baseURL, "/"),
+		timeout:     timeout,
+		idleTimeout: idleTimeout,
+		sem:         make(chan struct{}, maxConcurrent),
+		stopCh:      make(chan struct{}),
+		reaperDone:  make(chan struct{}),
+	}
+	go s.runIdleReaper()
+	return s
+}
+
+// touch 记录一次截图活动，用于空闲判定
+func (s *Service) touch() {
+	s.mu.Lock()
+	s.lastUsed = time.Now()
+	s.mu.Unlock()
+}
+
+// runIdleReaper 周期性回收空闲的浏览器
+//
+// 浏览器进程（chromium + node driver）常驻约 115MB，而截图是低频操作——一次
+// 失败的截图同样会让它挂到进程退出为止。冷启动实测 ~2s，用它换掉常驻内存是划算的。
+func (s *Service) runIdleReaper() {
+	defer close(s.reaperDone)
+
+	// 半个空闲窗口检查一次：最坏情况下实际回收时刻不晚于 1.5 × idleTimeout
+	interval := s.idleTimeout / 2
+	if interval < time.Millisecond {
+		interval = time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := s.closeBrowser(true); err != nil {
+				// 关不掉是终态：后续截图会被 ensureInitialized 显式拒绝，需人工重启
+				slog.Error("空闲回收浏览器失败，截图功能已停用直至服务重启", "error", err)
+			}
+		case <-s.stopCh:
+			return
+		}
 	}
 }
 
@@ -57,6 +118,11 @@ func (s *Service) ensureInitialized() error {
 
 	if s.initialized {
 		return nil
+	}
+	// 上一次关闭失败过：旧浏览器进程可能还在，再拉一个就是内存翻倍。
+	// 这里显式停下而不是"重来一次"——需要人介入重启进程。
+	if s.closeErr != nil {
+		return fmt.Errorf("上次关闭浏览器失败、旧进程可能仍在运行，已停止再次启动（需重启服务）: %w", s.closeErr)
 	}
 
 	slog.Info("初始化 Playwright...")
@@ -93,6 +159,7 @@ func (s *Service) ensureInitialized() error {
 	s.pw = pw
 	s.browser = browser
 	s.initialized = true
+	s.lastUsed = time.Now()
 
 	slog.Info("Playwright 初始化完成")
 	return nil
@@ -158,6 +225,12 @@ func (s *Service) CaptureWithOptions(ctx context.Context, providers, services []
 		return nil, ctx.Err()
 	default:
 	}
+
+	// 开始与结束各记一次活动时间：单次截图可能长于 idleTimeout（导航 30s + 等就绪 15s），
+	// 只记开始会让它一结束就被判成空闲，只记结束则整个截图期间 reaper 都在白排空信号量。
+	// 这个 defer 注册在信号量释放之后，故先于释放执行——回收方拿到全部槽位时 lastUsed 必已刷新。
+	s.touch()
+	defer s.touch()
 
 	// 懒加载初始化
 	if err := s.ensureInitialized(); err != nil {
@@ -250,35 +323,62 @@ func (s *Service) CaptureWithOptions(ctx context.Context, providers, services []
 	return buf, nil
 }
 
-// Close 关闭浏览器与 Playwright（可安全重复调用）
+// Close 停止空闲回收协程并关闭浏览器与 Playwright（可安全重复调用）
 func (s *Service) Close() error {
-	// 先检查是否已初始化（无锁检查，避免死锁）
-	s.mu.Lock()
-	if !s.initialized {
-		s.mu.Unlock()
+	s.stopIdleReaper()
+	return s.closeBrowser(false)
+}
+
+// stopIdleReaper 停掉回收协程并等它退出
+func (s *Service) stopIdleReaper() {
+	s.stopOnce.Do(func() { close(s.stopCh) })
+	<-s.reaperDone
+}
+
+// closeBrowser 关闭浏览器与 Playwright
+//
+// idleOnly=true 时只在确实空闲超时才动手（reaper 走这条），false 表示无条件关闭（Close 走这条）。
+func (s *Service) closeBrowser(idleOnly bool) error {
+	// 串行化三个入口：reaper 的周期回收、进程退出的 Close、以及重复 Close
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+
+	// 空闲回收先做一次廉价判定，避免每个 tick 都去排空信号量
+	if idleOnly && !s.idleExpired() {
 		return nil
 	}
-	s.mu.Unlock()
 
 	// 等待在途请求结束：通过获取所有信号量槽来阻塞等待
 	// 注意：必须在获取 mu 锁之前完成，因为 Capture 持有信号量时可能需要 mu 锁
 	for i := 0; i < cap(s.sem); i++ {
 		s.sem <- struct{}{}
 	}
+	// 释放信号量槽，允许后续 Capture 重新走懒加载初始化
+	defer func() {
+		for i := 0; i < cap(s.sem); i++ {
+			<-s.sem
+		}
+	}()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 再次检查（可能在等待信号量期间被其他 Close 调用处理了）
+	// 已经关过就不必再关。⚠️ 这个检查刻意放在排空**之后**：放在排空之前提前返回，
+	// 会让「已拿到信号量、还没进 ensureInitialized」的那个请求在 Close 返回后才把
+	// 浏览器拉起来，进程退出时便留下一个没人关的 chromium。
 	if !s.initialized {
-		// 释放信号量槽
-		for i := 0; i < cap(s.sem); i++ {
-			<-s.sem
-		}
+		return nil
+	}
+	// 排空期间可能有在途截图刚结束并刷新了 lastUsed，空闲判定要重来一次
+	if idleOnly && time.Since(s.lastUsed) < s.idleTimeout {
 		return nil
 	}
 
-	slog.Info("关闭 Playwright...")
+	if idleOnly {
+		slog.Info("浏览器空闲超时，关闭 Playwright...", "idle_timeout", s.idleTimeout)
+	} else {
+		slog.Info("关闭 Playwright...")
+	}
 
 	var firstErr error
 	if s.browser != nil {
@@ -295,11 +395,18 @@ func (s *Service) Close() error {
 	s.browser = nil
 	s.pw = nil
 	s.initialized = false
-
-	// 释放信号量槽，允许后续 Capture 正常失败（因为 initialized=false）
-	for i := 0; i < cap(s.sem); i++ {
-		<-s.sem
+	if firstErr != nil {
+		// 句柄已经不可用，状态只能置回未初始化；但"关不掉"这件事必须留痕，
+		// 否则下一次截图会在旧进程可能仍存活的情况下再起一个 chromium。
+		s.closeErr = firstErr
 	}
 
 	return firstErr
+}
+
+// idleExpired 报告浏览器是否已初始化且空闲超过 idleTimeout
+func (s *Service) idleExpired() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.initialized && time.Since(s.lastUsed) >= s.idleTimeout
 }

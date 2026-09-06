@@ -92,6 +92,7 @@ type ScreenshotConfig struct {
 	BaseURL       string        `yaml:"base_url"`       // 截图目标 URL，默认 https://relaypulse.top
 	Timeout       time.Duration `yaml:"timeout"`        // 截图超时时间，默认 30s
 	MaxConcurrent int           `yaml:"max_concurrent"` // 最大并发数，默认 3
+	IdleTimeout   time.Duration `yaml:"idle_timeout"`   // 浏览器空闲多久后回收，默认 10m
 }
 
 // Load 从文件加载配置，并应用环境变量覆盖
@@ -218,6 +219,9 @@ func (c *Config) setDefaults() {
 	if c.Screenshot.MaxConcurrent == 0 {
 		c.Screenshot.MaxConcurrent = 3
 	}
+	if c.Screenshot.IdleTimeout == 0 {
+		c.Screenshot.IdleTimeout = 10 * time.Minute
+	}
 }
 
 // splitAndTrimCSV 将逗号分隔的字符串拆分并去除空白
@@ -258,6 +262,10 @@ func (c *Config) validate() error {
 	}
 	if c.RelayPulse.APIToken == "" {
 		return fmt.Errorf("relay_pulse.api_token 是必需的（环境变量 RELAY_PULSE_API_TOKEN）")
+	}
+	// 负数是配置写错，不能像零值那样静默回退到默认值
+	if c.Screenshot.IdleTimeout < 0 {
+		return fmt.Errorf("screenshot.idle_timeout 不能为负数（当前 %s）；留空或 0 表示使用默认 10m", c.Screenshot.IdleTimeout)
 	}
 	// Telegram Bot Token 在开发环境可选（仅 API 服务启动）
 	// 如果未设置，Bot 和 Poller 功能将不可用

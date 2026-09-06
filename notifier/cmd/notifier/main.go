@@ -89,12 +89,14 @@ func main() {
 			cfg.Screenshot.BaseURL,
 			cfg.Screenshot.Timeout,
 			cfg.Screenshot.MaxConcurrent,
+			cfg.Screenshot.IdleTimeout,
 		)
 		defer screenshotSvc.Close()
 		slog.Info("截图服务已启用",
 			"base_url", cfg.Screenshot.BaseURL,
 			"timeout", cfg.Screenshot.Timeout,
 			"max_concurrent", cfg.Screenshot.MaxConcurrent,
+			"idle_timeout", cfg.Screenshot.IdleTimeout,
 		)
 	}
 

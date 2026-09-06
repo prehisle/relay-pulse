@@ -45,3 +45,5 @@ screenshot:
   base_url: "http://localhost:5173"
   timeout: "30s"
   max_concurrent: 3
+  # 浏览器空闲多久后回收（省内存；下次截图重新懒加载）
+  idle_timeout: "10m"

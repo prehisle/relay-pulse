@@ -98,7 +98,10 @@ screenshot:
   base_url: "https://relaypulse.top"  # 截图目标 URL
   timeout: "30s"                # 截图超时时间
   max_concurrent: 3             # 最大并发截图数
+  idle_timeout: "10m"           # 浏览器空闲多久后回收（下次截图重新懒加载，冷启动约 2s）
 ```
+
+> 浏览器进程常驻约 115MB。截图通常是低频操作，`idle_timeout` 到点后后台协程会关掉浏览器把这部分内存还给系统；小内存主机上别把它调得过大。
 
 ## 环境变量
 
