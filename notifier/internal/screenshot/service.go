@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 // ErrConcurrencyLimit 表示截图并发已达到上限
@@ -73,8 +73,12 @@ func (s *Service) ensureInitialized() error {
 		return fmt.Errorf("启动 Playwright 失败: %w", err)
 	}
 
+	// 显式钉住启动超时：playwright-go v0.6201.1 起未指定时的默认值从 30s 变成了上游的 180s，
+	// 而 Launch 期间 s.mu 是持锁的——启动卡死会让全部截图请求一起阻塞 3 分钟。
+	launchTimeoutMs := float64(30000)
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(true),
+		Timeout:  &launchTimeoutMs,
 		Args: []string{
 			"--no-sandbox",
 			"--disable-setuid-sandbox",

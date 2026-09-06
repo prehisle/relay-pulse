@@ -11,8 +11,11 @@ COPY . /workdir
 WORKDIR /workdir
 
 # Install playwright CLI (version from go.mod)
+# ⚠️ 模块路径是 mxschmitt 不是 playwright-community——上游仓库已改名，且 v0.6100.0 起
+# go.mod 里就声明成 github.com/mxschmitt/playwright-go，旧路径在 v0.6000.0 就封顶了。
+# 别"顺手改回"旧路径：v0.6000.0 及更早版本从已下线的 azureedge driver zip 取驱动，必然 404。
 RUN PWGO_VER=$(grep -oE "playwright-go v\S+" /workdir/go.mod | sed 's/playwright-go //g') \
-    && go install github.com/playwright-community/playwright-go/cmd/playwright@${PWGO_VER}
+    && go install github.com/mxschmitt/playwright-go/cmd/playwright@${PWGO_VER}
 
 # Build binary
 ARG VERSION=dev

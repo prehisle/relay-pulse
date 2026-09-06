@@ -218,8 +218,10 @@ curl http://Windows电脑IP:3000/get_login_info
 
 **截图功能说明**（`/snap` 命令）：
 - 需要在配置中启用 `screenshot.enabled: true`
-- 依赖 [Playwright](https://playwright.dev/docs/intro) 进行浏览器截图
-- 首次运行需安装 Chromium：`npx playwright install chromium`
+- 依赖 [playwright-go](https://github.com/mxschmitt/playwright-go) 进行浏览器截图
+- 首次截图时服务会自行下载驱动与 Chromium；要预先装好（例如构建镜像时）用与 `go.mod` 同版本的 CLI：
+  `go run github.com/mxschmitt/playwright-go/cmd/playwright@$(grep -oE 'playwright-go v\S+' go.mod | cut -d' ' -f2) install --with-deps chromium`
+  ⚠️ 别用 `npx playwright install`：npm 版装的驱动版本与 `go.mod` 钉的不一定一致，而 playwright-go 只认 `~/.cache/ms-playwright-go/<driver 版本>/`（如 `1.62.1/`，是 driver 版本不是模块版本）下的那一份驱动。浏览器本体在另一个目录 `~/.cache/ms-playwright/`，两边共用
 - 截图内容为当前订阅服务的状态监测图
 
 ## API 端点
