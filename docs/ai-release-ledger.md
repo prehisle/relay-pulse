@@ -6,7 +6,14 @@
 
 ## 检查点（最新在最上）
 
-- **最后同步**: 2026-09-06（HEAD=`ac34864`，已发版 **v2.86.2** + **已部署生产**[prod git_commit=ac34864、go1.27.1、health=200、`配置加载完成 monitors=303`、`探测模板已刷新 variants=42`、启动日志无 panic/error；**同日三次部署三个锚点**：`rollback-20260906`=b041257/v2.85.1、`rollback-20260906-astra-pre`=610d762/v2.86.0、`rollback-20260906-astra15s`=9b93d34/v2.86.1；**无 schema、无迁移**（单份模板 JSON 的 probe 段），故未新做 DB 备份]）。本轮是一次**做了又退回的实验**，结论比改动本身值钱。
+- **最后同步**: 2026-09-06（HEAD=`92157a3`，已发版 **v2.86.3**，⚠️ **主服务未部署也无需部署**）。**本轮只动 `notifier/` 子模块，主 relay-pulse 镜像内容与 v2.86.2 逐字节等价**——`fix` 类型触发 semantic-release 照常 bump 了主仓版本号，但那个版本里没有任何主服务改动。**生产主服务仍在 `ac34864`/v2.86.2 是正确状态，别照 `gh release list` 判断"落后一版"去部署。**
+
+  **内容：修好了恒红 2.5 个月的 notifier 镜像构建。** `notifier-docker.yml` 的 docker job 自 2026-08-24 起挂在 `playwright install`——**上游把 driver zip 分发面整个撤了**（经 `cdn.playwright.dev` 307 到微软网关后对 1.57.0~1.62.1 全返 400），同时 **`playwright-community/playwright-go` 仓库已改名 `mxschmitt/playwright-go`**（v0.6100.0 起 go.mod 声明新路径，旧路径封顶 v0.6000.0 而它仍打已死的 azureedge）。所以修法既不是设 `PLAYWRIGHT_DOWNLOAD_HOST`、也不是单纯升版本，而是**换模块路径 + 升 v0.6201.1**（v0.6100.0+ 改成从 npm registry 取 `playwright-core` + nodejs.org 取 Node 自组装）。防回退的理由写在 `notifier/Dockerfile` 注释里。
+  **一处行为变化已处理**：新版 `Launch` 未指定超时时默认 30s→180s（对齐上游），而 `ensureInitialized` 全程持 `s.mu`，故 `service.go` 显式钉回 30s（实测容器内启动 238/289/254ms）。顺带 `go-jose/v3` 离开依赖图。
+  **验证**：本机 docker build 通过（driver 1.62.1 / Chromium 151.0.7922.34）；**写了个复刻 `service.go` 全部 playwright 调用链的 harness，在 `--network none` 容器里跑通并产出有效 png**——这是证明「运行时那次 `playwright.Install()` 不需要出网」的关键一步，光靠编译过看不出来；容器 `/health` 200；CI 两 job 全绿；ghcr 出 `92157a3`+`latest`（上一个还是 6-15 的 `0b35820`）。
+  **残**：**notifier 生产容器仍跑 6-15 的 `0b35820`，新镜像未部署**（站长 2026-09-06 明确表示不需要部署）。届时注意 Chromium 1.57.0→1.62.1，`/snap` 截图可能有像素级变化。⚠️ **`/ops` 的 `notifier update` 版本比对原本两侧都是坏的**（`/health` 不含版本；比的是主仓 HEAD 而非最后一次动 `notifier/` 的 commit），本轮已修，并加了「先查 docker job 是否绿」这一步——正是它缺失才让镜像悄悄陈旧 2.5 个月。
+
+- 2026-09-06（HEAD=`ac34864`，已发版 **v2.86.2** + **已部署生产**[prod git_commit=ac34864、go1.27.1、health=200、`配置加载完成 monitors=303`、`探测模板已刷新 variants=42`、启动日志无 panic/error；**同日三次部署三个锚点**：`rollback-20260906`=b041257/v2.85.1、`rollback-20260906-astra-pre`=610d762/v2.86.0、`rollback-20260906-astra15s`=9b93d34/v2.86.1；**无 schema、无迁移**（单份模板 JSON 的 probe 段），故未新做 DB 备份]）。本轮是一次**做了又退回的实验**，结论比改动本身值钱。
 
   **v2.86.1（`9b93d34`）：`cx-gpt6astra-arith` 超时 5s/10s → 8s/15s。** 依据是站长把 astra 挂上 `saiai/cx/O-web` 后，12h 内 204 个样本有 58 个不可用且**全部**是 `response_timeout`（server/auth/network error 一个没有），同窗口横向对照 astra 20-28% vs gpt-5.6-sol 4.0% / 5.6-terra 5.2% / claude·gemini·glm 全族 0~0.45%，看起来是教科书式的「上游慢过 10s 被砍断」。
 
