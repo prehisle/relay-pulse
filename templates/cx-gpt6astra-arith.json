@@ -3,6 +3,7 @@
 	"model": "GPT-6-Astra",
 	"request_model": "gpt-6-astra",
 	"model_vendor": "openai",
+	"_comment": "GPT-6 Astra（2026-09-03 发布）探针，形态照 cx-gpt56-arith 只换模型串。**probe 段刻意是 8s/15s 而非本站 cx 线通用的 5s/10s**：2026-09-06 挂上首条通道（saiai/cx/O-Pro）后 12 小时实测 204 个样本里 58 个不可用，且 58 个**全部**是 response_timeout——server/auth/network error 一个没有，即上游在正常应答、只是慢过 10s 被探针砍断，可用率因此在 41%~99% 之间摆。同窗口横向对照：本模型超时率 28%，gpt-5.6-sol 4.0%、gpt-5.6-terra 5.2%、claude/gemini/glm 全族 0~0.45%，故排除监测机侧共因。另一个判据是分布形状——5~10s 的 slow_latency 带只有 3 个样本，说明是长尾而非蹭线抖动，收紧不到 10s 以内。8s/15s 取自 cc-opus-arith / cc-*-ping 族的既有档位，不新造阈值。⚠️ 这是**放宽**、不是治好：若日后 astra 上游稳定下来，超时率应回落到与 gpt-5.6-sol 同量级（个位数），届时可考虑收回 5s/10s；反之若 15s 也开始成片超时，那就不是超时线的问题、别再往上抬——放宽超时等于给可用性判定放水，本站的可用率是对外承诺的口径。⚠️ 绝不要为此去改共享模板 cx-gpt-arith（一锅端 30+ 通道），本模板是 astra 专属、当前只被 saiai/cx/O-Pro 引用。",
 	"url": "{{BASE_URL}}/v1/responses",
 	"method": "POST",
 	"headers": {
@@ -32,8 +33,8 @@
 		"success_contains": "{{EXPECTED_ANSWER}}"
 	},
 	"probe": {
-		"slow_latency": "5s",
-		"timeout": "10s",
+		"slow_latency": "8s",
+		"timeout": "15s",
 		"retry": 0
 	}
 }
