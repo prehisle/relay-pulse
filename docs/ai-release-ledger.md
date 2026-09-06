@@ -6,7 +6,17 @@
 
 ## 检查点（最新在最上）
 
-- **最后同步**: 2026-09-06（HEAD=`92157a3`，已发版 **v2.86.3**，⚠️ **主服务未部署也无需部署**）。**本轮只动 `notifier/` 子模块，主 relay-pulse 镜像内容与 v2.86.2 逐字节等价**——`fix` 类型触发 semantic-release 照常 bump 了主仓版本号，但那个版本里没有任何主服务改动。**生产主服务仍在 `ac34864`/v2.86.2 是正确状态，别照 `gh release list` 判断"落后一版"去部署。**
+- **最后同步**: 2026-09-06（HEAD=`a5014e7`，已发版 **v2.86.5** + **两台主机都已部署**）。**修告警把标识键当人话发出去**。
+
+  **症状**：Telegram 告警发的是 `saiai / cx / O-web` + `模型: GPT`，而站点同一行显示的是 `O-Pro` / `gpt-6-astra`。**根因不是通知截断，是它拿到的本来就是标识键**：`status_events` 只存 `(provider,service,channel,model)`，其中 `channel` 是通道标识（展示名 `channel_name` 只活在运行时配置里），`model` 是展示名兼 DB 业务键（cx 线为保历史连续性统一收敛成 `GPT`，真实模型在 `request_model`）。前端模型列早已改用 `shortenModelName(request_model)`（`utils/modelFilter.ts`），**只有事件/通知这条链路没跟上**。
+
+  **改法**：`/api/events` 读取时按运行时配置 join，附加 `channel_name` + `request_models[]` 两个 `omitempty` 加性字段（`buildChannelDisplayIndex`，不落库、无迁移、改配置即刻生效）。三条踩过的口径：① **索引键用配置原值不做大小写归一**——四元组唯一性本身就是原值比较，归一会把 `O-web`/`o-web` 这类合法的不同监测项折叠（codex 起初建议归一，被这条驳回）；② **`model` 两侧同步 trim**——loader 不 trim `model`，只单侧 trim 会让 join 静默落空、悄悄退回业务键（codex review 抓到的真缺陷）；③ `request_models` 取 `Meta["models"] ∪ model` 后逐个映射，与 notifier 既有取名口径一致。notifier 侧 `extractModels` 把 `RequestModels` 提为最高优先级并**独占**（混进 `Meta`/`Model` 会让 `gpt-6-astra` 和代号 `GPT` 同时出现在一条通知里），聚合器加平行集合否则多模型通道合并后只剩基准事件那一个模型。
+
+  **验证**：两模块全量测试绿；新增守卫全部 bite-test（临时破坏被保护代码确认变红）；跨服务 wire 契约两端各钉一测（`TestEventItemWireShape` ↔ `TestRenderFromRealWirePayload`，后者用前者真实 marshal 的字节）。**prod 实证**：monitor=`a5014e7` health/ready=200 `monitors=303`；`/api/events` 上 `saiai/cx/O-web model=GPT` → `channel_name=O-Pro` / `request_models=[gpt-6-astra]`，同通道另一层 `GPT-5.6` → `gpt-5.6-sol`（证明是逐层映射不是按通道猜）；notifier=`a5014e7` healthy、`telegram_enabled=true`、零 ERROR，真实事件日志出新字段 `models:["GPT"] rendered_models:["gpt-5.6-sol"]`。**回滚锚点**：monitor `rollback-20260906-events-display-pre`=ac34864、notifier `rollback-20260906-events-display-pre`=fd6f512。**无 schema、无迁移**，故未新做 DB 备份。
+
+  **顺带**：本轮把 notifier 从 `fd6f512` 一并推到 `a5014e7`（此前它落后的 `92157a3`/`fd6f512` 两版——playwright-go 模块迁移与浏览器空闲回收——也随之上生产，⚠️ Chromium 1.57.0→1.62.1，`/snap` 截图可能有像素级变化，见下方 v2.86.3 条目的「残」）。
+
+- 2026-09-06（HEAD=`92157a3`，已发版 **v2.86.3**，⚠️ **主服务未部署也无需部署**）。**本轮只动 `notifier/` 子模块，主 relay-pulse 镜像内容与 v2.86.2 逐字节等价**——`fix` 类型触发 semantic-release 照常 bump 了主仓版本号，但那个版本里没有任何主服务改动。**生产主服务仍在 `ac34864`/v2.86.2 是正确状态，别照 `gh release list` 判断"落后一版"去部署。**
 
   **内容：修好了恒红 2.5 个月的 notifier 镜像构建。** `notifier-docker.yml` 的 docker job 自 2026-08-24 起挂在 `playwright install`——**上游把 driver zip 分发面整个撤了**（经 `cdn.playwright.dev` 307 到微软网关后对 1.57.0~1.62.1 全返 400），同时 **`playwright-community/playwright-go` 仓库已改名 `mxschmitt/playwright-go`**（v0.6100.0 起 go.mod 声明新路径，旧路径封顶 v0.6000.0 而它仍打已死的 azureedge）。所以修法既不是设 `PLAYWRIGHT_DOWNLOAD_HOST`、也不是单纯升版本，而是**换模块路径 + 升 v0.6201.1**（v0.6100.0+ 改成从 npm registry 取 `playwright-core` + nodejs.org 取 Node 自组装）。防回退的理由写在 `notifier/Dockerfile` 注释里。
   **一处行为变化已处理**：新版 `Launch` 未指定超时时默认 30s→180s（对齐上游），而 `ensureInitialized` 全程持 `s.mu`，故 `service.go` 显式钉回 30s（实测容器内启动 238/289/254ms）。顺带 `go-jose/v3` 离开依赖图。
