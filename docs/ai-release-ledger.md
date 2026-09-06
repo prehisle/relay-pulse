@@ -6,7 +6,20 @@
 
 ## 检查点（最新在最上）
 
-- **最后同步**: 2026-09-06（HEAD=`610d762`，已发版 **v2.86.0** + **已部署生产**[prod git_commit=610d762、go1.27.1、health=200、`配置加载完成 monitors=303`、启动日志无 panic/hard-fail；回滚锚 `rollback-20260906`=部署前 b041257/v2.85.1；**无 schema、无迁移**（三份模板 JSON 的字段改动），故未新做 DB 备份]）。本轮把 **cx 线整体推到 gpt-5.6-sol** 并**整理自助收录选项**。前一天（9-05，热更新未发版）已先把 gpt-5.4 那批切走，两件事合起来看才完整。
+- **最后同步**: 2026-09-06（HEAD=`ac34864`，已发版 **v2.86.2** + **已部署生产**[prod git_commit=ac34864、go1.27.1、health=200、`配置加载完成 monitors=303`、`探测模板已刷新 variants=42`、启动日志无 panic/error；**同日三次部署三个锚点**：`rollback-20260906`=b041257/v2.85.1、`rollback-20260906-astra-pre`=610d762/v2.86.0、`rollback-20260906-astra15s`=9b93d34/v2.86.1；**无 schema、无迁移**（单份模板 JSON 的 probe 段），故未新做 DB 备份]）。本轮是一次**做了又退回的实验**，结论比改动本身值钱。
+
+  **v2.86.1（`9b93d34`）：`cx-gpt6astra-arith` 超时 5s/10s → 8s/15s。** 依据是站长把 astra 挂上 `saiai/cx/O-web` 后，12h 内 204 个样本有 58 个不可用且**全部**是 `response_timeout`（server/auth/network error 一个没有），同窗口横向对照 astra 20-28% vs gpt-5.6-sol 4.0% / 5.6-terra 5.2% / claude·gemini·glm 全族 0~0.45%，看起来是教科书式的「上游慢过 10s 被砍断」。
+
+  **v2.86.2（`ac34864`）：当天退回 5s/10s——放宽实测无效。** 取部署前后的逐次探测对照：
+
+      10s 闸: [1889,1977,2004,2036,2219,3644,4206,4471,10000,10005]
+      15s 闸: [1992,2090,2185,2788,3014,14999,14999]
+
+  成功样本全在 4.5s 以内，失败样本直接顶到当时设的天花板，**4.5s 到 15s 之间零样本**；超时率 20%→29%，一个红都没转绿。**这些请求不是慢，是挂死**，抬天花板只让注定失败的探针多占 5s。
+  ⚠️ **推论要记住：别再往上抬到 30s/60s**——双峰形态说明挂死那一支不会在可接受时间内返回，且 30s 才回的探针对真实用户本就等同不可用；放宽超时=给可用性判定放水。这 ~25% 的红是关于 astra 上游的**真实可用性信号**，不是探针假阳。
+  ⚠️ **方法论教训（比这次改动本身更值钱）**：判据其实早就在手上却被读漏了——放宽前那 12h 里 `slow_latency`（5–10s 带）只有 3 个而 `response_timeout` 有 58 个。**「中间带几乎没有样本」= 双峰 = 阈值不是瓶颈**。以后调任何阈值（超时/慢速线/重试/限流窗）前，先取**逐次原始读数**看有没有连续过渡带，别只看聚合率就动手。
+
+- 2026-09-06（HEAD=`610d762`，已发版 **v2.86.0** + **已部署生产**[prod git_commit=610d762、go1.27.1、health=200、`配置加载完成 monitors=303`、启动日志无 panic/hard-fail；回滚锚 `rollback-20260906`=部署前 b041257/v2.85.1；**无 schema、无迁移**（三份模板 JSON 的字段改动），故未新做 DB 备份]）。本轮把 **cx 线整体推到 gpt-5.6-sol** 并**整理自助收录选项**。前一天（9-05，热更新未发版）已先把 gpt-5.4 那批切走，两件事合起来看才完整。
 
   **① 9-05 热更新：主板+备板 19 个 gpt-5.4 通道换模板 `cx-gpt54-arith`→`cx-gpt56-arith`**（改 monitors.d，**不发版**）。19 个里 16 个 monitor 写了 `model: GPT` 覆盖 → display 不变 → 业务键不变 → 零迁移；3 个（callai/o-team-gpt、omniakey/o-pro-main、vbcoding/o-pro-main）display 随模板 `GPT-5.4`→`GPT-5.6`，走 `/rpmigrate` 单事务 relabel 27326 `probe_history` + 895 `status_events` + 3 `service_states`（回滚锚 `ops_mig_gpt56_*_backup` 四张表）。冷板 38 个按站长指定范围没动。
   **两条只有实跑才知道的事**：**`monitor_overrides` 是 AutoMover 内存态的派生快照**（`purgeStaleOverrides` + `ReplaceMonitorOverrides` 全表覆写），热更新那一秒它自己就把 omniakey 的 override 从旧键搬到新键、`sponsor_level='pulse'` 完整保留，**不需要也不该手工 relabel**；撞键守卫必须写成「新旧两行并存才 RAISE」，写成「存在新行就 RAISE」会在正常终态误报打回整个事务（第一版就栽在这，白跑一次 27k 行 UPDATE）。另：**PK 含 model 的表要先拿独占锁再做整行备份**，否则并发 upsert 插进来的行会被 dedup 删掉却不在备份里。两条已写进 `/rpmigrate`。
@@ -16,7 +29,8 @@
   **验证走的是等价性而非 verify-live**：改后的 `cx-gpt-arith` 与**已在生产跑绿 23 个通道**的 `cx-gpt56-arith` 逐字段相同（仅差 display 名与自助字段），线格式已被生产证明；且切换前已用完全相同的报文对全部 32 个 base_url 打过 live 预检。`go build ./... && go test ./...` 全绿。
   ⚠️ **预检口径的一个坑（我踩了）**：探针出口**不走代理**——走的是 **monitor 级** `cfg.Proxy`（`internal/monitor/probe.go:154`），生产通道该字段为空 → `createTransport("")` 回退 `ProxyFromEnvironment` 而容器无 proxy 环境变量 → **直连、出口是监测机自己**。config.yaml 顶层那个 `socks5://` 挂在 **`github:`** 段下是公告轮询用的，**不是探针代理**；9-05 那次按 `^  proxy:` 抓字段抓到了它，19 次预检全走了另一个出口 IP。结论没被带偏，但**凡涉及 IP 白名单类判断按错口径必错**。
   **预期内的红**：`AIMZ/cx`（913ms 快失败，`分组 cx-test 下模型 gpt-5.6-sol 无可用渠道`）、`100x/o-pro`（`not supported by any configured account in this group`）、`wanmoapi/o-pro-main`（5.6 挂起 30s）——预检已逐条预见，按「同一模型打所有家才有可比性、没跟上最新模型本身就是信息」处理（站长拍板，与 04-25 先例一致）。`codexapi/o-team-main` 两个模型都挂（`API Key 所属分组已停用`），与本轮无关。
-  ⚠️ **要盯的一件事**：`ikunapi/o-plus` 与 `ylai/o-plus-main` 部署后 10s 超时变红，但**预检时分别是 4.4s / 3.1s**；预检里还见到 `nodexi` 24.3s、`subarx` 9.4s。**gpt-5.6-sol 在部分中转商上明显比 5.5 慢，正蹭着模板 10s 超时线**。**刻意没放宽超时**（放宽=给可用性判定放水，与 gpt-6-astra 那次同一处置）；若演变成成片假红再退到 8s/15s（`cc-opus-arith` 有先例）。
+  ⚠️ **要盯的一件事**：`ikunapi/o-plus` 与 `ylai/o-plus-main` 部署后 10s 超时变红，但**预检时分别是 4.4s / 3.1s**；预检里还见到 `nodexi` 24.3s、`subarx` 9.4s。**gpt-5.6-sol 在部分中转商上明显比 5.5 慢，正蹭着模板 10s 超时线**。**刻意没放宽超时**（放宽=给可用性判定放水）。
+  ⚠️ **9-06 补记，订正上面这条的处置建议**：原写「若演变成成片假红再退到 8s/15s」——**同日在 gpt-6-astra 上实测证伪了这个动作的有效性**（见 v2.86.1/v2.86.2 条目：延迟双峰，放宽一个红都没转绿）。gpt-5.6-sol 当天量化为超时率 **4.0%**（31 条通道 ~6h），是其他家族的 10 倍但远没到成片，**维持 5s/10s**。真要动阈值前先取逐次原始读数看分布形状，别按「蹭线」的直觉改。
 
 - **上一同步**: 2026-09-05（HEAD=`b041257`，已发版 **v2.85.1** + **已部署生产**[prod git_commit=b041257、go1.27.1、health/ready=200、`配置加载完成 monitors=305`、`探测模板已刷新 variants=42 defaults="cc=cc-haiku-arith cx=cx-gpt-arith gm=gm-flash-arith"`、启动日志无 panic/error；**同日两次部署两个锚点**：`rollback-20260905-gpt6astra-pre`=部署前 4bf84d4/v2.84.1、`rollback-20260905-helmet-pre`=26e06dd/v2.85.0；**无 schema、无迁移**（一份新探针模板 + 两行前端字符串），故未新做 DB 备份]）。本轮两件事：**新增 gpt-6-astra 探针模板**（`26e06dd`/v2.85.0）+ **修两页空 title**（`b041257`/v2.85.1）；同时把积压 4 版的 v2.84.1→v2.84.2 一起带上了生产（含 9-02 合入的 react-router-dom 7 与 react-helmet-async 3 两个大版本）。
 
