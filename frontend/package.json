@@ -25,7 +25,7 @@
     "country-flag-icons": "^1.6.20",
     "i18next": "^26.4.0",
     "i18next-browser-languagedetector": "^8.2.1",
-    "lucide-react": "^0.577.0",
+    "lucide-react": "^1.40.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-helmet-async": "^3.0.0",
