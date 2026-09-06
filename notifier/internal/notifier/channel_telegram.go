@@ -29,7 +29,7 @@ func (c *telegramChannel) FormatMessage(event *poller.Event) string {
 	// 转义 HTML 防止注入
 	provider := html.EscapeString(event.Provider)
 	service := html.EscapeString(event.Service)
-	channel := html.EscapeString(event.Channel)
+	channel := html.EscapeString(displayChannel(event))
 
 	location := fmt.Sprintf("<b>%s</b> / <b>%s</b>", provider, service)
 	if channel != "" {

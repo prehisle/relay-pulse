@@ -30,7 +30,10 @@ type eventAggregate struct {
 	firstAt time.Time           // 首个事件到达时间
 	timer   *time.Timer         // 聚合窗口定时器
 	base    *poller.Event       // 基准事件（用于构建通知）
-	models  map[string]struct{} // 收集的所有 model
+	models  map[string]struct{} // 收集的所有 model 业务键
+	// rendered 收集各事件已解析出的展示模型名（正常情况下是真实请求模型 ID）。
+	// 必须与 models 平行收集：只从基准事件取会丢掉同窗口内后续事件的模型。
+	rendered map[string]struct{}
 }
 
 // Sender 通知发送器（多平台）
@@ -200,15 +203,20 @@ func (s *Sender) HandleEvent(ctx context.Context, event *poller.Event) error {
 
 	now := time.Now()
 
+	// 在锁外解析展示模型名：纯函数、只读 event，没必要占着 aggMu
+	rendered := extractModels(event)
+
 	s.aggMu.Lock()
 	agg := s.aggBuf[key]
 	if agg == nil {
 		// 首个事件：创建聚合缓冲区并启动定时器
+		// 注意是浅拷贝，Meta 等引用类型仍与原事件共享，flush 时再各自复制
 		baseCopy := *event
 		agg = &eventAggregate{
-			firstAt: now,
-			base:    &baseCopy,
-			models:  make(map[string]struct{}),
+			firstAt:  now,
+			base:     &baseCopy,
+			models:   make(map[string]struct{}),
+			rendered: make(map[string]struct{}),
 		}
 		agg.timer = time.AfterFunc(s.aggWindow, func() {
 			s.flushAggregate(key)
@@ -228,9 +236,53 @@ func (s *Sender) HandleEvent(ctx context.Context, event *poller.Event) error {
 	if model := strings.TrimSpace(event.Model); model != "" {
 		agg.models[model] = struct{}{}
 	}
+	for _, model := range rendered {
+		agg.rendered[model] = struct{}{}
+	}
 	s.aggMu.Unlock()
 
 	return nil
+}
+
+// mergedEvent 由基准事件与窗口内收集到的模型集合构建待发送事件。
+// 抽成方法而非内联在 flushAggregate 里，是为了让「多事件合并成一条通知」
+// 这段逻辑能脱离 storage 与发送链路单测。
+func (agg *eventAggregate) mergedEvent() poller.Event {
+	models := sortedNonEmpty(agg.models)
+	rendered := sortedNonEmpty(agg.rendered)
+
+	merged := *agg.base
+
+	// base 是浅拷贝，Meta 仍与原事件共享，写入前先复制一份
+	metaCopy := make(map[string]any, len(merged.Meta)+1)
+	for k, v := range merged.Meta {
+		metaCopy[k] = v
+	}
+	merged.Meta = metaCopy
+	if len(models) > 0 {
+		merged.Meta["models"] = models
+	}
+
+	// 基准事件只带自己那一个模型，这里换成整个窗口的并集；
+	// 窗口内一个都没解析出来时留 nil，让 extractModels 照旧回退到 Meta / Model。
+	merged.RequestModels = nil
+	if len(rendered) > 0 {
+		merged.RequestModels = rendered
+	}
+
+	return merged
+}
+
+// sortedNonEmpty 返回集合中非空白元素的字典序切片。
+func sortedNonEmpty(set map[string]struct{}) []string {
+	out := make([]string, 0, len(set))
+	for s := range set {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // flushAggregate 刷新聚合缓冲区，发送合并后的通知
@@ -247,37 +299,15 @@ func (s *Sender) flushAggregate(key aggregateKey) {
 	}
 	s.aggMu.Unlock()
 
-	// 收集并排序 models
-	models := make([]string, 0, len(agg.models))
-	for m := range agg.models {
-		if strings.TrimSpace(m) != "" {
-			models = append(models, m)
-		}
-	}
-	sort.Strings(models)
-
-	// 构建合并后的事件
-	merged := *agg.base
-	if merged.Meta == nil {
-		merged.Meta = make(map[string]any)
-	} else {
-		// 深拷贝 Meta 防止并发问题
-		metaCopy := make(map[string]any, len(merged.Meta)+1)
-		for k, v := range merged.Meta {
-			metaCopy[k] = v
-		}
-		merged.Meta = metaCopy
-	}
-	if len(models) > 0 {
-		merged.Meta["models"] = models
-	}
+	merged := agg.mergedEvent()
 
 	slog.Info("事件聚合完成",
 		"provider", key.Provider,
 		"service", key.Service,
 		"channel", key.Channel,
 		"type", key.EventType,
-		"models", models,
+		"models", merged.Meta["models"],
+		"rendered_models", merged.RequestModels,
 	)
 
 	// 获取发送用的 context
@@ -474,8 +504,20 @@ func (s *Sender) sendNotification(ctx context.Context, delivery *storage.Deliver
 	}
 }
 
+// displayChannel 返回通知里该用的通道名：优先 API 富化出的展示名，
+// 缺省时回退到通道标识（历史事件、通道已下架、或对端是旧版 relay-pulse）。
+func displayChannel(event *poller.Event) string {
+	if event == nil {
+		return ""
+	}
+	if name := strings.TrimSpace(event.ChannelName); name != "" {
+		return name
+	}
+	return event.Channel
+}
+
 // extractModels 从事件中提取所有 model 信息
-// 优先从 Meta["models"] 读取（聚合后的事件），回退到 event.Model（单个事件）
+// 优先级：RequestModels > Meta["models"] ∪ event.Model
 func extractModels(event *poller.Event) []string {
 	if event == nil {
 		return nil
@@ -483,6 +525,29 @@ func extractModels(event *poller.Event) []string {
 
 	seen := make(map[string]struct{})
 	var models []string
+
+	// RequestModels 是 API 端按运行时配置映射出的真实请求模型 ID，服务端已按
+	// 「Meta["models"] ∪ Model」同一口径取过并集并去重，故命中即返回、不再并入
+	// 下面两个来源——否则 gpt-6-astra 会和它的业务键 GPT 一起出现在同一条通知里。
+	if len(event.RequestModels) > 0 {
+		for _, m := range event.RequestModels {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				continue
+			}
+			if _, exists := seen[m]; exists {
+				continue
+			}
+			seen[m] = struct{}{}
+			models = append(models, m)
+		}
+		if len(models) > 0 {
+			if len(models) > 1 {
+				sort.Strings(models)
+			}
+			return models
+		}
+	}
 
 	// 从 Meta["models"] 读取（聚合后的事件会设置这个字段）
 	if event.Meta != nil {

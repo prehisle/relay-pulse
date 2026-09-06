@@ -17,19 +17,25 @@ import (
 
 // Event 状态变更事件（来自 relay-pulse /api/events）
 // 字段与 internal/api/events_handler.go EventItem 保持一致
+//
+// ⚠️ Channel 与 Model 是标识键不是人话名：Channel 是通道标识（O-web）、Model 是
+// 展示名兼 DB 业务键（GPT）。站点上显示的那两个串由 API 端 join 运行时配置后
+// 经 ChannelName / RequestModels 下发，本服务只负责优先渲染它们、缺省时回退。
 type Event struct {
 	ID              int64          `json:"id"`
 	Provider        string         `json:"provider"`
 	Service         string         `json:"service"`
 	Channel         string         `json:"channel,omitempty"`
 	Model           string         `json:"model,omitempty"`
-	Type            string         `json:"type"`              // DOWN 或 UP
-	FromStatus      int            `json:"from_status"`       // 变更前状态
-	ToStatus        int            `json:"to_status"`         // 变更后状态
-	TriggerRecordID int64          `json:"trigger_record_id"` // 触发记录ID
-	ObservedAt      int64          `json:"observed_at"`       // 事件发生时间（Unix秒）
-	CreatedAt       int64          `json:"created_at"`        // 记录创建时间
-	Meta            map[string]any `json:"meta,omitempty"`    // 附加信息
+	ChannelName     string         `json:"channel_name,omitempty"`   // 通道展示名（缺省时回退 Channel）
+	RequestModels   []string       `json:"request_models,omitempty"` // 实际请求的模型 ID（缺省时回退 Model）
+	Type            string         `json:"type"`                     // DOWN 或 UP
+	FromStatus      int            `json:"from_status"`              // 变更前状态
+	ToStatus        int            `json:"to_status"`                // 变更后状态
+	TriggerRecordID int64          `json:"trigger_record_id"`        // 触发记录ID
+	ObservedAt      int64          `json:"observed_at"`              // 事件发生时间（Unix秒）
+	CreatedAt       int64          `json:"created_at"`               // 记录创建时间
+	Meta            map[string]any `json:"meta,omitempty"`           // 附加信息
 }
 
 // EventsResponse /api/events 响应

@@ -23,8 +23,8 @@ func (c *qqChannel) FormatMessage(event *poller.Event) string {
 	emoji, statusText := resolveStatusLabel(event)
 
 	location := fmt.Sprintf("%s / %s", event.Provider, event.Service)
-	if event.Channel != "" {
-		location += fmt.Sprintf(" / %s", event.Channel)
+	if channel := displayChannel(event); channel != "" {
+		location += fmt.Sprintf(" / %s", channel)
 	}
 
 	var modelLine string
