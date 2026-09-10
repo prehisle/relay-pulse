@@ -7,6 +7,7 @@ import { ExternalLink } from '../ExternalLink';
 import { FavoriteButton } from '../FavoriteButton';
 import { AnnotationCell } from '../annotations';
 import { VendorBadge } from '../VendorBadge';
+import { ColdReasonNote } from '../ColdReasonNote';
 import { ChannelCell } from './ChannelCell';
 import { getModelDisplayList, getModelTooltip } from './modelNames';
 import { QualityScoreCell, shouldShowQualityPending } from '../quality';
@@ -139,15 +140,18 @@ export function StatusTableRow({
         </span>
       </td>
       <td className="px-1.5 py-1 text-secondary text-xs">
-        <ChannelCell
-          channel={item.channelName || item.channel}
-          probeUrl={item.probeUrl}
-          templateName={item.templateName}
-          coldReason={item.coldReason}
-          boardReason={item.boardReason}
-          boardReasonModels={item.boardReasonModels}
-          className="max-w-[10rem]"
-        />
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <ChannelCell
+            channel={item.channelName || item.channel}
+            probeUrl={item.probeUrl}
+            templateName={item.templateName}
+            coldReason={item.coldReason}
+            boardReason={item.boardReason}
+            boardReasonModels={item.boardReasonModels}
+            className="max-w-[10rem]"
+          />
+          <ColdReasonNote board={item.board} reason={item.coldReason} className="max-w-[10rem]" />
+        </div>
       </td>
       <td className="px-1.5 py-1 text-secondary text-xs max-w-[14rem]">
         {(() => {

@@ -12,6 +12,7 @@ import { formatPriceRatioStructured } from '../utils/format';
 import { aggregateHeatmap } from '../utils/heatmapAggregator';
 import { getCachedServiceIcon } from './serviceIconCache';
 import { VendorBadge } from './VendorBadge';
+import { ColdReasonNote } from './ColdReasonNote';
 import { AnnotationCell } from './annotations';
 import { hasAnyAnnotation } from '../utils/annotationUtils';
 import type { ProcessedMonitorData } from '../types';
@@ -155,6 +156,8 @@ function StatusCardComponent({
                 </span>
               )}
             </div>
+            {/* 卡片视图此前连 tooltip 都没有冷板原因（ChannelCell 是表格专用），这是它唯一的出口 */}
+            <ColdReasonNote board={item.board} reason={item.coldReason} className="mt-1 max-w-full" />
           </div>
         </div>
 

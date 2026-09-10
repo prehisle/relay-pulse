@@ -8,6 +8,7 @@ import { ExternalLink } from '../ExternalLink';
 import { FavoriteButton } from '../FavoriteButton';
 import { AnnotationCell } from '../annotations';
 import { VendorBadge } from '../VendorBadge';
+import { ColdReasonNote } from '../ColdReasonNote';
 import { ChannelCell } from './ChannelCell';
 import { getModelDisplayList, getModelTooltip } from './modelNames';
 import { QualityScoreCell, shouldShowQualityPending } from '../quality';
@@ -218,6 +219,8 @@ function MobileListItem({
                 </span>
               )}
             </div>
+            {/* 冷板原因另起一行：上面那行已挤着通道名/模型/厂商/收录天数，塞进去只会把它们一起挤成省略号 */}
+            <ColdReasonNote board={item.board} reason={item.coldReason} className="mt-0.5 max-w-full" />
           </div>
         </div>
 
