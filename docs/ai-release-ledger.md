@@ -6,7 +6,27 @@
 
 ## 检查点（最新在最上）
 
-- **最后同步**: 2026-09-11（HEAD=`b3993f0`，已发版 **v2.89.0** + **监测服务器已部署**）。**`content_mismatch` 摘要结构化 + `cc-opus-ping` 启用内容校验。**
+- **最后同步**: 2026-09-11（HEAD=`2fb6202`，已发版 **v2.89.1** + **监测服务器已部署**）。**内容校验只认模型正文——思考摘要与协议信封不再算数。**
+
+  这是同日 v2.89.0 那条「摘要结构化」留下的第二步，**全是判定变更**。
+
+  **要修的假绿**：OpenAI Responses 协议把正文与**思考摘要**放在同名同型的字段里——`response.output_text.delta` 与 `response.reasoning_summary_text.delta` 都是顶层字符串 `delta`，`.done` 那对都是顶层 `text`。旧实现一视同仁地累加，于是「模型只在思考里写出答案、正文一个字没输出」也判绿。**污染的主入口不是 delta 分支，是顶层 `text` 那个 `b.Len() == 0` 兜底**：8 条火山方舟 native 通道实测里，reasoning 的 `.done` 恰好排在正文事件**之前**，把当时还空的 builder 填满，抽到的「正文」整段都是思考摘要（`We need answer only with RP_ANSWER=127. Need ensure no spaces…`）。
+
+  **三条一起改，缺一条就是假修复**（这点是 codex 的功劳，我原打算把第三条推迟）：① 顶层 `delta` / `text` 改由事件类型授权，未知事件类型一律不贡献正文；② 补齐 Responses 的缓冲投递形态（`completed` / `output_item.done` / `content_part.done`），按来源分桶后**取最高优先级的非空桶、绝不跨桶拼接**（同一份正文会被投递五种形态，旧的「先到先得」既会重复累加、也会让半截增量挡住完整快照）；③ SSE 抽不到正文时不再回退整包响应体——**不做③的话，①过滤掉的思考摘要会从整包 grep 里绕回来**。作用域必须精确到「`looksLikeSSE` 为真却抽不到」这一支：实测 33 条走 raw 回退的样本里 **32 条是非 SSE 错误体**（401/429/503），那里 raw 是正确的匹配对象。
+
+  **顺带拆了一处重复**：`AggregateResponseText` 此前同时服务于「匹配」与「展示」两种相反语义，三个调用点各自手写 `if snippet == "" { snippet = string(body) }` 找补，`internal/probe/inline.go` 那处漏写——管理后台点一次探测就看不到上游错误。现拆成 `AggregateResponseText`（匹配，抽不到即空）与 `ResponseSnippetText`（展示，抽不到退回原文）。
+
+  **判定的证据是真实响应体，不是构造用例**：对生产活跃通道各打一次真实探测采到 **111 份完整响应体**（85 条 cx + 26 条 cc/gm），离线跑新旧两套逻辑对比 —— **绿转红 0、红转绿 0**；11 条抽取文本变干净（8 条清掉思考摘要污染、2 条不再把上游错误信封当正文、1 条 Anthropic 流只出 thinking 不出正文）。同一批样本还回答了三个只有真数据能回答的问题：「无 type 无 `event:` 的顶层字符串 delta」**0 条**（codex 称之为白名单唯一重要的兼容风险，实测不存在）、`response.completed` 快照 **49 条全是 `status=completed`**、非 JSON payload **0 条**。另用真实 ark 样本剥掉正文事件构造出 reasoning-only 流，确认**旧实现判绿、新实现判红**——假绿不是理论。
+
+  **codex review 抓到三处真问题**（均已修，各自先用那 111 份样本验过零代价）：① 「未知事件不贡献正文」这条原则原本只对顶层字段成立，嵌套 `delta.text` / `choices` / `candidates` 三条结构分派在白名单之前无条件收集，`{"type":"codex.future","delta":{"text":"…"}}` 能借它们绕过 → 加一道弱事件门（类型为空、或恰是 Anthropic 的 `content_block_delta`）；② `completed` 快照在 pick 里优先级最高，残缺快照会盖掉完整 delta → 明确标着 incomplete/failed 的不采纳（`status` 缺失时仍采纳，不为一个可选字段的缺席误红）；③ 一处不对称——完整的 `{"type":"error","message":…}` 被事件类型挡住，一旦传输中被截断反而解析失败、整段混进正文 → 非 JSON 分支排除以 `{` / `[` 开头的 payload。**它还抓到一条我写错的注释**（原文称 error 信封「会走到私有格式兜底分支」，实际它 type 非空、根本进不去）。**不采纳的两条**：它主张固定打印 `matched_against=none`（我保留动态取 source，理由是语义漂移时它自动跟上、写死会静默说谎）；它说「片段 trim 完什么都不剩时只有首行」不成立（`excerptLine` 在 `display == ""` 时确实返回空串，那句是条件句、成立）。
+
+  **验证**：`go test ./internal/...` 17 个包全绿；**9 处 bite-test 全部确认守卫非真空**（破坏事件白名单的 delta 与 text 两个方向、复活 raw 回退、让事件作用域粘滞、去掉展示兜底、把 pick 改成跨桶拼接、拆掉三道新门），每次都写回原文而非 `git checkout`。**prod 实证**：`git_commit=2fb6202`、health/ready=200、`配置加载完成 monitors=309`、`调度器已启动`、`探测模板已刷新 variants=41`、无 panic。部署后 8 条「抽取文本确实变了」的通道逐条复核——ark 五条各 2 次、autocodex 2 次、ishfca 1 次**全部判绿**（唯一的 doubao `slow_latency` 是延迟不是内容）；日志里 100x 那条 401 的展示片段正常显示上游错误，证明 `ResponseSnippetText` 的展示语义在生产上工作。`content_mismatch` 占比部署前 78/2422=3.22%、部署后 4/148=2.70%，**没有上升**；新出现的 `cheapai/cx/o-pro-main` 一条经查是模型只吐了一个空格（`"content":[{"type":"output_text","text":" "}]`），且该通道 **00:50（部署前）就红过一次**，与本次改动无关。**回滚锚点** `rollback-20260911-ssetext-pre`=`b3993f0`。**无 schema、无迁移、不写任何表**，故未新做 DB 备份。
+
+  ⚠️ **对比窗口不等长**：上面那个 `content_mismatch` 占比里 after 只覆盖 8 分钟 / 148 个样本（且部署后有约 12 分钟的 startup 错峰缺口），before 是 2 小时。方向可信、精度不可信，按 `feedback_compare_same_time_window` 该在同时段满窗后复核一次。
+
+  **残**：Scanner 超长行错误被忽略（抽到一半的正文会静默返回）、SSE 多行 `data:` 未按帧合并（实测 1 条 callai 命中）、`looksLikeSSE` 仍是启发式——三项本轮明确不做，各自都是独立的行为变更、要各做一次绿转红审计。
+
+- 2026-09-11（HEAD=`b3993f0`，已发版 **v2.89.0** + **监测服务器已部署**）。**`content_mismatch` 摘要结构化 + `cc-opus-ping` 启用内容校验。**
 
   一次 push 里两件独立的事，**只有后者是判定变更**。
 
