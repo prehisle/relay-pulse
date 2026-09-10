@@ -805,21 +805,26 @@ func looksLikeSSE(body []byte) bool {
 	return bytes.HasPrefix(body, []byte("data:")) || bytes.Contains(body, []byte("\ndata:"))
 }
 
-// OpenAI Responses 协议里承载正文的事件。这几个名字必须显式列出：该协议把正文与
-// **思考摘要**放在同名同型的字段里（顶层 `delta` / 顶层 `text`），只看字段分不出来。
+// 承载模型正文的事件名。必须显式列出：Responses 协议把正文与**思考摘要**放在同名
+// 同型的字段里（顶层 `delta` / 顶层 `text`），只看字段形状分不出来。
 const (
+	// OpenAI Responses 协议
 	eventOutputTextDelta   = "response.output_text.delta"
 	eventOutputTextDone    = "response.output_text.done"
 	eventContentPartDone   = "response.content_part.done"
 	eventOutputItemDone    = "response.output_item.done"
 	eventResponseCompleted = "response.completed"
+
+	// Anthropic Messages 协议。它的正文只出现在这一个事件里
+	// （message_delta 的 delta 装的是 stop_reason，没有 text）。
+	eventContentBlockDelta = "content_block_delta"
 )
 
 // sseTextCandidates 按来源分桶收集正文候选。
 //
 // 为什么不能像 2026-09-11 之前那样边扫边往同一个 builder 里写：Responses 协议会把
-// 同一份正文重复投递三到四次（delta 增量 / output_text.done / content_part.done /
-// output_item.done / completed 快照），混在一起就是同一句话被拼四遍；而「先到先得」
+// 同一份正文分五种形态重复投递（delta 增量 / output_text.done / content_part.done /
+// output_item.done / completed 快照），混在一起就是同一句话被拼好几遍；而「先到先得」
 // （旧代码的 `b.Len() == 0`）又会让先到的半截 delta 挡住后到的完整快照。
 // 分桶 + 只取一个，两个方向的错都不会发生。
 type sseTextCandidates struct {
@@ -829,9 +834,10 @@ type sseTextCandidates struct {
 	textDone  strings.Builder // response.output_text.done
 	textDelta strings.Builder // response.output_text.delta（增量，按到达顺序拼接）
 
-	// nonResponses 装**不属于 Responses 协议**的形态：Anthropic content_block_delta、
-	// OpenAI Chat chunk、Gemini candidates，以及无事件类型的私有格式。
-	// 它们靠字段结构就能唯一识别，不需要（也拿不到）事件授权。
+	// nonResponses 装 Responses 之外的协议：Anthropic content_block_delta、
+	// OpenAI Chat chunk、Gemini candidates，以及无事件类型的私有纯文本格式。
+	// 它们**主要**靠字段结构识别，另受一道弱事件门（见写入处），
+	// 以免未知私有事件借嵌套结构绕过 Responses 白名单。
 	nonResponses strings.Builder
 }
 
@@ -901,9 +907,14 @@ func ExtractTextFromSSE(body []byte) string {
 
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(payload), &obj); err != nil {
-			// 私有非 JSON 格式：只有本帧完全没有事件类型时才当正文。
-			// 带着事件名却解不出 JSON 的，是已知协议的畸形帧，不该混进正文。
-			if event == "" {
+			// 私有的**纯文本** SSE 格式（`data: RP_ANSWER=127` 这种）仍当正文，
+			// 但要同时排掉两类冒牌货：
+			//   ① 带事件名的——那属于某个已知协议，正文该由该协议的规则决定；
+			//   ② 看起来是 JSON 却解不出来的——那是被截断/损坏的结构化 payload。
+			// ② 这道门补的是一处真实的不对称：`{"type":"error","message":"…"}` 完整时
+			// 会被事件类型挡住，一旦在传输中被截断反而解析失败、整段错误体混进正文。
+			// 判据用首字符而非「解析失败」本身——纯文本正文不会以 { 或 [ 开头。
+			if event == "" && !looksLikeJSON(payload) {
 				if cand.nonResponses.Len() > 0 {
 					cand.nonResponses.WriteByte(' ')
 				}
@@ -919,62 +930,73 @@ func ExtractTextFromSSE(body []byte) string {
 			}
 		}
 
-		// —— 以下三种靠字段结构即可唯一识别，不属于 Responses 协议，无需事件授权 ——
-
-		// Anthropic: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
-		if delta, ok := obj["delta"].(map[string]any); ok {
-			if text, ok := delta["text"].(string); ok {
-				cand.nonResponses.WriteString(text)
-			}
-		}
-
-		// OpenAI Chat: {"choices":[{"delta":{"content":"..."}}]}
-		if choices, ok := obj["choices"].([]any); ok {
-			for _, ch := range choices {
-				chMap, ok := ch.(map[string]any)
-				if !ok {
-					continue
-				}
-				delta, ok := chMap["delta"].(map[string]any)
-				if !ok {
-					continue
-				}
-				if text, ok := delta["content"].(string); ok {
+		// —— 以下三种靠字段结构识别，属于 Responses 之外的协议 ——
+		//
+		// 它们仍受一道**弱**事件门：类型为空（OpenAI Chat chunk 与 Gemini 本来就不带
+		// type，也没有 event: 行）或恰是 Anthropic 的 content_block_delta 才采纳。
+		// 没有这道门，`{"type":"codex.future","delta":{"text":"…"}}` 这类未来才出现的
+		// 私有事件会绕过下面的 Responses 白名单，把非正文写进正文桶——「未知事件不
+		// 贡献正文」那条原则就只对顶层字段成立、对嵌套结构不成立了。
+		// 111 份真实样本里「带 type 且非 content_block_delta、却携嵌套正文结构」为 0 条，
+		// 故这道门当前零兼容代价。
+		if event == "" || event == eventContentBlockDelta {
+			// Anthropic: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
+			if delta, ok := obj["delta"].(map[string]any); ok {
+				if text, ok := delta["text"].(string); ok {
 					cand.nonResponses.WriteString(text)
 				}
 			}
-		}
 
-		// Gemini: {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
-		if candidates, ok := obj["candidates"].([]any); ok {
-			for _, c := range candidates {
-				cm, ok := c.(map[string]any)
-				if !ok {
-					continue
-				}
-				content, ok := cm["content"].(map[string]any)
-				if !ok {
-					continue
-				}
-				parts, ok := content["parts"].([]any)
-				if !ok {
-					continue
-				}
-				for _, p := range parts {
-					pm, ok := p.(map[string]any)
+			// OpenAI Chat: {"choices":[{"delta":{"content":"..."}}]}
+			if choices, ok := obj["choices"].([]any); ok {
+				for _, ch := range choices {
+					chMap, ok := ch.(map[string]any)
 					if !ok {
 						continue
 					}
-					if text, ok := pm["text"].(string); ok {
+					delta, ok := chMap["delta"].(map[string]any)
+					if !ok {
+						continue
+					}
+					if text, ok := delta["content"].(string); ok {
 						cand.nonResponses.WriteString(text)
+					}
+				}
+			}
+
+			// Gemini: {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
+			if candidates, ok := obj["candidates"].([]any); ok {
+				for _, c := range candidates {
+					cm, ok := c.(map[string]any)
+					if !ok {
+						continue
+					}
+					content, ok := cm["content"].(map[string]any)
+					if !ok {
+						continue
+					}
+					parts, ok := content["parts"].([]any)
+					if !ok {
+						continue
+					}
+					for _, p := range parts {
+						pm, ok := p.(map[string]any)
+						if !ok {
+							continue
+						}
+						if text, ok := pm["text"].(string); ok {
+							cand.nonResponses.WriteString(text)
+						}
 					}
 				}
 			}
 		}
 
 		// —— 以下是 Responses 协议：字段本身有歧义，一律由事件类型授权 ——
-		// 未知事件类型（含将来新增的 codex.* / responsesapi.* 一类私有事件）
-		// 走 default：不贡献任何正文。宁可抽不到判红，也不能把非正文当正文判绿。
+		// 未知事件类型（含将来新增的 codex.* / responsesapi.* 一类私有事件）在这里
+		// 走 default，在上面那道弱事件门也进不去 nonResponses——**两条路都不贡献
+		// 正文**，这条原则因此对顶层字段与嵌套结构同时成立。
+		// 宁可抽不到判红，也不能把非正文当正文判绿。
 		switch event {
 		case eventOutputTextDelta:
 			if delta, ok := obj["delta"].(string); ok {
@@ -991,7 +1013,14 @@ func ExtractTextFromSSE(body []byte) string {
 				appendContentTexts(item["content"], &cand.itemDone)
 			}
 		case eventResponseCompleted:
+			// ⚠️ 只认 status=completed 的快照。它在 pick 里优先级最高，若上游发来的是
+			// incomplete/failed 的**残缺**快照，采纳它就会盖掉本来完整的 delta，
+			// 把一次成功的探测判成红。实测 49 条 completed 快照全是 status=completed，
+			// 故这道门当前零代价；它防的是残缺快照压过完整增量这一类误红。
 			if response, ok := obj["response"].(map[string]any); ok {
+				if status, ok := response["status"].(string); ok && status != "completed" {
+					break
+				}
 				if output, ok := response["output"].([]any); ok {
 					for _, rawItem := range output {
 						item, ok := rawItem.(map[string]any)
@@ -1005,9 +1034,9 @@ func ExtractTextFromSSE(body []byte) string {
 		}
 
 		// 私有格式的顶层正文字段：同样只在本帧没有事件类型时采纳。
-		// 实测 `{"type":"error","message":"Our servers are currently overloaded…"}`
-		// 会走到这里——那是上游错误信封、不是模型正文，混进来会让摘要印出
-		// `extracted=61chars` 却一个字正文都没有。
+		// 正是这个条件挡住了 `{"type":"error","message":"Our servers are currently
+		// overloaded…"}`——它的 type 非空，走不进来。旧实现没有这道门，于是上游错误
+		// 信封被当成正文，摘要印出 `extracted=61chars` 而模型一个字都没输出。
 		if event == "" {
 			if content, ok := obj["content"].(string); ok {
 				cand.nonResponses.WriteString(content)
@@ -1024,6 +1053,12 @@ func ExtractTextFromSSE(body []byte) string {
 	}
 
 	return cand.pick()
+}
+
+// looksLikeJSON 判断这段 payload 是否**打算**是 JSON（哪怕解析失败）。
+// 用于把「被截断的结构化 payload」与「私有的纯文本正文」区分开。
+func looksLikeJSON(payload string) bool {
+	return strings.HasPrefix(payload, "{") || strings.HasPrefix(payload, "[")
 }
 
 // appendContentTexts 收 `content: [{"text": "..."}]` 这种列表形态的正文。

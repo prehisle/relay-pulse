@@ -174,9 +174,9 @@ func errorMessageOf(v any) string {
 // （response.created / message_start），判红所需的证据一个都不在那里——
 // 抽到了什么正文、流怎么结束的、上游报了什么错，分别在别处或尾部。
 //
-// 摘要固定两行：首行是判据本身（期望什么、抽到多少、流的形状），
-// 次行是原文片段，且**取哪一端由首行的结论决定**——抽到正文就给正文，
-// 一个字没抽到就给响应体尾部。
+// 摘要首行是判据本身（期望什么、抽到多少、流的形状）；次行是原文片段，
+// 且**取哪一端由首行的结论决定**——抽到正文就给正文，一个字没抽到就给响应体尾部。
+// 响应体为空、或片段 trim 完什么都不剩时只有首行。
 func BuildContentMismatchSummary(body []byte, expected string) string {
 	fields := []string{"content_mismatch", fmt.Sprintf("expected=%q", truncateHead(expected, expectedKeywordLimit))}
 

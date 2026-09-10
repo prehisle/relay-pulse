@@ -163,6 +163,71 @@ func TestExtractText_UnknownEventContributesNothing(t *testing.T) {
 	}
 }
 
+// TestExtractText_UnknownEventCannotSmuggleViaNestedShape ——
+// 「未知事件不贡献正文」必须对**嵌套结构**也成立。Anthropic 的 `delta.text`、
+// Chat 的 `choices[]`、Gemini 的 `candidates[]` 走的是结构分派而非事件白名单，
+// 若不加一道弱事件门，任何未来的私有事件都能借这些结构把非正文塞进正文桶。
+func TestExtractText_UnknownEventCannotSmuggleViaNestedShape(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "借 anthropic delta.text",
+			body: sseFrame("codex.future", `{"type":"codex.future","delta":{"type":"text_delta","text":"RP_ANSWER=127"}}`),
+		},
+		{
+			name: "借 chat choices",
+			body: sseFrame("codex.future", `{"type":"codex.future","choices":[{"delta":{"content":"RP_ANSWER=127"}}]}`),
+		},
+		{
+			name: "借 gemini candidates",
+			body: sseFrame("codex.future", `{"type":"codex.future","candidates":[{"content":{"parts":[{"text":"RP_ANSWER=127"}]}}]}`),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ExtractTextFromSSE([]byte(tt.body)); got != "" {
+				t.Errorf("未知事件借嵌套结构混进了正文：%q", got)
+			}
+		})
+	}
+}
+
+// TestExtractText_IncompleteSnapshotDoesNotOverrideDelta ——
+// completed 快照在 pick 里优先级最高，但只有 status=completed 的才可信。
+// 残缺快照盖掉完整增量 = 把一次成功的探测判成红。
+func TestExtractText_IncompleteSnapshotDoesNotOverrideDelta(t *testing.T) {
+	for _, status := range []string{"incomplete", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			body := sseFrame("response.output_text.delta", `{"type":"response.output_text.delta","delta":"RP_ANSWER=127"}`) +
+				sseFrame("response.completed",
+					`{"type":"response.completed","response":{"status":"`+status+`","output":[{"content":[{"text":"RP_ANSWER="}]}]}}`)
+
+			if got := ExtractTextFromSSE([]byte(body)); got != "RP_ANSWER=127" {
+				t.Errorf("status=%s 的残缺快照不该盖掉完整 delta，得到 %q", status, got)
+			}
+		})
+	}
+}
+
+// TestExtractText_TruncatedJSONIsNotBody ——
+// 补一处不对称：`{"type":"error","message":"…"}` 完整时被事件类型挡住，
+// 一旦在传输中被截断就会解析失败，整段错误体反而混进正文。
+// 私有纯文本正文不会以 { 或 [ 开头，故用首字符判据把两者分开。
+func TestExtractText_TruncatedJSONIsNotBody(t *testing.T) {
+	truncated := "data: {\"type\":\"error\",\"message\":\"RP_ANSWER=127\"\n\n"
+	if got := ExtractTextFromSSE([]byte(truncated)); got != "" {
+		t.Errorf("截断的 JSON 错误体不该当正文，抽到了 %q", got)
+	}
+
+	// 真正的私有纯文本格式仍然支持
+	plain := "data: RP_ANSWER=127\n\n"
+	if got := ExtractTextFromSSE([]byte(plain)); got != "RP_ANSWER=127" {
+		t.Errorf("私有纯文本正文应照常抽到，得到 %q", got)
+	}
+}
+
 // TestExtractText_EventLineAuthorizesWhenPayloadHasNoType ——
 // payload 不带 type 时，授权来自本帧的 event: 行。
 func TestExtractText_EventLineAuthorizesWhenPayloadHasNoType(t *testing.T) {
