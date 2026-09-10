@@ -203,10 +203,24 @@ func BuildContentMismatchSummary(body []byte, expected string) string {
 	}
 
 	summary := strings.Join(fields, " ")
-	if excerpt == "" {
-		return summary
+	if excerpt != "" {
+		summary += "\n" + excerpt
 	}
-	return summary + "\n" + excerpt
+	return sanitizeForStorage(summary)
+}
+
+// sanitizeForStorage 剔除非法 UTF-8 字节序列。
+//
+// 这不是防御性编程，是一条已实证的数据丢失路径：摘要写进 Postgres 的
+// probe_history.error_detail（TEXT），而 Postgres 对非法字节序列直接报
+// `invalid byte sequence for encoding "UTF8"` —— 失败的是整条 INSERT，
+// 于是这次探测的记录**整条丢掉**，可用率跟着算错。
+//
+// 非法字节不是假想：响应体在 readBodyPrefixAndDrain 处按 512 **字节**截取，
+// 上游返回中文错误体时截断点几乎必然落在汉字中间。对齐字符边界的 truncateHead
+// 挡不住这种情况——它只管自己那一刀，管不了传进来的 body 本身就是断的。
+func sanitizeForStorage(s string) string {
+	return strings.ToValidUTF8(s, "")
 }
 
 // excerptLine 渲染原文片段行。标签里带「取了多少 / 总共多少」，
@@ -228,9 +242,8 @@ func excerptLine(label, s string, fromTail bool) string {
 	return fmt.Sprintf("%s(%d/%dB): %s", label, len(cut), total, cut)
 }
 
-// truncateHead / truncateTail 按字节上限截取，但落点对齐到 UTF-8 字符边界。
-// 摘要会原样写进 probe_history.error_detail 并经 JSON 下发管理后台，
-// 从中间劈开的多字节字符轻则显示成乱码，重则被 Postgres 的 UTF8 校验拒收。
+// truncateHead / truncateTail 按字节上限截取，但落点对齐到 UTF-8 字符边界，
+// 不制造新的断字节（传进来就断了的由 sanitizeForStorage 兜底，两者分工不重叠）。
 func truncateHead(s string, limit int) string {
 	if len(s) <= limit {
 		return s

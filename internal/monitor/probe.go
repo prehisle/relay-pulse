@@ -478,7 +478,7 @@ func buildFailureSnippet(result *ProbeResult, body []byte, successContains strin
 	} else if result.Error != nil {
 		snippet = result.Error.Error()
 	}
-	return truncateHead(snippet, maxErrorDetailLen)
+	return sanitizeForStorage(truncateHead(snippet, maxErrorDetailLen))
 }
 
 // logFailedProbe 输出探测失败的诊断信息

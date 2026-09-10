@@ -272,3 +272,19 @@ func TestDigestSSE_EventScopeEndsAtBlankLine(t *testing.T) {
 		t.Errorf("上一帧的事件名不该漏进下一帧，LastEvent = %q", got)
 	}
 }
+
+// TestBuildContentMismatchSummary_SanitizesInvalidUTF8 —— content_mismatch 这条入口
+// 同样要挡住非法字节：body 在 readBodyPrefixAndDrain 处按字节截取，传进来时可能本身就是断的。
+func TestBuildContentMismatchSummary_SanitizesInvalidUTF8(t *testing.T) {
+	// 以一个被劈开的汉字（0xE4 0xB8，缺第三字节）结尾
+	broken := append([]byte("data: "+`{"type":"x","note":"上游`), 0xE4, 0xB8)
+
+	summary := BuildContentMismatchSummary(broken, "pong")
+	if !utf8.ValidString(summary) {
+		t.Errorf("摘要含非法 UTF-8，Postgres 会拒收整条记录: %q", summary)
+	}
+	// 合法部分必须留下，不能因为清洗把有用内容一起丢了
+	if !strings.Contains(summary, "上游") {
+		t.Errorf("清洗不应丢掉合法内容: %q", summary)
+	}
+}

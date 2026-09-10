@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
@@ -830,5 +831,33 @@ func TestProbe_ContentMismatchSnippetRecordsRandomizedKeyword(t *testing.T) {
 	}
 	if !strings.Contains(result.ResponseSnippet, `expected="RP_ANSWER=`) {
 		t.Errorf("摘要应带上本次随机题的预期答案，实际:\n%s", result.ResponseSnippet)
+	}
+}
+
+// TestProbe_SnippetIsAlwaysValidUTF8 —— 摘要要写进 Postgres 的 error_detail(TEXT)，
+// 而 Postgres 会以 `invalid byte sequence for encoding "UTF8"` 拒收非法字节序列，
+// 那会让**整条探测记录**写不进库。响应体在 readBodyPrefixAndDrain 处按 512 **字节**
+// 截取，非 ASCII 的上游错误体必然可能被从字符中间劈开。
+func TestProbe_SnippetIsAlwaysValidUTF8(t *testing.T) {
+	prober := NewProber(nil, nil)
+	defer prober.Close()
+
+	// 中文错误体远超 512 字节的捕获上限，截断点几乎必然落在汉字中间
+	longChinese := `{"error":"` + strings.Repeat("上游服务暂时不可用", 100) + `"}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte(longChinese))
+	}))
+	defer srv.Close()
+
+	cfg := newTestCfg(srv.URL)
+	result := prober.Probe(context.Background(), &cfg)
+	if result.Status != 0 {
+		t.Fatalf("want red, got %d", result.Status)
+	}
+	if !utf8.ValidString(result.ResponseSnippet) {
+		t.Errorf("写库摘要含非法 UTF-8，Postgres 会拒收整条记录\n摘要尾部: %q",
+			result.ResponseSnippet[max(0, len(result.ResponseSnippet)-16):])
 	}
 }
