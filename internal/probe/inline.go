@@ -143,6 +143,10 @@ func (p *internalProber) probe(ctx context.Context, cfg *config.ServiceConfig, c
 		if text == "" || !strings.Contains(text, probeSuccessContains) {
 			result.Status = 0
 			result.SubStatus = "content_mismatch"
+			// 与 scheduler 侧逐字同口径：内容校验失败时给结构化诊断，而不是响应体头部片段。
+			// 两边说法必须一致——同一次失败，管理员从「点探测」和从「探测历史」看到的
+			// 若是两种解释，排障时无从判断该信哪个。
+			result.ResponseSnippet = monitor.BuildContentMismatchSummary(body, probeSuccessContains)
 			result.Err = fmt.Errorf("响应内容未包含预期关键字")
 			return result
 		}

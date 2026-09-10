@@ -139,6 +139,20 @@ HTTP 响应
 - **429 限流**：响应体是错误信息，不做内容校验
 - **红色状态**：已是最差状态，不需要再校验
 - 若 2xx 响应但内容不匹配 → 降级为 🔴 红色（语义失败）
+- ⚠️ **匹配对象未必是模型正文**：`AggregateResponseText` 抽不出 SSE 正文时会**整包回退**，
+  于是 `success_contains` 变成拿整个协议信封做 grep。arith 族靠 `RP_ANSWER=` 前缀绝不出现在
+  题面/元数据里躲过这一劫（见 `prompt.go` 硬约束），换关键字前先想清楚这条。
+- ⚠️ **已知假绿，尚未修**：`response.reasoning_summary_text.delta` 的顶层 `delta` 是字符串，
+  被当成正文累加。模型只在思考摘要里写出答案、正文一个字没输出 → 判绿。cx 模板全是
+  `"summary": "auto"`，这条路径在生产上是通的。修它属判定变更，要先跑 blast-radius 审计。
+
+**`content_mismatch` 的 `error_detail` 是结构化摘要，不是响应体片段**（`response_digest.go`）。
+首行给判据——`expected=` 本次注入后的关键字（arith 每次随机，不记就无法事后复核）、
+`extracted=Nchars`、SSE 的事件数/终止事件/`stop_reason`/上游自报错误；次行给原文，
+**抽到正文就给正文（截头部），一个字没抽到就给响应体尾部**。取尾是刻意的：SSE 开头恒为
+握手元数据，判红的证据全在尾部——旧实现原样截前 512 字节，对这个红态零诊断力。
+`matched_against=raw_body` 出现即表示走了上面那条整包回退。scheduler 与 inline 两条探测路径
+共用同一个 `BuildContentMismatchSummary`，有测试锁死逐字一致。
 
 **细分状态（SubStatus）**：
 

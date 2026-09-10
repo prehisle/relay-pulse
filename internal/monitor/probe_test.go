@@ -758,3 +758,77 @@ func mustDeflate(t *testing.T, data []byte) []byte {
 	}
 	return buf.Bytes()
 }
+
+// TestProbe_ContentMismatchSnippetIsDiagnostic 端到端锁住调度器侧的摘要形态：
+// 上游 200 开了 SSE 流却没产出任何正文（生产上 saiai/cx 那条 GPT-5.6-Luna 的真实形态）。
+// 旧实现在这里写库的是响应体**头部**——恒定的 response.created 握手，排障时等于没有。
+func TestProbe_ContentMismatchSnippetIsDiagnostic(t *testing.T) {
+	prober := NewProber(nil, nil)
+	defer prober.Close()
+
+	// 握手事件塞长，逼摘要必须做截断选择；真正的失败原因只在尾部
+	padding := strings.Repeat("x", 600)
+	body := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_` + padding + `","status":"in_progress","error":null}}` + "\n\n" +
+		"event: response.failed\n" +
+		`data: {"type":"response.failed","response":{"status":"failed","error":{"message":"upstream closed"}}}` + "\n\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	cfg := newTestCfg(srv.URL)
+	cfg.SuccessContains = "RP_ANSWER=79"
+
+	result := prober.Probe(context.Background(), &cfg)
+	if result.Status != 0 || result.SubStatus != storage.SubStatusContentMismatch {
+		t.Fatalf("want (0, content_mismatch), got (%d, %s)", result.Status, result.SubStatus)
+	}
+
+	for _, want := range []string{
+		`expected="RP_ANSWER=79"`,
+		"extracted=0chars",
+		"last_event=response.failed",
+		`error="upstream closed"`,
+	} {
+		if !strings.Contains(result.ResponseSnippet, want) {
+			t.Errorf("写库摘要缺少 %q\n实际:\n%s", want, result.ResponseSnippet)
+		}
+	}
+	if strings.HasPrefix(result.ResponseSnippet, "event: response.created") {
+		t.Errorf("摘要不该再是响应体头部，实际:\n%s", result.ResponseSnippet)
+	}
+}
+
+// TestProbe_ContentMismatchSnippetRecordsRandomizedKeyword 固定「每次重试都换一道随机题、
+// 摘要必须记的是最后一次那道」这条契约：不记就无法事后复核判红是否正确。
+func TestProbe_ContentMismatchSnippetRecordsRandomizedKeyword(t *testing.T) {
+	prober := NewProber(nil, nil)
+	defer prober.Close()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"answer":"nope"}`))
+	}))
+	defer srv.Close()
+
+	cfg := newTestCfg(srv.URL)
+	cfg.Method = http.MethodPost
+	cfg.Body = `{"prompt":"{{PROMPT}}"}`
+	cfg.SuccessContains = "{{EXPECTED_ANSWER}}"
+
+	result := prober.Probe(context.Background(), &cfg)
+	if result.SubStatus != storage.SubStatusContentMismatch {
+		t.Fatalf("want content_mismatch, got %s", result.SubStatus)
+	}
+	// 占位符必须已被注入后的真实关键字替换，而不是原样落进摘要
+	if strings.Contains(result.ResponseSnippet, "{{EXPECTED_ANSWER}}") {
+		t.Errorf("摘要记的应是注入后的关键字，实际:\n%s", result.ResponseSnippet)
+	}
+	if !strings.Contains(result.ResponseSnippet, `expected="RP_ANSWER=`) {
+		t.Errorf("摘要应带上本次随机题的预期答案，实际:\n%s", result.ResponseSnippet)
+	}
+}

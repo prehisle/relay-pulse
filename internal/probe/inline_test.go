@@ -13,6 +13,7 @@ import (
 
 	"monitor/internal/config"
 	"monitor/internal/identity"
+	"monitor/internal/monitor"
 )
 
 // classifyHTTPStatus 的 sub_status 字符串必须与 scheduler/storage 口径
@@ -135,5 +136,58 @@ func TestInternalProber_NilUidMgrLeavesUserIDEmpty(t *testing.T) {
 
 	if !strings.Contains(string(capturedBody), `"user_id":""`) {
 		t.Fatalf("expected empty user_id when uidMgr is nil; body=%s", capturedBody)
+	}
+}
+
+// TestInlineProbe_ContentMismatchSnippetMatchesScheduler 锁住 inline 与 scheduler 两条
+// 探测路径对同一次内容校验失败给出**逐字相同**的说法。inline.go 的 snippet 逻辑是
+// monitor/probe.go 的平行拷贝，历史上正是这种拷贝导致「点探测」与「探测历史」
+// 对同一个失败各说各话，排障时无从判断该信哪个。
+func TestInlineProbe_ContentMismatchSnippetMatchesScheduler(t *testing.T) {
+	const keyword = "RP_ANSWER=79"
+	body := "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress","error":null}}` + "\n\n" +
+		"event: response.failed\n" +
+		`data: {"type":"response.failed","response":{"status":"failed","error":{"message":"upstream closed"}}}` + "\n\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	cfg := &config.ServiceConfig{
+		Provider:        "probe",
+		Service:         "cx",
+		BaseURL:         srv.URL,
+		URLPattern:      "{{BASE_URL}}",
+		Method:          http.MethodGet,
+		Headers:         map[string]string{},
+		SuccessContains: keyword,
+		TimeoutDuration: 5 * time.Second,
+	}
+
+	// 跳过 SSRF（httptest 用 127.0.0.1，SSRF 会拒）
+	p := &internalProber{
+		client:       srv.Client(),
+		maxBodyBytes: DefaultMaxResponseBytes,
+		uidMgr:       identity.NewUserIDManager(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result := p.probe(ctx, cfg, false, "")
+	if result.Status != 0 || result.SubStatus != "content_mismatch" {
+		t.Fatalf("want (0, content_mismatch), got (%d, %q)", result.Status, result.SubStatus)
+	}
+
+	want := monitor.BuildContentMismatchSummary([]byte(body), keyword)
+	if result.ResponseSnippet != want {
+		t.Errorf("inline 摘要与 scheduler 口径不一致\ngot:\n%s\nwant:\n%s", result.ResponseSnippet, want)
+	}
+	if !strings.Contains(result.ResponseSnippet, "last_event=response.failed") {
+		t.Errorf("摘要应指认终止事件，实际:\n%s", result.ResponseSnippet)
 	}
 }

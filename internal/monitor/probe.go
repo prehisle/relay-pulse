@@ -39,7 +39,7 @@ type ProbeResult struct {
 	Latency         int               // ms
 	Timestamp       int64
 	Error           error
-	ResponseSnippet string // 失败响应摘要（status=0 时组装，截断前 512 字节）
+	ResponseSnippet string // 失败响应摘要（status=0 时组装，见 buildFailureSnippet）
 }
 
 // Prober 探测器
@@ -188,6 +188,9 @@ func (p *Prober) Probe(ctx context.Context, cfg *config.ServiceConfig) *ProbeRes
 	var lastBodyBytes []byte
 	// 保存最后一次的算术题信息（用于日志）
 	var lastPrompt, lastExpectedAnswer string
+	// 保存最后一次注入后的内容校验关键字：arith 模板每次探测都换一道随机题，
+	// 不留存就无法事后判断「这次判红判得对不对」。摘要组装在重试循环之外，故需带出来。
+	var lastSuccessContains string
 
 	// 重试循环（使用标签以便从 select 中正确跳出）
 retryLoop:
@@ -215,6 +218,7 @@ retryLoop:
 		probeURL, probeBody, probeHeaders, probeSuccessContains, probePrompt, probeExpectedAnswer := InjectVariables(cfg, p.userIDMgr)
 		// 保留最后一次的算术题信息用于日志
 		lastPrompt, lastExpectedAnswer = probePrompt, probeExpectedAnswer
+		lastSuccessContains = probeSuccessContains
 
 		// 准备请求体（去除首尾空白，某些 API 对此敏感）
 		reqBody := bytes.NewBuffer([]byte(strings.TrimSpace(probeBody)))
@@ -327,7 +331,7 @@ retryLoop:
 					result.Error = readErr
 					lastBodyBytes = data
 					if attempt+1 < maxAttempts {
-						p.logFailedProbe(cfg, result, data)
+						p.logFailedProbe(cfg, result, data, lastSuccessContains)
 						delay := computeRetryDelay(attempt, baseDelay, maxDelay, jitter)
 						logger.Info("probe", "探测失败，准备重试",
 							"provider", cfg.Provider, "service", cfg.Service, "channel", cfg.Channel, "model", cfg.Model,
@@ -386,7 +390,7 @@ retryLoop:
 		// 重试条件：status=0（红色）且非超时
 		if result.Status == 0 && attempt+1 < maxAttempts {
 			// 输出诊断信息（重试前输出）
-			p.logFailedProbe(cfg, result, bodyBytes)
+			p.logFailedProbe(cfg, result, bodyBytes, lastSuccessContains)
 
 			delay := computeRetryDelay(attempt, baseDelay, maxDelay, jitter)
 			logger.Info("probe", "探测失败，准备重试",
@@ -412,7 +416,7 @@ retryLoop:
 	// 最终诊断日志（仅在最终结果为红色时输出）
 	if result.Status == 0 {
 		// 输出诊断信息（使用保存的最后一次响应体）
-		p.logFailedProbe(cfg, result, lastBodyBytes)
+		p.logFailedProbe(cfg, result, lastBodyBytes, lastSuccessContains)
 
 		logger.Warn("probe", "探测最终失败",
 			"provider", cfg.Provider, "service", cfg.Service, "channel", cfg.Channel, "model", cfg.Model,
@@ -445,48 +449,48 @@ retryLoop:
 
 	// 组装失败响应摘要：仅 status=0 时写入，用于持久化排障
 	if result.Status == 0 {
-		const maxErrorDetailLen = 512
-		var snippet string
-		if len(lastBodyBytes) > 0 {
-			snippet = strings.TrimSpace(AggregateResponseText(lastBodyBytes))
-			if snippet == "" {
-				snippet = strings.TrimSpace(string(lastBodyBytes))
-			}
-		} else if result.Error != nil {
-			snippet = result.Error.Error()
-		}
-		if len(snippet) > maxErrorDetailLen {
-			snippet = snippet[:maxErrorDetailLen]
-		}
-		result.ResponseSnippet = snippet
+		result.ResponseSnippet = buildFailureSnippet(result, lastBodyBytes, lastSuccessContains)
 	}
 
 	return result
 }
 
+// maxErrorDetailLen 是非 content_mismatch 红态摘要的长度上限。
+// content_mismatch 走结构化摘要、自带更细的分段预算，不受这个值约束。
+const maxErrorDetailLen = 512
+
+// buildFailureSnippet 组装写库的失败摘要。
+//
+// content_mismatch 单独走结构化摘要：它是唯一「HTTP 层完全正常、判红理由只存在于
+// 响应内容里」的红态，原样截一段响应体说明不了任何事——SSE 流的开头恒为握手元数据。
+// 其余红态的响应体本身就是上游的错误信息，头部即有效信息，保持原样。
+func buildFailureSnippet(result *ProbeResult, body []byte, successContains string) string {
+	if result.SubStatus == storage.SubStatusContentMismatch {
+		return BuildContentMismatchSummary(body, successContains)
+	}
+
+	var snippet string
+	if len(body) > 0 {
+		snippet = strings.TrimSpace(AggregateResponseText(body))
+		if snippet == "" {
+			snippet = strings.TrimSpace(string(body))
+		}
+	} else if result.Error != nil {
+		snippet = result.Error.Error()
+	}
+	return truncateHead(snippet, maxErrorDetailLen)
+}
+
 // logFailedProbe 输出探测失败的诊断信息
-func (p *Prober) logFailedProbe(cfg *config.ServiceConfig, result *ProbeResult, bodyBytes []byte) {
+func (p *Prober) logFailedProbe(cfg *config.ServiceConfig, result *ProbeResult, bodyBytes []byte, successContains string) {
 	const maxSnippetLen = 512 // 防止日志过长
 
-	// content_mismatch 特殊处理：即便响应体为空/仅空白，也输出诊断信息
+	// content_mismatch 与写库摘要同源：日志和管理后台对同一次失败必须给出同一套说法，
+	// 否则排障时两边对不上。响应体为空/无法提取文本的情况也由摘要自行表达。
 	if result.SubStatus == storage.SubStatusContentMismatch {
-		aggText := AggregateResponseText(bodyBytes)
-		trimmed := strings.TrimSpace(aggText)
-
-		if trimmed == "" {
-			// body_bytes > 0 但 agg_len = 0 说明聚合器未能提取文本（如二进制/不识别格式）
-			logger.Warn("probe", "内容校验失败：响应体为空或无法提取文本",
-				"provider", cfg.Provider, "service", cfg.Service, "channel", cfg.Channel, "model", cfg.Model,
-				"body_bytes", len(bodyBytes), "agg_len", len(aggText), "keyword_len", len(cfg.SuccessContains))
-		} else {
-			snippet := trimmed
-			if len(snippet) > maxSnippetLen {
-				snippet = snippet[:maxSnippetLen] + "... (truncated)"
-			}
-			logger.Warn("probe", "内容校验失败：未包含预期关键字",
-				"provider", cfg.Provider, "service", cfg.Service, "channel", cfg.Channel, "model", cfg.Model,
-				"body_bytes", len(bodyBytes), "keyword_len", len(cfg.SuccessContains), "snippet", snippet)
-		}
+		logger.Warn("probe", "内容校验失败",
+			"provider", cfg.Provider, "service", cfg.Service, "channel", cfg.Channel, "model", cfg.Model,
+			"body_bytes", len(bodyBytes), "summary", BuildContentMismatchSummary(bodyBytes, successContains))
 	} else if len(bodyBytes) > 0 {
 		// 其他红色状态：保持原有行为，在有响应体时输出片段
 		snippet := strings.TrimSpace(AggregateResponseText(bodyBytes))
@@ -746,14 +750,7 @@ func AggregateResponseText(body []byte) string {
 		return ""
 	}
 
-	// 启发式检测 SSE 格式：
-	// - 标准 SSE：同时包含 "event:" 和 "data:"
-	// - Gemini SSE：只有 "data:" 行（以 "data:" 开头或包含 "\ndata:"）
-	isSSE := bytes.Contains(body, []byte("event:")) && bytes.Contains(body, []byte("data:"))
-	if !isSSE {
-		isSSE = bytes.HasPrefix(body, []byte("data:")) || bytes.Contains(body, []byte("\ndata:"))
-	}
-	if isSSE {
+	if looksLikeSSE(body) {
 		if sseText := ExtractTextFromSSE(body); sseText != "" {
 			return sseText
 		}
@@ -761,6 +758,16 @@ func AggregateResponseText(body []byte) string {
 
 	// 回退到原始响应体
 	return string(body)
+}
+
+// looksLikeSSE 启发式判定响应体是否为 text/event-stream 风格：
+// - 标准 SSE：同时包含 "event:" 和 "data:"
+// - Gemini SSE：只有 "data:" 行（以 "data:" 开头或包含 "\ndata:"）
+func looksLikeSSE(body []byte) bool {
+	if bytes.Contains(body, []byte("event:")) && bytes.Contains(body, []byte("data:")) {
+		return true
+	}
+	return bytes.HasPrefix(body, []byte("data:")) || bytes.Contains(body, []byte("\ndata:"))
 }
 
 // extractTextFromSSE 从 text/event-stream 风格的响应体中抽取语义文本。

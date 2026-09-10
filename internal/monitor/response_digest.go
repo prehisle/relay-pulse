@@ -1,0 +1,244 @@
+package monitor
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"unicode/utf8"
+)
+
+const (
+	// contentMismatchExcerptLimit 是摘要里原文片段的字节上限。
+	contentMismatchExcerptLimit = 512
+	// sseErrorHintLimit 限制上游自报错误信息的长度，避免一条 stack trace 顶掉整段摘要。
+	sseErrorHintLimit = 200
+)
+
+// SSEDigest 是一次 SSE 响应体的结构化速览。
+//
+// 存在的理由：content_mismatch 的证据（流怎么结束的、上游报了什么错、生成为什么被截断）
+// 全在流的**尾部**，而摘要受长度限制只能留一小段原文。先把这几项抽成字段，
+// 摘要就不再依赖「恰好截到了有用的那一段」。
+type SSEDigest struct {
+	Events     int    // data: 事件条数（跳过空 payload 与 [DONE]）
+	LastEvent  string // 最后一个事件类型
+	StopReason string // 生成侧给出的截断原因（Anthropic stop_reason / OpenAI incomplete_details.reason / finish_reason）
+	ErrorHint  string // 上游在流内自报的错误信息
+}
+
+// DigestSSE 单遍扫描 SSE 响应体，产出结构化速览。
+// 不做文本提取（那是 ExtractTextFromSSE 的活），两者刻意分开：
+// 「抽到了什么正文」与「这条流长什么样」是两个独立问题，合在一起会让任一方的改动波及另一方。
+func DigestSSE(body []byte) SSEDigest {
+	var digest SSEDigest
+
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	// SSE 的 event: 行在 data: 行之前，故需跨行记忆；仅在 data payload 认不出 type 时才用它。
+	pendingEvent := ""
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if strings.HasPrefix(line, "event:") {
+			pendingEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		digest.Events++
+
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(payload), &obj); err != nil {
+			// 非 JSON payload（Gemini 之外的私有格式）：只能靠 event: 行认类型
+			if pendingEvent != "" {
+				digest.LastEvent = pendingEvent
+			}
+			continue
+		}
+
+		if eventType, ok := obj["type"].(string); ok && eventType != "" {
+			digest.LastEvent = eventType
+		} else if pendingEvent != "" {
+			digest.LastEvent = pendingEvent
+		}
+
+		digest.absorb(obj)
+	}
+
+	return digest
+}
+
+// absorb 从单条事件里捞取截断原因与错误信息。
+// 后来的事件覆盖先前的：流尾部的结论比中途的快照更接近真相
+// （典型是 response.created 里 error/incomplete_details 恒为 null，真值只在终止事件里）。
+func (d *SSEDigest) absorb(obj map[string]any) {
+	// Anthropic: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}
+	// 这条正是「不关思考 → 预算被 thinking 吃光 → 200 却恒红」的直接证据。
+	if delta, ok := obj["delta"].(map[string]any); ok {
+		if reason, ok := delta["stop_reason"].(string); ok && reason != "" {
+			d.StopReason = reason
+		}
+	}
+
+	// Anthropic: {"type":"error","error":{"message":"..."}}
+	if hint := errorMessageOf(obj["error"]); hint != "" {
+		d.ErrorHint = hint
+	}
+
+	// OpenAI Responses: {"type":"response.failed","response":{"error":{...},"incomplete_details":{"reason":"..."}}}
+	if response, ok := obj["response"].(map[string]any); ok {
+		if hint := errorMessageOf(response["error"]); hint != "" {
+			d.ErrorHint = hint
+		}
+		if incomplete, ok := response["incomplete_details"].(map[string]any); ok {
+			if reason, ok := incomplete["reason"].(string); ok && reason != "" {
+				d.StopReason = reason
+			}
+		}
+	}
+
+	// OpenAI Chat: {"choices":[{"finish_reason":"length"}]}
+	if choices, ok := obj["choices"].([]any); ok {
+		for _, raw := range choices {
+			choice, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if reason, ok := choice["finish_reason"].(string); ok && reason != "" {
+				d.StopReason = reason
+			}
+		}
+	}
+}
+
+// fields 把速览渲染成摘要字段，只输出取到值的项——
+// 摘要要能一眼扫完，恒定打印一串空值是噪音。
+func (d SSEDigest) fields() []string {
+	out := []string{fmt.Sprintf("sse_events=%d", d.Events)}
+	if d.LastEvent != "" {
+		out = append(out, "last_event="+d.LastEvent)
+	}
+	if d.StopReason != "" {
+		out = append(out, "stop_reason="+d.StopReason)
+	}
+	if d.ErrorHint != "" {
+		out = append(out, fmt.Sprintf("error=%q", truncateHead(d.ErrorHint, sseErrorHintLimit)))
+	}
+	return out
+}
+
+// errorMessageOf 从 error 字段取人可读信息：既见过 {"message":"..."} 对象，也见过直接一个字符串。
+// 取不到返回空串——包括最常见的 "error":null（握手事件的常态）。
+func errorMessageOf(v any) string {
+	switch e := v.(type) {
+	case string:
+		return strings.TrimSpace(e)
+	case map[string]any:
+		if msg, ok := e["message"].(string); ok {
+			return strings.TrimSpace(msg)
+		}
+	}
+	return ""
+}
+
+// BuildContentMismatchSummary 为 content_mismatch 组装诊断摘要。
+//
+// 为什么不能沿用「原样截响应体前 512 字节」：SSE 流的开头恒为握手元数据
+// （response.created / message_start），判红所需的证据一个都不在那里——
+// 抽到了什么正文、流怎么结束的、上游报了什么错，分别在别处或尾部。
+//
+// 摘要固定两行：首行是判据本身（期望什么、抽到多少、流的形状），
+// 次行是原文片段，且**取哪一端由首行的结论决定**——抽到正文就给正文，
+// 一个字没抽到就给响应体尾部。
+func BuildContentMismatchSummary(body []byte, expected string) string {
+	fields := []string{"content_mismatch", fmt.Sprintf("expected=%q", expected)}
+
+	var excerpt string
+
+	switch {
+	case len(body) == 0:
+		fields = append(fields, "body_bytes=0")
+
+	case looksLikeSSE(body):
+		text := ExtractTextFromSSE(body)
+		fields = append(fields, fmt.Sprintf("extracted=%dchars", utf8.RuneCountInString(text)))
+		if text == "" {
+			// 提取器一个字都没抽到时，内容校验实际是拿整包协议信封在 grep
+			// （AggregateResponseText 的 raw 回退）。这个事实必须写明，
+			// 否则「未包含预期关键字」会被误读成「模型答错了」。
+			fields = append(fields, "matched_against=raw_body")
+		}
+		fields = append(fields, DigestSSE(body).fields()...)
+
+		if text != "" {
+			excerpt = excerptLine("text", text, false)
+		} else {
+			excerpt = excerptLine("body_tail", string(body), true)
+		}
+
+	default:
+		// 非流式响应：响应体本身就是一份完整 JSON，头部即有效信息。
+		fields = append(fields, fmt.Sprintf("body_bytes=%d", len(body)))
+		excerpt = excerptLine("body", string(body), false)
+	}
+
+	summary := strings.Join(fields, " ")
+	if excerpt == "" {
+		return summary
+	}
+	return summary + "\n" + excerpt
+}
+
+// excerptLine 渲染原文片段行。标签里带「取了多少 / 总共多少」，
+// 读的人一眼就知道有没有被截断、以及截掉的是哪一端。
+func excerptLine(label, s string, fromTail bool) string {
+	s = strings.TrimSpace(s)
+	total := len(s)
+	if total == 0 {
+		return ""
+	}
+	if total <= contentMismatchExcerptLimit {
+		return fmt.Sprintf("%s(%dB): %s", label, total, s)
+	}
+
+	cut := truncateHead(s, contentMismatchExcerptLimit)
+	if fromTail {
+		cut = truncateTail(s, contentMismatchExcerptLimit)
+	}
+	return fmt.Sprintf("%s(%d/%dB): %s", label, len(cut), total, cut)
+}
+
+// truncateHead / truncateTail 按字节上限截取，但落点对齐到 UTF-8 字符边界。
+// 摘要会原样写进 probe_history.error_detail 并经 JSON 下发管理后台，
+// 从中间劈开的多字节字符轻则显示成乱码，重则被 Postgres 的 UTF8 校验拒收。
+func truncateHead(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+func truncateTail(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := len(s) - limit
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return s[cut:]
+}
