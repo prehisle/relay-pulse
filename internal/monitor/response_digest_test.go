@@ -288,3 +288,43 @@ func TestBuildContentMismatchSummary_SanitizesInvalidUTF8(t *testing.T) {
 		t.Errorf("清洗不应丢掉合法内容: %q", summary)
 	}
 }
+
+// TestBuildContentMismatchSummary_WhitespaceOnlyTextCountsAsEmpty ——
+// evaluateStatus 用「TrimSpace 后为空」判红，摘要必须用同一个谓词。
+// 否则纯空白正文会让摘要一边印 extracted>0chars、一边给不出正文行，也不回退到 body_tail。
+func TestBuildContentMismatchSummary_WhitespaceOnlyTextCountsAsEmpty(t *testing.T) {
+	body := sseFrame("response.output_text.delta", `{"type":"response.output_text.delta","delta":"   \n  "}`) +
+		sseFrame("response.completed", `{"type":"response.completed","response":{"status":"completed"}}`)
+
+	// 前置断言：提取器确实抽到了「非空但全是空白」的串，否则本用例没在测想测的东西
+	if raw := ExtractTextFromSSE([]byte(body)); raw == "" || strings.TrimSpace(raw) != "" {
+		t.Fatalf("用例前提不成立，提取结果 = %q", raw)
+	}
+
+	summary := BuildContentMismatchSummary([]byte(body), "RP_ANSWER=79")
+	if !strings.Contains(summary, "extracted=0chars") {
+		t.Errorf("纯空白应算作没抽到正文，实际:\n%s", summary)
+	}
+	if !strings.Contains(summary, "matched_against=raw_body") {
+		t.Errorf("纯空白时匹配走的是整包回退，应标注，实际:\n%s", summary)
+	}
+	if !strings.Contains(summary, "body_tail(") {
+		t.Errorf("纯空白时应回退给响应体尾部，实际:\n%s", summary)
+	}
+}
+
+// TestExcerptLine_ByteCountsUseUntrimmedSource —— 标签里的字节数是给人对账用的，
+// 必须等于响应体真实长度。先 trim 再算会让它与同一行的 body_bytes 对不上。
+func TestExcerptLine_ByteCountsUseUntrimmedSource(t *testing.T) {
+	// 尾部带空行（SSE 响应体的常态）
+	body := "data: " + `{"type":"x"}` + "\n\n\n"
+
+	line := excerptLine("body_tail", body, true)
+	if !strings.Contains(line, fmt.Sprintf("(%dB)", len(body))) {
+		t.Errorf("字节数应为未 trim 的 %d，实际: %s", len(body), line)
+	}
+	// 显示内容仍然要 trim 掉尾部空行，否则摘要末尾挂着几个空行
+	if strings.HasSuffix(line, "\n") {
+		t.Errorf("显示内容应 trim，实际: %q", line)
+	}
+}

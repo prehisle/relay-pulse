@@ -14,6 +14,8 @@ const (
 	contentMismatchExcerptLimit = 512
 	// sseErrorHintLimit 限制上游自报错误信息的长度，避免一条 stack trace 顶掉整段摘要。
 	sseErrorHintLimit = 200
+	// sseFieldLimit 给事件名/截断原因这类短枚举封顶，防止畸形 payload 把摘要撑爆。
+	sseFieldLimit = 128
 	// expectedKeywordLimit 给 expected 封顶。success_contains 来自模板、长度不受我们控制，
 	// 不封顶就等于让每条红态记录按模板长度写库。合法用法（RP_ANSWER=79 / pong）远在此之下。
 	expectedKeywordLimit = 200
@@ -25,8 +27,11 @@ const (
 // 全在流的**尾部**，而摘要受长度限制只能留一小段原文。先把这几项抽成字段，
 // 摘要就不再依赖「恰好截到了有用的那一段」。
 type SSEDigest struct {
-	Events     int    // data: 事件条数（跳过空 payload 与 [DONE]）
-	LastEvent  string // 最后一个事件类型
+	Events int // data: 事件条数（跳过空 payload 与 [DONE]）
+	// LastEvent 是最后一个**可识别**的事件类型。认不出类型的事件（既无 type 字段、
+	// 也无 event: 行，如 OpenAI Chat 的 chunk）不清空本字段——「最后一个叫得出名字的
+	// 事件」比空串有用，但它不等于「流的最后一条事件」，别按后者解读。
+	LastEvent  string
 	StopReason string // 生成侧给出的截断原因（Anthropic stop_reason / OpenAI incomplete_details.reason / finish_reason）
 	ErrorHint  string // 上游在流内自报的错误信息
 }
@@ -134,12 +139,14 @@ func (d *SSEDigest) absorb(obj map[string]any) {
 // fields 把速览渲染成摘要字段，只输出取到值的项——
 // 摘要要能一眼扫完，恒定打印一串空值是噪音。
 func (d SSEDigest) fields() []string {
+	// 事件名与截断原因同样来自上游、长度不受我们控制，一并封顶：
+	// 摘要的总长必须只由本文件的常量决定，不能由响应体决定。
 	out := []string{fmt.Sprintf("sse_events=%d", d.Events)}
 	if d.LastEvent != "" {
-		out = append(out, "last_event="+d.LastEvent)
+		out = append(out, "last_event="+truncateHead(d.LastEvent, sseFieldLimit))
 	}
 	if d.StopReason != "" {
-		out = append(out, "stop_reason="+d.StopReason)
+		out = append(out, "stop_reason="+truncateHead(d.StopReason, sseFieldLimit))
 	}
 	if d.ErrorHint != "" {
 		out = append(out, fmt.Sprintf("error=%q", truncateHead(d.ErrorHint, sseErrorHintLimit)))
@@ -180,7 +187,11 @@ func BuildContentMismatchSummary(body []byte, expected string) string {
 		fields = append(fields, "body_bytes=0")
 
 	case looksLikeSSE(body):
-		text := ExtractTextFromSSE(body)
+		// 判空必须与 evaluateStatus 用同一个谓词（TrimSpace 后为空即视作没有正文）。
+		// 用未 trim 的 text != "" 判，纯空白正文会让摘要一边印 extracted>0chars、
+		// 一边给不出正文行，也不回退到 body_tail——恰好是「摘要描述了没发生的事」。
+		// trim 不会抹掉匹配：关键字是非空白串，trim 只动首尾空白。
+		text := strings.TrimSpace(ExtractTextFromSSE(body))
 		fields = append(fields, fmt.Sprintf("extracted=%dchars", utf8.RuneCountInString(text)))
 		if text == "" {
 			// 提取器一个字都没抽到时，内容校验实际是拿整包协议信封在 grep
@@ -225,21 +236,31 @@ func sanitizeForStorage(s string) string {
 
 // excerptLine 渲染原文片段行。标签里带「取了多少 / 总共多少」，
 // 读的人一眼就知道有没有被截断、以及截掉的是哪一端。
+//
+// ⚠️ 字节数必须基于**未 trim 的源**计算：先 trim 再算，标签印的就不是响应体的真实
+// 长度，`body_tail` 也不再是真正的最后 512 字节（SSE 体尾部恒有空行）。同一份摘要里
+// 还会同时出现 `body_bytes=N`（未 trim）和 `(…/MB)`（trim 过）两个不同的数。
+// trim 只用于显示。
 func excerptLine(label, s string, fromTail bool) string {
-	s = strings.TrimSpace(s)
 	total := len(s)
 	if total == 0 {
 		return ""
-	}
-	if total <= contentMismatchExcerptLimit {
-		return fmt.Sprintf("%s(%dB): %s", label, total, s)
 	}
 
 	cut := truncateHead(s, contentMismatchExcerptLimit)
 	if fromTail {
 		cut = truncateTail(s, contentMismatchExcerptLimit)
 	}
-	return fmt.Sprintf("%s(%d/%dB): %s", label, len(cut), total, cut)
+	taken := len(cut)
+
+	display := strings.TrimSpace(cut)
+	if display == "" {
+		return ""
+	}
+	if taken == total {
+		return fmt.Sprintf("%s(%dB): %s", label, total, display)
+	}
+	return fmt.Sprintf("%s(%d/%dB): %s", label, taken, total, display)
 }
 
 // truncateHead / truncateTail 按字节上限截取，但落点对齐到 UTF-8 字符边界，

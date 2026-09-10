@@ -35,7 +35,7 @@ type ProbeRecord struct {
 	HttpCode    int       // HTTP 状态码（0 表示非 HTTP 错误，如网络错误）
 	Latency     int       // ms
 	Timestamp   int64     // Unix时间戳
-	ErrorDetail string    // 失败摘要（仅 status=0 时写入，截断前 512 字节）
+	ErrorDetail string    // 失败摘要（仅 status=0 时写入，形态见 monitor.buildFailureSnippet）
 }
 
 // TimePoint 时间轴数据点（用于前端展示）
