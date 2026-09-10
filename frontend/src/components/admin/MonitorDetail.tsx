@@ -11,6 +11,14 @@ import { buildVendorOptions, useModelVendors } from '../../hooks/useModelVendors
 
 type DetailTab = 'detail' | 'logs';
 
+/**
+ * 冷板原因输入上限（软约束，只挡手滑粘贴长文）。
+ * 后端刻意不做长度拒绝：cold_reason 只有管理员写得了（用户自助变更的字段白名单不含它），
+ * 属 internal/displayname 注释里写明的「管理员逃生口」一档。取 80 是因为它最终显示在
+ * 状态页通道名的 hover tooltip 里，再长就撑破提示框。
+ */
+const COLD_REASON_MAX_LENGTH = 80;
+
 interface MonitorDetailProps {
   fetchTemplates: () => Promise<string[]>;
   monitorFile: MonitorFile;
@@ -37,7 +45,7 @@ interface MonitorDetailProps {
 
 type EditableFields = Pick<MonitorConfig,
   'provider_name' | 'channel_name' | 'provider_url' | 'template' | 'base_url' | 'api_key' | 'proxy' |
-  'category' | 'sponsor_level' | 'board' | 'interval' | 'listed_since' | 'expires_at' |
+  'category' | 'sponsor_level' | 'board' | 'cold_reason' | 'interval' | 'listed_since' | 'expires_at' |
   'price_min' | 'price_max' | 'key_type' | 'auto_cold_exempt' | 'auto_move_exempt'
 >;
 
@@ -97,6 +105,7 @@ export function MonitorDetail({
     category: root?.category || '',
     sponsor_level: root?.sponsor_level || '',
     board: root?.board || 'hot',
+    cold_reason: root?.cold_reason || '',
     interval: root?.interval || '',
     listed_since: root?.listed_since || '',
     expires_at: root?.expires_at || '',
@@ -145,11 +154,14 @@ export function MonitorDetail({
     { value: 'core', label: t('admin.monitors.sponsorLevels.core') },
   ], isEditing ? editFields.sponsor_level : root?.sponsor_level);
 
+  /** 当前生效的板位：编辑态取草稿值，只读态取磁盘值（空视为热板，与服务端默认一致）。 */
+  const effectiveBoard = isEditing ? editFields.board : (root?.board || 'hot');
+
   const boardOptions = withCurrentOption([
     { value: 'hot', label: t('admin.monitors.boardHot') },
     { value: 'secondary', label: t('admin.monitors.boardSecondary') },
     { value: 'cold', label: t('admin.monitors.boardCold') },
-  ], isEditing ? editFields.board : (root?.board || 'hot'));
+  ], effectiveBoard);
 
   const toChildEdits = (items: MonitorConfig[]): ChildEdit[] =>
     items.map(c => ({
@@ -173,6 +185,7 @@ export function MonitorDetail({
       category: root?.category || '',
       sponsor_level: root?.sponsor_level || '',
       board: root?.board || 'hot',
+      cold_reason: root?.cold_reason || '',
       interval: root?.interval || '',
       listed_since: root?.listed_since || '',
       expires_at: root?.expires_at || '',
@@ -415,11 +428,23 @@ export function MonitorDetail({
           />
           <EditableSelectField
             label={t('admin.monitors.field.board')}
-            value={isEditing ? editFields.board : (root?.board || 'hot')}
+            value={effectiveBoard}
             editing={isEditing}
             onChange={v => updateField('board', v)}
             options={boardOptions}
           />
+          {/* 冷板原因只在冷板下有意义（非冷板行的值会被写盘规范化清空），故跟着板位显隐。
+              内容经 /api/status 公开下发，状态页在通道名 tooltip 里展示给所有访客。 */}
+          {effectiveBoard === 'cold' && (
+            <EditableField
+              label={t('admin.monitors.field.coldReason')}
+              value={isEditing ? editFields.cold_reason : root?.cold_reason}
+              editing={isEditing}
+              onChange={v => updateField('cold_reason', v)}
+              placeholder={t('admin.monitors.field.coldReasonPlaceholder')}
+              maxLength={COLD_REASON_MAX_LENGTH}
+            />
+          )}
           <EditableField
             label={t('admin.monitors.field.interval')}
             value={isEditing ? editFields.interval : root?.interval}
@@ -842,7 +867,7 @@ function EditableSelectField({
 }
 
 function EditableField({
-  label, value, editing, onChange, type = 'text', inputMode, placeholder, error,
+  label, value, editing, onChange, type = 'text', inputMode, placeholder, error, maxLength,
 }: {
   label: string;
   value?: string | number | null;
@@ -852,6 +877,7 @@ function EditableField({
   inputMode?: InputHTMLAttributes<HTMLInputElement>['inputMode'];
   placeholder?: string;
   error?: string;
+  maxLength?: number;
 }) {
   if (!editing) {
     return <Field label={label} value={value} />;
@@ -865,6 +891,7 @@ function EditableField({
         value={value != null ? String(value) : ''}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
+        maxLength={maxLength}
         className={fieldInputClass({ dense: true, error: !!error })}
       />
       {error && <p className="mt-0.5 text-xs text-danger">{error}</p>}

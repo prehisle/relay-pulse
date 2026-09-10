@@ -755,6 +755,8 @@
         "sponsorLevel": "赞助等级",
         "keyType": "Key 类型",
         "board": "板块",
+        "coldReason": "冷板原因",
+        "coldReasonPlaceholder": "例如：长期持续不可用（公开显示）",
         "interval": "间隔",
         "model": "模型",
         "apiKey": "API Key",

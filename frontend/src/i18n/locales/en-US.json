@@ -755,6 +755,8 @@
         "sponsorLevel": "Sponsor Level",
         "keyType": "Key Type",
         "board": "Board",
+        "coldReason": "Cold Reason",
+        "coldReasonPlaceholder": "e.g. Long-term outage (publicly visible)",
         "interval": "Interval",
         "model": "Model",
         "apiKey": "API Key",

@@ -1314,3 +1314,121 @@ func TestCreate_RejectsDuplicateModelIDInPayload(t *testing.T) {
 		t.Errorf("被拒绝的 Create 不得落盘，stat err = %v", statErr)
 	}
 }
+
+// TestNormalizeColdReasons 覆盖写盘前的 cold_reason 收敛口径：去首尾空白、
+// 有效板位（自身 board 为空时取根行）不是 cold 就置空。
+func TestNormalizeColdReasons(t *testing.T) {
+	tests := []struct {
+		name     string
+		monitors []ServiceConfig
+		want     []string // 每行期望的 ColdReason，顺序与 monitors 一致
+	}{
+		{
+			name: "冷板根行保留原因并去空白",
+			monitors: []ServiceConfig{
+				{Provider: "acme", Service: "cc", Channel: "vip", Board: "cold", ColdReason: "  长期不可用  "},
+			},
+			want: []string{"长期不可用"},
+		},
+		{
+			name: "非冷板行的原因一律置空（改回热板后的磁盘残留）",
+			monitors: []ServiceConfig{
+				{Provider: "acme", Service: "cc", Channel: "vip", Board: "hot", ColdReason: "长期不可用"},
+			},
+			want: []string{""},
+		},
+		{
+			name: "board 留空的根行按默认热板处理",
+			monitors: []ServiceConfig{
+				{Provider: "acme", Service: "cc", Channel: "vip", ColdReason: "长期不可用"},
+			},
+			want: []string{""},
+		},
+		{
+			name: "子行 board 为空时继承根行的冷板，原因保留",
+			monitors: []ServiceConfig{
+				{Provider: "acme", Service: "cc", Channel: "vip", Board: "cold", ColdReason: "长期不可用"},
+				{Parent: "acme/cc/vip", Model: "Opus", ColdReason: "子行自带原因"},
+			},
+			want: []string{"长期不可用", "子行自带原因"},
+		},
+		{
+			name: "根行非冷板时，子行继承来的原因同样被清掉",
+			monitors: []ServiceConfig{
+				{Provider: "acme", Service: "cc", Channel: "vip", Board: "secondary", ColdReason: "旧原因"},
+				{Parent: "acme/cc/vip", Model: "Opus", ColdReason: "旧原因"},
+			},
+			want: []string{"", ""},
+		},
+		{
+			name: "子行显式声明冷板，不受根行板位影响",
+			monitors: []ServiceConfig{
+				{Provider: "acme", Service: "cc", Channel: "vip", Board: "hot"},
+				{Parent: "acme/cc/vip", Model: "Opus", Board: "cold", ColdReason: "该模型已下架"},
+			},
+			want: []string{"", "该模型已下架"},
+		},
+		{
+			name: "纯空白原因归一成空串",
+			monitors: []ServiceConfig{
+				{Provider: "acme", Service: "cc", Channel: "vip", Board: "cold", ColdReason: "   "},
+			},
+			want: []string{""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			file := &MonitorFile{Monitors: tt.monitors}
+			normalizeColdReasons(file)
+			for i, want := range tt.want {
+				if got := file.Monitors[i].ColdReason; got != want {
+					t.Errorf("monitors[%d].ColdReason = %q, want %q", i, got, want)
+				}
+			}
+		})
+	}
+}
+
+// TestUpdate_ClearsColdReasonWhenLeavingColdBoard 端到端验证：板位改回热板后，
+// 磁盘上不得残留旧的冷板原因（否则下次再设冷板会复活一条过期文案）。
+func TestUpdate_ClearsColdReasonWhenLeavingColdBoard(t *testing.T) {
+	configDir, _ := setupTestMonitorsDir(t)
+	store := NewMonitorStore(filepath.Join(configDir, MonitorsDirName))
+
+	writeTestMonitorFile(t, configDir, "acme--cc--vip", validMonitorYAML("acme", "cc", "vip", 1))
+
+	// 先设成冷板并写入原因
+	cold := &MonitorFile{
+		Monitors: []ServiceConfig{
+			{Provider: "acme", Service: "cc", Channel: "vip", Board: "cold", ColdReason: "长期持续不可用"},
+		},
+	}
+	if err := store.Update("acme--cc--vip", cold, 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Get("acme--cc--vip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Monitors[0].ColdReason != "长期持续不可用" {
+		t.Fatalf("冷板原因应落盘，got %q", got.Monitors[0].ColdReason)
+	}
+
+	// 改回热板：客户端原样回传旧原因（admin UI 的 {...root, ...editFields} 就是这个形状）
+	back := &MonitorFile{
+		Monitors: []ServiceConfig{
+			{Provider: "acme", Service: "cc", Channel: "vip", Board: "hot", ColdReason: "长期持续不可用"},
+		},
+	}
+	if err := store.Update("acme--cc--vip", back, got.Metadata.Revision); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.Get("acme--cc--vip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Monitors[0].ColdReason != "" {
+		t.Errorf("离开冷板后磁盘仍残留 cold_reason = %q", got.Monitors[0].ColdReason)
+	}
+}

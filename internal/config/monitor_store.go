@@ -221,6 +221,9 @@ func (s *MonitorStore) Create(file *MonitorFile) error {
 	// 生成缺失的稳定 id（幂等：已有则不动）。与回填 CLI 共用同一生成逻辑。
 	BackfillFileIDs(file)
 
+	// cold_reason 收敛到 loader 口径，避免非 cold 板位的行把原因文案带上磁盘。
+	normalizeColdReasons(file)
+
 	// 写盘前 fail-loud：payload 自带的重复 model_id 不会被 BackfillFileIDs 覆盖，
 	// 落盘即造出一份 loader 拒绝加载的坏文件。
 	if err := ValidateFileModelIDsUnique(file); err != nil {
@@ -326,6 +329,34 @@ func findRootMonitor(monitors []ServiceConfig) *ServiceConfig {
 	return nil
 }
 
+// normalizeColdReasons 写盘前把 cold_reason 收敛到与 loader 同一口径：去首尾空白，
+// 且**有效板位**不是 cold 的行一律置空。有效板位 = 行自身的 board，为空则取根行的
+// （与 parent_inheritance 给子行继承 Board 的口径一致，此处文件尚未经过继承）。
+//
+// 为什么写盘也要做一遍：loader 的 normalizeMonitorsPostInheritance 已经在内存里清了同一批
+// 值，但它只清内存、不回写磁盘。于是「设冷板 → 填原因 → 改回热板」之后，yaml 里仍留着那条
+// 原因，下次再设冷板就会复活一条过期文案。规范化而非拒绝，故不影响管理员逃生口语义。
+func normalizeColdReasons(file *MonitorFile) {
+	rootBoard := ""
+	if root := findRootMonitor(file.Monitors); root != nil {
+		rootBoard = strings.TrimSpace(root.Board)
+	}
+	for i := range file.Monitors {
+		m := &file.Monitors[i]
+		m.ColdReason = strings.TrimSpace(m.ColdReason)
+		if m.ColdReason == "" {
+			continue
+		}
+		board := strings.TrimSpace(m.Board)
+		if board == "" {
+			board = rootBoard
+		}
+		if board != "cold" {
+			m.ColdReason = ""
+		}
+	}
+}
+
 // childMatchKeyByModelID 返回按 parent+model_id 的稳定匹配键。
 // model_id 为空时 ok=false，调用方应回退到展示名匹配。
 func childMatchKeyByModelID(m ServiceConfig) (string, bool) {
@@ -401,6 +432,9 @@ func (s *MonitorStore) Update(key string, file *MonitorFile, expectedRevision in
 	// 共用同一幂等逻辑，已有 id 绝不覆盖。缺这步时，经 admin 编辑新增的子通道行会无 model_id，
 	// 触发 CheckRuntimeModelIDs fail-closed 跳过整份配置热更新（admin 保存返回 200，运行态却静默不变）。
 	BackfillFileIDs(file)
+
+	// cold_reason 收敛到 loader 口径（含把改回热板后残留的旧原因清掉）。
+	normalizeColdReasons(file)
 
 	// 写盘前 fail-loud：一对一合并已杜绝"复制既有 id"，但 payload 自带的重复 id 仍会原样落盘。
 	// 拒绝时磁盘文件与 revision 均不改动。

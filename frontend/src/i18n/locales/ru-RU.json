@@ -755,6 +755,8 @@
         "sponsorLevel": "Уровень спонсорства",
         "keyType": "Тип ключа",
         "board": "Доска",
+        "coldReason": "Причина холодной",
+        "coldReasonPlaceholder": "напр.: длительная недоступность (видно всем)",
         "interval": "Интервал",
         "model": "Модель",
         "apiKey": "API-ключ",

@@ -755,6 +755,8 @@
         "sponsorLevel": "スポンサーレベル",
         "keyType": "キータイプ",
         "board": "ボード",
+        "coldReason": "コールド理由",
+        "coldReasonPlaceholder": "例：長期間利用不可（一般公開されます）",
         "interval": "間隔",
         "model": "モデル",
         "apiKey": "APIキー",
