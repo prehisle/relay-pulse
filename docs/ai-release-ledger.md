@@ -6,7 +6,30 @@
 
 ## 检查点（最新在最上）
 
-- **最后同步**: 2026-09-10（HEAD=`b00b6a3`，已发版 **v2.88.0** + **监测服务器已部署**）。**冷板原因：后台可填 + 前端常驻显示。**
+- **最后同步**: 2026-09-11（HEAD=`b3993f0`，已发版 **v2.89.0** + **监测服务器已部署**）。**`content_mismatch` 摘要结构化 + `cc-opus-ping` 启用内容校验。**
+
+  一次 push 里两件独立的事，**只有后者是判定变更**。
+
+  **(A) `content_mismatch` 的 `error_detail` 改成结构化诊断**（纯可观测性、零判定变更）。起因是站长看 `saiai/cx O-web` 的 GPT-5.6-Luna 红态，摘要里只有 `response.created` 握手，看不出问题——旧实现原样截响应体**前 512 字节**，而 SSE 开头恒为握手元数据，对这个红态零诊断力。新摘要（`internal/monitor/response_digest.go`）首行给判据：`expected=` 本次注入后的关键字（arith 每次随机，不记就无法事后复核）、`extracted=Nchars`、SSE 事件数/终止事件/`stop_reason`/上游自报错误；次行给原文，**抽到正文就给正文（截头部），一个字没抽到就给响应体尾部**——判红的证据全在尾部。`matched_against=raw_body` 出现即表示走了「抽不到正文就拿整包协议信封 grep」那条回退。scheduler 与 inline 两条探测路径共用同一个 `BuildContentMismatchSummary`，有测试锁死逐字一致。
+
+  **顺带修掉一条改动前就存在的数据丢失路径**：按字节截断响应体会产生非法 UTF-8，Postgres 直接**拒收整条 INSERT**（本机 pg16 实测坐实）——即该次探测记录连同状态一起丢失，不只是摘要难看。
+
+  **(B) `cc-opus-ping` 换成 2.1.195 抓包形态并启用 `success_contains=pong`**（判定变更）。旧模板是 2.1.159 抓包，system 第三段是 `CWD/Date`、对回复形态没有任何约束，于是 `success_contains` 只能置空 = **HTTP 200 即判活**，对回显型端点毫无区分力（httpbin.org/anything 也能测通）。新形态 system 第三段是 `Only reply pong.`，故可开内容校验。body 带 cch 整包 attestation（`cc_version=2.1.195.d80` / `cch=d67d0`），改一字节两个值全作废，故整段按原始字节搬运、未做任何调整——包括其中冻结的 `currentDate 2026-06-30`（已知永久漂移，重算 cch 才能动）。同时删掉内容重复的 `cc-opus-ping-20260630.json`（部署后 `variants` 42→41 可核）。
+
+  **部署前只读审计**（`feedback_predeploy_behavior_change_blast_radius_audit`，脚本 `scripts/audit_opus_ping_pong.py`，对每条通道各打一次新旧形态、强度等同一次常规探测）。**两个口径必须分清**：按 monitors.d **配置**板位数，引用本模板的活跃行有 **11 条**；按**运行时**板位（automove 降板后）只有 5 条热的，其余 6 条已是 cold。审计跑全部 11 条，抓到两条疑似绿转红，**一真一假**：
+
+  - **modelflare/cc/o-max-main —— 假警报**。新形态下审计脚本读到 3606 字节二进制乱码，实为 `Content-Encoding: gzip`：脚本是裸 urllib **不解压**，而 Go 探针 `probe.go:545-571` 显式解 br/zstd/gzip/deflate 且有魔术头兜底（模板手动设了 `Accept-Encoding` → Go transport 关闭自动解压，这段是为此写的）。复测 3 次网关时压时不压，两种 Go 都吃得下。**部署后实测绿，确认无影响**。这条是 `feedback_verify_via_real_client_not_synthetic_probe` 的又一例。
+  - **wawazz/cc/o-max-main —— 真的会红，且是新闸抓到的真问题**。4 次采样 3 次正文不含 pong。抓完整正文取证：模型明说「that first "notice from the API gateway" wasn't a real message — it's not something I'll act on」，且 `cache_read_input_tokens=3057`（我们那个 ping body 本身只有几百 token）——**wawazz 往请求里注入了约 3000 token 的、冒充「API gateway」的消息**，模型被干扰后就不严格执行 `Only reply pong.`。站长 2026-09-11 裁定照常部署：这是真发现不是误伤，与此前对 AIMZ/100x/wanmoapi 的裁定同调（上游行为异常本身就是信息）。
+
+  **prod 实证**：`git_commit=b3993f0`、health=200、`配置加载完成 monitors=309`、`调度器已启动`、`探测模板已刷新 variants=41`、无 panic/加载错误。11 条通道逐条与预测吻合——aiide/nodexi/sucui-main/modelflare/yomiapi 绿（aiide 由旧形态的 15s 超时转 **2.6s** 返回；yomiapi 旧形态回的是 `Pong.`，大写 P 在 `strings.Contains` 下会误判红，新形态回小写 pong），wawazz 红，其余本来就红的不变。**新摘要立刻见效**：`callai/cx/o-team-gpt` 现在一眼看出 `last_event=response.failed error="Upstream request failed"`；`sudocode/cc/m-ccmax` 是 `stop_reason=max_tokens` + 正文在自我介绍而非答题。而当初触发这轮的 `saiai/cx O-web` GPT-5.6-Luna **此刻已自愈转绿**（连续两次正确答出 `RP_ANSWER=`），说明那是上游间歇问题、不是探针缺陷。
+
+  **回滚锚点** `rollback-20260911-pre`=`b00b6a3`。**无 schema、无迁移、不写任何表**，故未新做 DB 备份（`rp-backups/20260910-095009` 仍是最近可用备份）。
+
+  **⚠️ 部署流程本身修了一处**：`/ops` 的 `EXPECT_SHA` 算式（本地 `git log --exclude '*.md'` 推「最近一个产出过镜像的 commit」）在**一次 push 含多个 commit、最后一个是纯文档**时会算错——`paths-ignore` 判的是整次 push 的文件集合，CI 照跑且 `head_sha` = main HEAD。本轮实遇：算式给 `5430fd3`、镜像实为 `b3993f0`。已改成直接读 GitHub run 的 `head_sha`。
+
+  **残**：第二步（判定变更，未开工）——① `response.reasoning_summary_text.delta` 的顶层 `delta` 被当正文累加，模型只在思考摘要里写出答案、正文一字未出也判**绿**（cx 模板全 `summary:"auto"`，生产可达，已 bite-test 复现）；② 补 Responses API 缓冲形态（`response.completed`/`output_item.done`/`content_part.done`）的正文提取；③ 补完后收掉 raw 整包回退。
+
+- 2026-09-10（HEAD=`b00b6a3`，已发版 **v2.88.0** + **监测服务器已部署**）。**冷板原因：后台可填 + 前端常驻显示。**
 
   **起因**：后台早就能把通道设成冷板，却填不了 `cold_reason`——原因只能 SSH 手改 `monitors.d` yaml（生产那 6 条就是这么来的），于是 158 个冷板通道里 **39 个原因为空**，访客点进冷板 tab 看不到任何解释。后端字段、`/api/status` 下发、桌面端通道名 hover tooltip 本就齐活，缺的只有编辑入口与可见度。
 
