@@ -1,4 +1,5 @@
 {
+	"_comment": "claude-cli/2.1.195 (sdk-cli) 真抓包，system 第三段是 'Only reply pong.'，故 success_contains=pong。2026-09-10 之前本模板用的是 2.1.159 抓包、system 第三段为 CWD/Date，没有任何指令约束回复形态，success_contains 只能置空（HTTP 200 即判活）——那等于对回显型端点毫无区分力，httpbin.org/anything 也能测通。换形态前对 5 条活跃通道实测：旧形态下 wawazz 回的是 'Pong.'（大写 P，Contains 大小写敏感、会误判红），新形态 5/5 回小写 pong，且 aiide 由 15s 超时转 2s 返回。body 带 cch 整包 attestation（cc_version=2.1.195.d80 / cch=d67d0），改一个字节两个值全作废，故整段按原始字节搬运、未做任何调整——包括其中冻结的 currentDate 2026-06-30（已知永久漂移，重算 cch 才能动）。",
 	"self_serve_label": "Claude Opus 4.8",
 	"model": "Opus",
 	"request_model": "claude-opus-4-8",
@@ -10,24 +11,25 @@
 		"Accept-Encoding": "gzip, deflate, br, zstd",
 		"Authorization": "Bearer {{API_KEY}}",
 		"Content-Type": "application/json",
-		"User-Agent": "claude-cli/2.1.159 (external, sdk-cli)",
-		"X-Claude-Code-Session-Id": "6782120e-c370-419e-941d-dac5cfce8d96",
+		"User-Agent": "claude-cli/2.1.195 (external, sdk-cli)",
+		"X-Claude-Code-Session-Id": "68be93dc-6a66-4d22-8fe5-cd0d6746a8ec",
+		"x-client-request-id": "{{RAND_UUID2}}",
 		"X-Stainless-Arch": "x64",
 		"X-Stainless-Lang": "js",
 		"X-Stainless-OS": "Linux",
 		"X-Stainless-Package-Version": "0.94.0",
 		"X-Stainless-Retry-Count": "0",
 		"X-Stainless-Runtime": "node",
-		"X-Stainless-Runtime-Version": "v24.3.0",
+		"X-Stainless-Runtime-Version": "v26.3.0",
 		"X-Stainless-Timeout": "600",
-		"anthropic-beta": "oauth-2025-04-20,claude-code-20250219,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,effort-2025-11-24,extended-cache-ttl-2025-04-11",
+		"anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,effort-2025-11-24,extended-cache-ttl-2025-04-11",
 		"anthropic-dangerous-direct-browser-access": "true",
 		"anthropic-version": "2023-06-01",
 		"x-app": "cli"
 	},
-	"body": {"model":"claude-opus-4-8","messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# currentDate\nToday's date is 2026-06-01.\n\n      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n\n"},{"type":"text","text":"ping","cache_control":{"type":"ephemeral","ttl":"1h"}}]}],"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.159.28e; cc_entrypoint=sdk-cli; cch=ccb3a;"},{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK.","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"CWD: /home/admin/exp\nDate: 2026-06-01","cache_control":{"type":"ephemeral","ttl":"1h"}}],"tools":[],"metadata":{"user_id":"{\"device_id\":\"5106d30cb12ea4fd8fbc01b6d5a1f7e8744c017d6ac53e304d5e995eb9d322ad\",\"account_uuid\":\"\",\"session_id\":\"6782120e-c370-419e-941d-dac5cfce8d96\"}"},"max_tokens":64000,"thinking":{"type":"adaptive"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"output_config":{"effort":"low"},"stream":true},
+	"body": {"model":"claude-opus-4-8","messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# currentDate\nToday's date is 2026-06-30.\n\n      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n\n"},{"type":"text","text":"ping","cache_control":{"type":"ephemeral","ttl":"1h"}}]}],"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.195.d80; cc_entrypoint=sdk-cli; cch=d67d0;"},{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK.","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"Only reply pong.","cache_control":{"type":"ephemeral","ttl":"1h"}}],"tools":[],"metadata":{"user_id":"{\"device_id\":\"b6294e9cff1a6d86f980de82266dffe31e832393449dddaa3b8fc7505b48fa2e\",\"account_uuid\":\"\",\"session_id\":\"68be93dc-6a66-4d22-8fe5-cd0d6746a8ec\"}"},"max_tokens":64000,"thinking":{"type":"adaptive"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"output_config":{"effort":"low"},"stream":true},
 	"response": {
-		"success_contains": ""
+		"success_contains": "pong"
 	},
 	"probe": {
 		"slow_latency": "8s",

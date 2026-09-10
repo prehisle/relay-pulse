@@ -852,9 +852,12 @@ func TestChildInheritsTemplateFromParent(t *testing.T) {
 }
 
 // TestChildOwnBodyDoesNotInheritParentSuccessContains 复现并锁定线上 bug：
-// 子项有自己的 Body（如来自 cc-opus-ping 模板，body 发 "ping"）且 SuccessContains 为空时，
-// 不应继承父项（cc-opus-arith）的算术校验串 {{EXPECTED_ANSWER}}。
+// 子项有自己的 Body（当年的实例是 cc-opus-ping 模板，body 发 "ping"）且 SuccessContains
+// 为空时，不应继承父项（cc-opus-arith）的算术校验串 {{EXPECTED_ANSWER}}。
 // 否则会出现「探针发 ping、却用父项算术答案校验」的永久 content_mismatch。
+//
+// 注：那个具体实例 2026-09-10 起已不复存在（cc-opus-ping 换成带 "Only reply pong." 指令的
+// 抓包形态后声明了 success_contains=pong），但不变量本身照旧——任何自带 body 的子项都适用。
 func TestChildOwnBodyDoesNotInheritParentSuccessContains(t *testing.T) {
 	cfg := &AppConfig{
 		Monitors: []ServiceConfig{
