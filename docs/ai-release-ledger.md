@@ -6,7 +6,19 @@
 
 ## 检查点（最新在最上）
 
-- **最后同步**: 2026-09-06（HEAD=`a5014e7`，已发版 **v2.86.5** + **两台主机都已部署**）。**修告警把标识键当人话发出去**。
+- **最后同步**: 2026-09-10（HEAD=`b7d1240`，已发版 **v2.87.0** + **监测服务器已部署**）。**可用率口径统一：按探测数加权，多模型通道汇总计算。**
+
+  **改前有三套口径**：① 前端 `calculateUptime` 对各时间块**等权平均**，让尚未跑满的当天（7d 视图下可能只有 6 次探测）与完整一天（288 次）同权，实测最大偏差 11.6pp；② 多模型通道取 `min(各模型可用率)`，一个模型故障吃掉其余模型的全部成绩；③ 后端 automove 只对**根行**算 7 天可用率、且同样按天分桶等权平均。结果同一条通道能出现「面板 54.92% / 移板按 78.79% 判」这种 24pp 分裂（saiai cx O-Pro，4 模型）。
+
+  **改法**：统一成「可用探测数 / 总探测数」。前端抽出唯一实现 `weightedAvailability` + `probeCountOf`（`utils/monitorDataProcessor.ts`），`calculateUptime` / 复合时间块 / 移动端 `heatmapAggregator` / mock 数据四个出口全部复用；块权重取 `available+degraded+unavailable+missing`——**必须与后端 `bucketStats.total` 逐字一致**（后端块可用率的分母本就含 missing，按 0 权重计入；codex review 一度按我给它的错误约束判这是 bug，拿 `timeline.go:83` 的 `stat.total++` 驳回后它认了），计数缺失时回退 1 等价旧行为。后端 `CalculateAvailability` 去掉 24h 分桶直接 `Σ权重 / Σ探测数`；`evaluate` 把历史查询展开到同 PSC 的全部活跃行（父+子，排除 disabled/hidden/配置 cold），override 仍只落在根行。连带 `min_probes` 归一成「每个活跃行的平均样本数」（门槛 `min_probes × 活跃行数`），否则多模型通道白拿 N 倍宽松。
+
+  **部署前离线审计**（`feedback_predeploy_behavior_change_blast_radius_audit`）：拿 prod `/api/status?period=7d` 真快照跑新旧两套逻辑，94 条 hot/secondary 通道中**预测只有 `Code0/cx/O-Plus` 会跌破 threshold_down 降备板**（旧 55.95 → 新 49.33），另 6 条落进 50-55 迟滞缓冲带不动板；`min_probes` 无一条从"冻结"翻成"参与判定"。**prod 实证与预测逐条吻合**：首轮评估 `demoted=1`、日志 `自动移板: hot→secondary monitor=Code0/cx/O-Plus availability=49.2457 avail_latched=true`，其余 6 条确认未动。
+
+  **验证**：两侧全量测试绿（go `./internal/...` + vitest 467）；新增守卫测试全部 bite-test；用 prod 真快照跑**真实前端代码路径**得 saiai cx O-Pro = 66.68，与独立离线复算一致。**prod 实证**：`git_commit=b7d1240`、health/ready=200、`配置加载完成 monitors=309`、`调度器已启动`、无 panic；**playwright 实测线上表格**：SAIAi CX O-Pro 显示 **66.47%**（旧口径同数据为 48.49%），YunDou 94.91 / LinkAPI cc 92.09 / SAIAi cc 98.99 全部与后端新口径一致。**回滚锚点** `rollback-20260910-uptime-pre`=a5014e7。**无 schema、无迁移**，但因是行为变更且会写 `monitor_overrides`，部署前做了 fresh 备份 `rp-backups/20260910-095009`（db.dump 30MB，过 `pg_restore --data-only` 完整性校验）。
+
+  **副作用（预期内）**：`LinkAPI/cc/O-Max` 从 86.77 升到 92.09、`YunDou/cx/O-Pro` 从 92.82 升到 94.91，两条越过 `sponsor_pin.min_uptime=92` 的置顶闸，赞助置顶排序会随之变化。
+
+- 2026-09-06（HEAD=`a5014e7`，已发版 **v2.86.5** + **两台主机都已部署**）。**修告警把标识键当人话发出去**。
 
   **症状**：Telegram 告警发的是 `saiai / cx / O-web` + `模型: GPT`，而站点同一行显示的是 `O-Pro` / `gpt-6-astra`。**根因不是通知截断，是它拿到的本来就是标识键**：`status_events` 只存 `(provider,service,channel,model)`，其中 `channel` 是通道标识（展示名 `channel_name` 只活在运行时配置里），`model` 是展示名兼 DB 业务键（cx 线为保历史连续性统一收敛成 `GPT`，真实模型在 `request_model`）。前端模型列早已改用 `shortenModelName(request_model)`（`utils/modelFilter.ts`），**只有事件/通知这条链路没跟上**。
 
