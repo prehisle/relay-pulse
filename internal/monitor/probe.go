@@ -909,11 +909,13 @@ func ExtractTextFromSSE(body []byte) string {
 		if err := json.Unmarshal([]byte(payload), &obj); err != nil {
 			// 私有的**纯文本** SSE 格式（`data: RP_ANSWER=127` 这种）仍当正文，
 			// 但要同时排掉两类冒牌货：
-			//   ① 带事件名的——那属于某个已知协议，正文该由该协议的规则决定；
+			//   ① 带事件名的——正文该由该事件所属协议的规则决定（未知事件同样排除）；
 			//   ② 看起来是 JSON 却解不出来的——那是被截断/损坏的结构化 payload。
-			// ② 这道门补的是一处真实的不对称：`{"type":"error","message":"…"}` 完整时
-			// 会被事件类型挡住，一旦在传输中被截断反而解析失败、整段错误体混进正文。
-			// 判据用首字符而非「解析失败」本身——纯文本正文不会以 { 或 [ 开头。
+			// ② 补的是一处真实的不对称：`{"type":"error","message":"…"}` 完整时会被
+			// 事件类型挡住，一旦在传输中被截断反而解析失败、整段错误体混进正文。
+			// 判据用首字符而非「解析失败」本身，这是一条**策略假设**：以 { 或 [ 开头
+			// 一律按「结构化 payload 坏了」处理，代价是首字符恰为括号的私有纯文本
+			// 正文会被丢掉（实测非 JSON payload 0 条，当前无此形态）。
 			if event == "" && !looksLikeJSON(payload) {
 				if cand.nonResponses.Len() > 0 {
 					cand.nonResponses.WriteByte(' ')
@@ -1013,10 +1015,10 @@ func ExtractTextFromSSE(body []byte) string {
 				appendContentTexts(item["content"], &cand.itemDone)
 			}
 		case eventResponseCompleted:
-			// ⚠️ 只认 status=completed 的快照。它在 pick 里优先级最高，若上游发来的是
-			// incomplete/failed 的**残缺**快照，采纳它就会盖掉本来完整的 delta，
-			// 把一次成功的探测判成红。实测 49 条 completed 快照全是 status=completed，
-			// 故这道门当前零代价；它防的是残缺快照压过完整增量这一类误红。
+			// ⚠️ 明确标着 incomplete/failed 的快照一律不采纳；status 缺失或不是字符串时
+			// **仍然采纳**——宁可信任一份没有自我否定的快照，也不为一个可选字段的缺席
+			// 去误红。这个桶在 pick 里优先级最高，采纳残缺快照就会盖掉本来完整的 delta，
+			// 把一次成功的探测判成红。实测 49 条快照全带 status=completed，故当前零代价。
 			if response, ok := obj["response"].(map[string]any); ok {
 				if status, ok := response["status"].(string); ok && status != "completed" {
 					break
