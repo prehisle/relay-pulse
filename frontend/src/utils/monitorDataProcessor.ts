@@ -102,6 +102,52 @@ function mapStatusCounts(counts?: StatusCounts): StatusCounts {
   };
 }
 
+// ─── 可用率加权 ─────────────────────────────────────────────
+
+type AvailabilityPoint = { availability: number; statusCounts?: StatusCounts };
+
+/**
+ * 时间块的探测次数，用作该块可用率的权重。
+ *
+ * 后端 bucket 的 `availability` 已经是「(绿×1 + 黄×degraded_weight) / 该块探测数」，
+ * 所以前端只要拿回探测数当权重，就能还原「可用探测数 / 总探测数」这个真分数，
+ * 无须知道 degraded_weight 本身。
+ *
+ * ⚠️ 分母必须与后端 `bucketStats.total` **逐字一致**，故 `missing`（status 不在 0/1/2 的
+ * 脏记录，后端按 0 权重计入）也要算——漏掉它会让含脏记录的块权重被低估。
+ * 无数据的整块用 `availability < 0` 标记，那才是真正不参与计算的块。
+ *
+ * 计数缺失（旧 wire、mock 数据）时回退 1——退化成各块等权，即改口径前的老行为。
+ */
+export function probeCountOf(point: AvailabilityPoint): number {
+  if (point.availability < 0) return 0;
+  const counts = point.statusCounts;
+  const total =
+    (counts?.available ?? 0) +
+    (counts?.degraded ?? 0) +
+    (counts?.unavailable ?? 0) +
+    (counts?.missing ?? 0);
+  return total > 0 ? total : 1;
+}
+
+/**
+ * 按探测次数加权汇总一组时间块的可用率，全部无数据时返回 -1。
+ *
+ * ⚠️ 别改回「各块可用率求算术平均」：那会让样本稀疏的块（典型是尚未跑满的当天，
+ * 7d 视图下可能只有 6 次探测 vs 满块 288 次）与完整一天等权，实测偏差可达 10pp。
+ */
+export function weightedAvailability(points: AvailabilityPoint[]): number {
+  let weightedSum = 0;
+  let probeTotal = 0;
+  points.forEach((point) => {
+    const n = probeCountOf(point);
+    if (n <= 0) return;
+    weightedSum += point.availability * n;
+    probeTotal += n;
+  });
+  return probeTotal > 0 ? weightedSum / probeTotal : -1;
+}
+
 // ─── 状态严重程度 ───────────────────────────────────────────
 
 /** 状态严重程度：0（红）> 2（黄）> 1（绿）> 3/-1（灰/缺失） */
@@ -275,8 +321,11 @@ function buildCompositeTimelineFromLayers(
       worstStatus = pickWorstStatus(worstStatus, p.status);
     });
 
-    const availabilities = points.map((p) => p.availability).filter((a) => a >= 0);
-    const availability = availabilities.length > 0 ? Math.min(...availabilities) : -1;
+    // 可用率按各层该时刻的探测数加权汇总，与同一块的 status_counts 合并结果同口径；
+    // 状态仍取最差（有模型挂了，这一格就该显示故障色）。
+    const availability = weightedAvailability(
+      points.map((p) => ({ availability: p.availability, statusCounts: p.status_counts }))
+    );
 
     const latencies = points.map((p) => p.latency).filter((l) => l > 0);
     const latency = latencies.length > 0 ? Math.max(...latencies) : 0;
@@ -296,13 +345,15 @@ function buildCompositeTimelineFromLayers(
 
 // ─── 可用率 ─────────────────────────────────────────────────
 
-/** 计算可用率：仅统计有数据的时间块（availability >= 0） */
-export function calculateUptime(points: Array<{ availability: number }>): number {
-  const validPoints = points.filter((point) => point.availability >= 0);
-  if (validPoints.length === 0) return -1;
-  return parseFloat((
-    validPoints.reduce((acc, point) => acc + point.availability, 0) / validPoints.length
-  ).toFixed(2));
+/**
+ * 计算可用率 = 可用探测数 / 总探测数（黄色按 degraded_weight 折算）。
+ *
+ * 仅统计有数据的时间块（availability >= 0），块权重是该块的探测次数。
+ */
+export function calculateUptime(points: AvailabilityPoint[]): number {
+  const availability = weightedAvailability(points);
+  if (availability < 0) return -1;
+  return parseFloat(availability.toFixed(2));
 }
 
 // ─── history 构建 ───────────────────────────────────────────
@@ -452,10 +503,14 @@ export function convertGroupToProcessedData(
       )
     : [];
 
-  const layerUptimes = group.layers.map((layer) =>
-    calculateUptime(buildHistoryFromTimeline(layer.timeline, itemSlowLatencyMs))
-  ).filter((u) => u >= 0);
-  const uptime = layerUptimes.length > 0 ? Math.min(...layerUptimes) : -1;
+  // 通道可用率 = 该通道**所有模型**的可用探测数 / 总探测数。
+  // ⚠️ 别改回 min(各模型可用率)：那让一个模型的故障吃掉其余模型的全部成绩
+  // （实测 saiai cx O-Pro 4 模型：min=54.92% vs 汇总=66.68%），
+  // 且与后端 automove 的通道级判定口径不一致。
+  const allLayerPoints = group.layers.flatMap((layer) =>
+    buildHistoryFromTimeline(layer.timeline, itemSlowLatencyMs)
+  );
+  const uptime = calculateUptime(allLayerPoints);
 
   const currentStatus = STATUS_MAP[group.current_status] || 'MISSING';
 

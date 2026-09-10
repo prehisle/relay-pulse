@@ -12,6 +12,7 @@ import {
   convertGroupToProcessedData,
   convertLegacyDataToProcessedData,
   deriveChannelVendor,
+  probeCountOf,
 } from './monitorDataProcessor';
 
 // ─── 测试工具 ───────────────────────────────────────────────
@@ -137,6 +138,40 @@ describe('monitorDataProcessor', () => {
 
     it('空数组返回 -1', () => {
       expect(calculateUptime([])).toBe(-1);
+    });
+
+    it('按块内探测次数加权，而非各块等权', () => {
+      // 典型形状：跑满的一天 288 次全绿 + 刚开始的今天 6 次全红。
+      // 等权平均会给出 50%，按探测数加权是 (288*100 + 6*0) / 294 = 97.96%
+      expect(calculateUptime([
+        { availability: 100, statusCounts: counts({ available: 288 }) },
+        { availability: 0, statusCounts: counts({ unavailable: 6, server_error: 6 }) },
+      ])).toBe(97.96);
+    });
+
+    it('块权重与后端分母一致：missing 也算一次探测', () => {
+      // 后端 bucket 的分母包含 status 不在 0/1/2 的脏记录（按 0 权重计入），
+      // 前端权重必须跟着含 missing，否则该块权重被低估。
+      expect(probeCountOf({
+        availability: 20,
+        statusCounts: counts({ available: 1, unavailable: 1, missing: 3 }),
+      })).toBe(5);
+      // 5 次探测 20% + 5 次探测 100% → (20*5 + 100*5) / 10 = 60
+      expect(calculateUptime([
+        { availability: 20, statusCounts: counts({ available: 1, unavailable: 1, missing: 3 }) },
+        { availability: 100, statusCounts: counts({ available: 5 }) },
+      ])).toBe(60);
+    });
+
+    it('整块无数据（availability < 0）权重为 0', () => {
+      expect(probeCountOf({ availability: -1, statusCounts: counts({ missing: 12 }) })).toBe(0);
+    });
+
+    it('缺 statusCounts 时回退等权（旧 wire 兼容）', () => {
+      expect(calculateUptime([
+        { availability: 100 },
+        { availability: 0, statusCounts: counts({ unavailable: 99 }) },
+      ])).toBe(1);
     });
   });
 
@@ -273,9 +308,8 @@ describe('monitorDataProcessor', () => {
 
       expect(result.isMultiModel).toBe(true);
       expect(result.currentStatus).toBe('UNAVAILABLE');
-      // uptime = min(parent avg, child avg)
-      // parent: (98+100)/2 = 99, child: (70+60)/2 = 65 → min = 65
-      expect(result.uptime).toBe(65);
+      // uptime = 全部模型的探测汇总：各点各 1 次探测 → (98+100+70+60)/4 = 82
+      expect(result.uptime).toBe(82);
       // 父层优先 → lastCheck 来自父层
       expect(result.lastCheckTimestamp).toBe(1000);
       expect(result.lastCheckLatency).toBe(111);
@@ -285,13 +319,13 @@ describe('monitorDataProcessor', () => {
       expect(result.history[0]).toMatchObject({
         status: 'DEGRADED',
         latency: 200,         // max(100, 200)
-        availability: 70,     // min(98, 70)
+        availability: 84,     // 加权汇总 (98*1 + 70*1) / 2
       });
       // 第 2 个时间点：parent=1(绿) + child=0(红) → worst=0(UNAVAILABLE)
       expect(result.history[1]).toMatchObject({
         status: 'UNAVAILABLE',
         latency: 300,         // max(120, 300)
-        availability: 60,     // min(100, 60)
+        availability: 80,     // 加权汇总 (100*1 + 60*1) / 2
       });
     });
 
@@ -328,8 +362,41 @@ describe('monitorDataProcessor', () => {
       // 子层点超出容差 → 合成结果仅反映父层
       expect(result.history[0]).toMatchObject({ status: 'AVAILABLE', latency: 100, availability: 100 });
       expect(result.history[1]).toMatchObject({ status: 'AVAILABLE', latency: 110, availability: 100 });
-      // 但 uptime 取各层最小值（子层独立计算 = 50）
-      expect(result.uptime).toBe(50);
+      // uptime 仍按全部层的原始探测汇总（不受合成容差影响）：(100+100+50)/3 = 83.33
+      expect(result.uptime).toBe(83.33);
+    });
+
+    it('多模型 uptime 按各层探测次数加权，不是各层可用率取最小值/等权平均', () => {
+      // 好模型跑了 90 次全绿，坏模型只跑了 10 次全红。
+      // 取最小值 → 0；各层等权平均 → 50；按探测数汇总 → 90/100 = 90。
+      const result = convertGroupToProcessedData(
+        group({
+          current_status: 0,
+          layers: [
+            layer({
+              model: 'good',
+              layer_order: 0,
+              current_status: { status: 1, latency: 100, timestamp: 1000 },
+              timeline: [tp({
+                timestamp: 1000, status: 1, latency: 100, availability: 100,
+                status_counts: counts({ available: 90 }),
+              })],
+            }),
+            layer({
+              model: 'bad',
+              layer_order: 1,
+              current_status: { status: 0, latency: 200, timestamp: 1000 },
+              timeline: [tp({
+                timestamp: 1000, status: 0, latency: 200, availability: 0,
+                status_counts: counts({ unavailable: 10, server_error: 10 }),
+              })],
+            }),
+          ],
+        }),
+        5000,
+      );
+
+      expect(result.uptime).toBe(90);
     });
 
     it('单层 group 标记为非多模型', () => {

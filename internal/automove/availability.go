@@ -7,24 +7,30 @@ import (
 )
 
 const (
-	availabilityBucketCount  = 7
-	availabilityBucketWindow = 24 * time.Hour
+	// availabilityWindow 是可用率评估回看的时间窗口（7 天）。
+	availabilityWindow = 7 * 24 * time.Hour
 
-	bucketWindowSeconds = int64(availabilityBucketWindow / time.Second)
+	availabilityWindowSeconds = int64(availabilityWindow / time.Second)
 )
 
 // CalculateAvailability 根据探测记录计算 7 天加权可用率百分比。
-// 算法与 WebUI 的 bucket 聚合逻辑保持一致：
-//  1. 以 endTime 为右端点，向前切分 7 个 24h bucket
-//  2. 每个 bucket 内按状态权重计算可用率
-//  3. 仅对非空 bucket 求等权平均（空 bucket 跳过）
+//
+// 口径：窗口内所有探测记录进同一个分母，按状态权重累加分子，
+// 即 `Σ状态权重 / 探测次数 × 100`——与 WebUI 的通道可用率、
+// 与 docs/user/config.md 里 degraded_weight 的公式逐字同款。
+//
+// ⚠️ 刻意**不**按 24h 分桶再对桶求等权平均：那样会让样本稀疏的桶
+// （典型是尚未跑满的当天）与完整一天等权，实测可造成 10pp 以上偏差。
 //
 // endTime 应使用 alignToNextUTCDay() 对齐到下一天 00:00 UTC，
 // 与 api/query.go 中 7d period 的 day 对齐保持一致。
 //
+// records 允许是同一通道下多个模型行的合并结果——通道可用率是
+// 「该通道所有模型的可用探测数 / 总探测数」，调用方负责合并。
+//
 // 返回值：
 //   - availability: 0-100 的百分比，无有效记录时返回 -1
-//   - total: 实际落入 bucket 并参与计算的探测记录总数
+//   - total: 落在窗口内并参与计算的探测记录总数
 func CalculateAvailability(records []*storage.ProbeRecord, endTime time.Time, degradedWeight float64) (availability float64, total int) {
 	if len(records) == 0 {
 		return -1, 0
@@ -32,10 +38,7 @@ func CalculateAvailability(records []*storage.ProbeRecord, endTime time.Time, de
 
 	endUnix := endTime.UTC().Unix()
 
-	var buckets [availabilityBucketCount]struct {
-		total    int
-		weighted float64
-	}
+	var weighted float64
 
 	for _, r := range records {
 		if r == nil {
@@ -45,12 +48,10 @@ func CalculateAvailability(records []*storage.ProbeRecord, endTime time.Time, de
 		if age < 0 {
 			continue // 未来记录，跳过
 		}
-		idx := int(age / bucketWindowSeconds)
-		if idx >= availabilityBucketCount {
+		if age >= availabilityWindowSeconds {
 			continue // 窗口外记录，跳过
 		}
-		buckets[idx].total++
-		buckets[idx].weighted += statusWeight(r.Status, degradedWeight)
+		weighted += statusWeight(r.Status, degradedWeight)
 		total++
 	}
 
@@ -58,17 +59,7 @@ func CalculateAvailability(records []*storage.ProbeRecord, endTime time.Time, de
 		return -1, 0
 	}
 
-	var sum float64
-	var nonEmpty int
-	for _, b := range buckets {
-		if b.total == 0 {
-			continue
-		}
-		sum += (b.weighted / float64(b.total)) * 100
-		nonEmpty++
-	}
-
-	return sum / float64(nonEmpty), total
+	return (weighted / float64(total)) * 100, total
 }
 
 // statusWeight 返回探测状态对应的可用率权重。

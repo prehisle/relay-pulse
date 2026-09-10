@@ -57,9 +57,7 @@ func TestCalculateAvailability_AllRed(t *testing.T) {
 }
 
 func TestCalculateAvailability_Mixed(t *testing.T) {
-	// 7 green + 3 yellow, 全部在同一 bucket 内（day 0）
-	// bucket 可用率 = (7*1.0 + 3*0.7) / 10 * 100 = 91.0
-	// 只有 1 个非空 bucket → 总可用率 = 91.0
+	// 7 green + 3 yellow → (7*1.0 + 3*0.7) / 10 * 100 = 91.0
 	records := make([]*storage.ProbeRecord, 10)
 	for i := 0; i < 7; i++ {
 		records[i] = &storage.ProbeRecord{Status: 1, Timestamp: tsAt(i + 1)}
@@ -78,8 +76,7 @@ func TestCalculateAvailability_Mixed(t *testing.T) {
 }
 
 func TestCalculateAvailability_MixedWithRed(t *testing.T) {
-	// 5 green + 3 yellow + 2 red, 全部在同一 bucket 内
-	// bucket 可用率 = (5*1.0 + 3*0.5 + 2*0) / 10 * 100 = 65.0
+	// 5 green + 3 yellow + 2 red → (5*1.0 + 3*0.5 + 2*0) / 10 * 100 = 65.0
 	records := []*storage.ProbeRecord{
 		{Status: 1, Timestamp: tsAt(1)}, {Status: 1, Timestamp: tsAt(2)},
 		{Status: 1, Timestamp: tsAt(3)}, {Status: 1, Timestamp: tsAt(4)},
@@ -95,13 +92,13 @@ func TestCalculateAvailability_MixedWithRed(t *testing.T) {
 	}
 }
 
-func TestCalculateAvailability_AveragesNonEmptyBuckets(t *testing.T) {
-	// 核心场景：探测密度不均导致旧算法和新算法结果不同
-	// Day 0 (最近一天): 1 条绿色 → bucket 可用率 = 100%
-	// Day 1: 9 条红色 → bucket 可用率 = 0%
-	// Day 2-6: 无数据 → 跳过
-	// 新算法: (100 + 0) / 2 = 50%
-	// 旧算法: (1*1.0 + 9*0.0) / 10 * 100 = 10%
+func TestCalculateAvailability_WeightsByProbeCountNotByDay(t *testing.T) {
+	// 核心场景：探测密度不均——这正是「按天分桶再等权平均」被废弃的原因。
+	// Day 0 (最近一天): 1 条绿色
+	// Day 1: 9 条红色
+	// Day 2-6: 无数据
+	// 记录数加权（现行）: (1*1.0 + 9*0.0) / 10 * 100 = 10%
+	// 分桶等权平均（已废弃）: (100 + 0) / 2 = 50% ← 1 条样本的一天与 9 条的一天等权
 	end := refTime()
 	records := make([]*storage.ProbeRecord, 10)
 	// 1 green in day 0 (0-24h ago)
@@ -118,16 +115,16 @@ func TestCalculateAvailability_AveragesNonEmptyBuckets(t *testing.T) {
 	if total != 10 {
 		t.Errorf("expected total=10, got %d", total)
 	}
-	expected := 50.0
+	expected := 10.0
 	if avail < expected-0.01 || avail > expected+0.01 {
-		t.Errorf("expected availability≈%.1f (bucket average), got %f", expected, avail)
+		t.Errorf("expected availability≈%.1f (probe-count weighted), got %f", expected, avail)
 	}
 }
 
 func TestCalculateAvailability_OutsideWindowIgnored(t *testing.T) {
 	end := refTime()
 	records := []*storage.ProbeRecord{
-		// 8 天前 → 超出 7 bucket 窗口，应被跳过
+		// 8 天前 → 超出 7 天窗口，应被跳过
 		{Status: 0, Timestamp: end.Add(-8 * 24 * time.Hour).Unix()},
 		// 1 小时前 → 在窗口内
 		{Status: 1, Timestamp: end.Add(-1 * time.Hour).Unix()},
@@ -159,7 +156,7 @@ func TestCalculateAvailability_FutureRecordIgnored(t *testing.T) {
 }
 
 func TestCalculateAvailability_EndTimeBoundary(t *testing.T) {
-	// 记录时间戳恰好等于 endTime → age=0, bucket index=0 → 应计入
+	// 记录时间戳恰好等于 endTime → age=0 → 应计入
 	end := refTime()
 	records := []*storage.ProbeRecord{
 		{Status: 1, Timestamp: end.Unix()},
@@ -174,8 +171,8 @@ func TestCalculateAvailability_EndTimeBoundary(t *testing.T) {
 	}
 }
 
-func TestCalculateAvailability_Exactly24hAgo_Bucket1(t *testing.T) {
-	// age = 24h 整 → bucketIndex = 24*3600 / (24*3600) = 1 → bucket 1
+func TestCalculateAvailability_Exactly24hAgo_Included(t *testing.T) {
+	// age = 24h 整 → 仍在 7 天窗口内
 	end := refTime()
 	records := []*storage.ProbeRecord{
 		{Status: 1, Timestamp: end.Add(-24 * time.Hour).Unix()},
@@ -190,7 +187,7 @@ func TestCalculateAvailability_Exactly24hAgo_Bucket1(t *testing.T) {
 }
 
 func TestCalculateAvailability_Exactly7dAgo_Excluded(t *testing.T) {
-	// age = 7*24h 整 → bucketIndex = 7 → >= availabilityBucketCount → 被排除
+	// age = 7*24h 整 → 落在窗口右开边界上 → 被排除
 	end := refTime()
 	records := []*storage.ProbeRecord{
 		{Status: 1, Timestamp: end.Add(-7 * 24 * time.Hour).Unix()},
@@ -204,8 +201,8 @@ func TestCalculateAvailability_Exactly7dAgo_Excluded(t *testing.T) {
 	}
 }
 
-func TestCalculateAvailability_JustBefore7d_Bucket6(t *testing.T) {
-	// age = 7*24h - 1s → bucketIndex = 6 → 最后一个有效 bucket
+func TestCalculateAvailability_JustBefore7d_Included(t *testing.T) {
+	// age = 7*24h - 1s → 窗口内最后 1 秒，应计入
 	end := refTime()
 	records := []*storage.ProbeRecord{
 		{Status: 0, Timestamp: end.Add(-7*24*time.Hour + time.Second).Unix()},
@@ -219,8 +216,9 @@ func TestCalculateAvailability_JustBefore7d_Bucket6(t *testing.T) {
 	}
 }
 
-func TestCalculateAvailability_MultipleBuckets(t *testing.T) {
-	// 7 个 bucket 各有 1 条记录：bucket 0-2 绿色，bucket 3-6 红色
+func TestCalculateAvailability_SpreadAcrossDays(t *testing.T) {
+	// 7 天各 1 条记录：前 3 天绿色、后 4 天红色（每天样本数相同，
+	// 故记录数加权与按天平均在此场景恰好同值）
 	// 可用率 = (100*3 + 0*4) / 7 ≈ 42.86%
 	end := refTime()
 	records := make([]*storage.ProbeRecord, 7)

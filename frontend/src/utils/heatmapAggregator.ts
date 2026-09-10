@@ -1,5 +1,6 @@
 import type { ProcessedMonitorData } from '../types';
 import { BREAKPOINTS, addMediaQueryListener } from './mediaQuery';
+import { weightedAvailability } from './monitorDataProcessor';
 
 type HistoryPoint = ProcessedMonitorData['history'][number];
 
@@ -130,14 +131,14 @@ function aggregateGroup(group: HistoryPoint[]): HistoryPoint {
     return group[0];
   }
 
-  // 计算可用率的 min/max/avg
+  // 计算可用率的 min/max（展示极值）与加权均值
   const availabilities = group
     .map(p => p.availability)
     .filter(a => a >= 0); // 过滤掉无数据的点 (-1)
 
-  const avgAvailability = availabilities.length > 0
-    ? availabilities.reduce((sum, a) => sum + a, 0) / availabilities.length
-    : -1;
+  // 与 calculateUptime 同口径：按各点探测次数加权，而非各点等权平均——
+  // 否则聚合块的 tooltip 数字会和同一行的可用率列对不上。
+  const avgAvailability = weightedAvailability(group);
 
   const minAvailability = availabilities.length > 0
     ? Math.min(...availabilities)

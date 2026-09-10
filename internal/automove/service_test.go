@@ -1020,6 +1020,89 @@ func TestEvaluate_ChildMonitorsExcluded(t *testing.T) {
 	}
 }
 
+// TestEvaluate_MultiModelChannel_AggregatesAllRows 锁死「通道可用率 = 该通道
+// 所有模型行的探测汇总」：父行全绿、子行全红，只看父行会保持 hot，
+// 汇总后 25% 才会跌破 threshold_down 降到 secondary。
+func TestEvaluate_MultiModelChannel_AggregatesAllRows(t *testing.T) {
+	store := newMockStorage()
+	parentKey := storage.MonitorKey{Provider: "p", Service: "cc", Channel: "vip", Model: "parent-model"}
+	childKey := storage.MonitorKey{Provider: "p", Service: "cc", Channel: "vip", Model: "child-model"}
+	store.history[parentKey] = makeRecords(1, 10) // 100%
+	store.history[childKey] = makeRecords(0, 30)  // 0%
+	// 汇总：(10*1.0 + 30*0.0) / 40 * 100 = 25%
+
+	cfg := &config.AppConfig{
+		Boards: config.BoardsConfig{
+			Enabled: true,
+			AutoMove: config.BoardAutoMoveConfig{
+				Enabled:               true,
+				ThresholdCold:         10.0,
+				ThresholdDown:         50.0,
+				ThresholdUp:           55.0,
+				CheckInterval:         "30m",
+				CheckIntervalDuration: 30 * time.Minute,
+				MinProbes:             10,
+			},
+		},
+		DegradedWeight:    0.7,
+		BatchQueryMaxKeys: 300,
+		Monitors: []config.ServiceConfig{
+			{Provider: "p", Service: "cc", Channel: "vip", Model: "parent-model", Board: "hot"},
+			{Provider: "p", Service: "cc", Channel: "vip", Model: "child-model", Parent: "p/cc/vip", Board: "hot"},
+		},
+	}
+
+	svc := NewService(store, cfg)
+	svc.Evaluate(context.Background())
+
+	ov, ok := svc.GetBoardOverride(parentKey)
+	if !ok {
+		t.Fatal("expected override on parent key (child rows must be aggregated)")
+	}
+	if ov.Board != "secondary" {
+		t.Errorf("expected board=secondary (aggregated availability 25%%), got %s", ov.Board)
+	}
+}
+
+// TestEvaluate_MinProbes_NormalizedByActiveRows 锁死 min_probes 的「每行平均
+// 样本数」语义：通道有 2 个活跃行、min_probes=10 → 需要 20 条汇总样本，
+// 只有 15 条时必须冻结不判（否则多模型通道会白拿 N 倍宽松度）。
+func TestEvaluate_MinProbes_NormalizedByActiveRows(t *testing.T) {
+	store := newMockStorage()
+	parentKey := storage.MonitorKey{Provider: "p", Service: "cc", Channel: "vip", Model: "parent-model"}
+	childKey := storage.MonitorKey{Provider: "p", Service: "cc", Channel: "vip", Model: "child-model"}
+	store.history[parentKey] = makeRecords(0, 15) // 0%，样本数够单行阈值但不够两行
+	store.history[childKey] = nil
+
+	cfg := &config.AppConfig{
+		Boards: config.BoardsConfig{
+			Enabled: true,
+			AutoMove: config.BoardAutoMoveConfig{
+				Enabled:               true,
+				ThresholdCold:         10.0,
+				ThresholdDown:         50.0,
+				ThresholdUp:           55.0,
+				CheckInterval:         "30m",
+				CheckIntervalDuration: 30 * time.Minute,
+				MinProbes:             10,
+			},
+		},
+		DegradedWeight:    0.7,
+		BatchQueryMaxKeys: 300,
+		Monitors: []config.ServiceConfig{
+			{Provider: "p", Service: "cc", Channel: "vip", Model: "parent-model", Board: "hot"},
+			{Provider: "p", Service: "cc", Channel: "vip", Model: "child-model", Parent: "p/cc/vip", Board: "hot"},
+		},
+	}
+
+	svc := NewService(store, cfg)
+	svc.Evaluate(context.Background())
+
+	if ov, ok := svc.GetBoardOverride(parentKey); ok {
+		t.Errorf("expected no override (15 probes < min_probes 10 × 2 active rows), got board=%s", ov.Board)
+	}
+}
+
 // === 自动冷板测试 ===
 
 func TestEvaluate_AutoCold_DemotesToCold(t *testing.T) {

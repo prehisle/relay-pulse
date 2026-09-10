@@ -304,8 +304,7 @@ func ApplyOverrides(monitors []config.ServiceConfig, overrides map[storage.Monit
 	// 构建 PSC 级别的 override 索引
 	pscOverrides := make(map[string]MonitorOverride, len(overrides))
 	for key, ov := range overrides {
-		pscKey := key.Provider + "|" + key.Service + "|" + key.Channel
-		pscOverrides[pscKey] = ov
+		pscOverrides[pscOf(key.Provider, key.Service, key.Channel)] = ov
 	}
 
 	copied := make([]config.ServiceConfig, len(monitors))
@@ -326,8 +325,7 @@ func ApplyOverrides(monitors []config.ServiceConfig, overrides map[storage.Monit
 
 		// PSC 回退：子模型继承父通道的 override
 		if strings.TrimSpace(copied[i].Parent) != "" {
-			pscKey := copied[i].Provider + "|" + copied[i].Service + "|" + copied[i].Channel
-			if ov, ok := pscOverrides[pscKey]; ok {
+			if ov, ok := pscOverrides[pscOf(copied[i].Provider, copied[i].Service, copied[i].Channel)]; ok {
 				applyOverrideToMonitor(&copied[i], ov, annotationRules, globalInterval)
 			}
 		}
@@ -528,6 +526,12 @@ func overridesEqual(a, b map[storage.MonitorKey]MonitorOverride) bool {
 	return true
 }
 
+// pscOf 拼出 provider|service|channel 三元组键——通道级聚合（override 回退、
+// 可用率汇总）的唯一键格式，别在别处再手拼一遍。
+func pscOf(provider, service, channel string) string {
+	return provider + "|" + service + "|" + channel
+}
+
 func isColdBoard(board string) bool {
 	return strings.EqualFold(strings.TrimSpace(board), "cold")
 }
@@ -645,9 +649,31 @@ func (s *Service) evaluate(ctx context.Context, snap *evalSnapshot) (map[storage
 		}
 	}
 
+	// 通道可用率是「该通道所有模型的可用探测数 / 总探测数」，故先按 PSC 收齐
+	// 每个通道下参与汇总的监测行（父行 + 各子模型行）。
+	// 过滤口径与下方候选收集、与前端 filterMonitorsForGroups 保持一致：
+	// disabled/hidden/配置 cold 的行既不展示也不探测，其历史不该计入。
+	activeRowsByPSC := make(map[string][]storage.MonitorKey)
+	for _, m := range snap.monitors {
+		if m.Disabled || m.Hidden {
+			continue
+		}
+		if isColdBoard(m.Board) {
+			continue
+		}
+		psc := pscOf(m.Provider, m.Service, m.Channel)
+		activeRowsByPSC[psc] = append(activeRowsByPSC[psc], storage.MonitorKey{
+			Provider: m.Provider,
+			Service:  m.Service,
+			Channel:  m.Channel,
+			Model:    m.Model,
+		})
+	}
+
 	// 收集 hot/secondary 的根监测项（排除 parent/disabled/hidden/cold）
 	type candidate struct {
 		key            storage.MonitorKey
+		psc            string
 		configBoard    string
 		autoColdExempt bool
 		// —— 质量列跨产品 join 字段（镜像前端 lookupRpdiagScore 的 join 键）——
@@ -718,6 +744,7 @@ func (s *Service) evaluate(ctx context.Context, snap *evalSnapshot) (map[storage
 		}
 		candidates = append(candidates, candidate{
 			key:            key,
+			psc:            pscOf(m.Provider, m.Service, m.Channel),
 			configBoard:    board,
 			autoColdExempt: m.AutoColdExempt,
 			providerName:   m.ProviderName,
@@ -753,10 +780,19 @@ func (s *Service) evaluate(ctx context.Context, snap *evalSnapshot) (map[storage
 		qualityByKey[c.key] = computeQualityLatch(prev, qsnap.Fresh, qsnap.Generation, sig)
 	}
 
-	// 构建批量查询 keys
-	keys := make([]storage.MonitorKey, len(candidates))
-	for i, c := range candidates {
-		keys[i] = c.key
+	// 构建批量查询 keys：每个候选展开成它所在通道的全部活跃行（父行 + 子模型行）。
+	// keyToPSC 同时充当去重集——同一 PSC 下若有多个根候选（并列根行写法），
+	// 它们共享同一份历史，不能重复入队（重复 key 会在 CTE JOIN 里放大记录数）。
+	keys := make([]storage.MonitorKey, 0, len(candidates))
+	keyToPSC := make(map[storage.MonitorKey]string, len(candidates))
+	for _, c := range candidates {
+		for _, rowKey := range activeRowsByPSC[c.psc] {
+			if _, dup := keyToPSC[rowKey]; dup {
+				continue
+			}
+			keyToPSC[rowKey] = c.psc
+			keys = append(keys, rowKey)
+		}
 	}
 
 	// 分批查询历史记录（考虑 SQLite 参数上限）
@@ -774,10 +810,10 @@ func (s *Service) evaluate(ctx context.Context, snap *evalSnapshot) (map[storage
 	}
 
 	store := s.storage.WithContext(ctx)
-	since := endTime.Add(-time.Duration(availabilityBucketCount) * availabilityBucketWindow)
+	since := endTime.Add(-availabilityWindow)
 
-	// 合并所有批次结果
-	allHistory := make(map[storage.MonitorKey][]*storage.ProbeRecord)
+	// 合并所有批次结果，按 PSC 汇总：通道下各模型行的记录进同一个池子。
+	historyByPSC := make(map[string][]*storage.ProbeRecord)
 	for start := 0; start < len(keys); start += batchSize {
 		end := start + batchSize
 		if end > len(keys) {
@@ -805,8 +841,12 @@ func (s *Service) evaluate(ctx context.Context, snap *evalSnapshot) (map[storage
 			applySponsorDowngrades()
 			return overrides, stats
 		}
-		for k, v := range historyMap {
-			allHistory[k] = v
+		for rowKey, records := range historyMap {
+			psc, ok := keyToPSC[rowKey]
+			if !ok {
+				continue // 不属于任何候选通道（理论上不会发生，防御性跳过）
+			}
+			historyByPSC[psc] = append(historyByPSC[psc], records...)
 		}
 	}
 
@@ -820,8 +860,9 @@ func (s *Service) evaluate(ctx context.Context, snap *evalSnapshot) (map[storage
 		stats.checked++
 		prev := currentOverrides[c.key] // 无 override 时为零值
 		q := qualityByKey[c.key]
-		records := allHistory[c.key]
+		records := historyByPSC[c.psc]
 		availability, total := CalculateAvailability(records, endTime, snap.degradedWeight)
+		activeRows := len(activeRowsByPSC[c.psc]) // ≥1：候选自身必在其中
 
 		// fromBoard 仅用于日志 from 字段（不作迟滞记忆）。
 		// 特例：auto_cold_exempt 打破了 sticky cold，此时旧 cold override 无效，
@@ -831,7 +872,12 @@ func (s *Service) evaluate(ctx context.Context, snap *evalSnapshot) (map[storage
 			fromBoard = prev.Board
 		}
 
-		if total < snap.autoMove.MinProbes {
+		// min_probes 是「每个模型行平均最少样本数」，不是通道总样本数：
+		// total 现在是通道下全部模型行的汇总，直接拿它比阈值会让多模型通道
+		// 白拿 N 倍宽松度（4 个模型各 3 次探测就能过 min_probes=10 的闸）。
+		// activeRows==0 理论上不可达（候选自身必在 activeRowsByPSC），但真出现时
+		// 阈值会退化成 0 而放行一个 availability=-1 的通道直奔冷板——显式冻结掉。
+		if activeRows == 0 || total < snap.autoMove.MinProbes*activeRows {
 			stats.skippedMinProbes++
 			// 可用率数据不足无法判定：冻结可用率，但仍应用本轮质量决策。
 			frozen := frozenQualityOverride(c.configBoard, prev, q)

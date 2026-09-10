@@ -1,5 +1,6 @@
 import { PROVIDERS, TIME_RANGES } from '../constants';
 import type { ProcessedMonitorData, StatusKey, StatusCounts } from '../types';
+import { calculateUptime } from './monitorDataProcessor';
 
 /**
  * 模拟数据生成器 - 用于演示和本地开发
@@ -106,16 +107,8 @@ export function fetchMockMonitorData(timeRangeId: string): Promise<ProcessedMoni
 
           const currentStatus = history[history.length - 1].status;
 
-          // 计算可用率：与真实逻辑保持一致
-          // - 仅统计 availability >= 0 的时间块
-          // - 若所有时间块均无数据，返回 -1
-          const validAvailabilityPoints = history.filter(point => point.availability >= 0);
-          const uptime = validAvailabilityPoints.length > 0
-            ? parseFloat((
-                validAvailabilityPoints.reduce((acc, point) => acc + point.availability, 0)
-                / validAvailabilityPoints.length
-              ).toFixed(2))
-            : -1;
+          // 可用率直接复用真实逻辑，避免 mock 与线上两套口径漂移
+          const uptime = calculateUptime(history);
 
           // 模拟通道名（按照 provider 分配）
           const channels = ['vip-channel', 'standard-channel', 'test-channel'];

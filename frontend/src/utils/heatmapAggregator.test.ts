@@ -84,6 +84,42 @@ describe('aggregateHeatmap', () => {
     const result = aggregateHeatmap([point]);
     expect(result).toEqual([point]);
   });
+
+  it('聚合块的可用率按探测次数加权（与可用率列同口径）', () => {
+    // node 环境默认没有 window，手动伪造 matchMedia 让 getIsTablet() 命中平板分支
+    const originalWindow = (globalThis as unknown as { window?: unknown }).window;
+    (globalThis as unknown as { window: unknown }).window = {
+      matchMedia: () => ({ matches: true }),
+    };
+    resetMediaQueryCache();
+
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      // 两个跑满的全绿块（各 100 次探测）+ 一个只跑了 1 次的全红块
+      const points = [
+        makePoint(0, now - 86400, { availability: 100, statusCounts: { ...makePoint(0, 0).statusCounts!, available: 100 } }),
+        makePoint(1, now - 43200, { availability: 100, statusCounts: { ...makePoint(0, 0).statusCounts!, available: 100 } }),
+        makePoint(2, now, {
+          availability: 0,
+          status: 'UNAVAILABLE' as HistoryPoint['status'],
+          statusCounts: { ...makePoint(0, 0).statusCounts!, available: 0, unavailable: 1 },
+        }),
+      ];
+
+      const result = aggregateHeatmap(points, 1);
+
+      expect(result).toHaveLength(1);
+      // 加权：(100*100 + 100*100 + 0*1) / 201 = 99.5；等权平均会是 66.67
+      expect(result[0].availability).toBeCloseTo(99.5, 2);
+    } finally {
+      if (originalWindow === undefined) {
+        delete (globalThis as unknown as { window?: unknown }).window;
+      } else {
+        (globalThis as unknown as { window: unknown }).window = originalWindow;
+      }
+      resetMediaQueryCache();
+    }
+  });
 });
 
 describe('getAggregationFactor', () => {
