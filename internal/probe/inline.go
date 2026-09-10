@@ -130,7 +130,9 @@ func (p *internalProber) probe(ctx context.Context, cfg *config.ServiceConfig, c
 	result.SubStatus = sub
 
 	if len(body) > 0 {
-		snippet := strings.TrimSpace(monitor.AggregateResponseText(body))
+		// 展示用语义：抽不到正文时退回响应体原文，否则管理后台点一次探测
+		// 就看不到上游错误（内容校验那侧刻意相反，见 monitor.ResponseSnippetText）。
+		snippet := monitor.ResponseSnippetText(body)
 		const maxSnippetLen = 512
 		if len(snippet) > maxSnippetLen {
 			snippet = snippet[:maxSnippetLen] + "... (truncated)"

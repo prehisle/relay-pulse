@@ -191,13 +191,15 @@ func BuildContentMismatchSummary(body []byte, expected string) string {
 		// 用未 trim 的 text != "" 判，纯空白正文会让摘要一边印 extracted>0chars、
 		// 一边给不出正文行，也不回退到 body_tail——恰好是「摘要描述了没发生的事」。
 		// trim 不会抹掉匹配：关键字是非空白串，trim 只动首尾空白。
-		text := strings.TrimSpace(ExtractTextFromSSE(body))
+		matchTarget, source := aggregateResponseText(body)
+		text := strings.TrimSpace(matchTarget)
 		fields = append(fields, fmt.Sprintf("extracted=%dchars", utf8.RuneCountInString(text)))
 		if text == "" {
-			// 提取器一个字都没抽到时，内容校验实际是拿整包协议信封在 grep
-			// （AggregateResponseText 的 raw 回退）。这个事实必须写明，
-			// 否则「未包含预期关键字」会被误读成「模型答错了」。
-			fields = append(fields, "matched_against=raw_body")
+			// 一个字都没抽到时，内容校验的匹配对象是**空文本**——结论是「这条流里
+			// 根本没有模型正文」，不是「模型答错了」。2026-09-11 之前此处会回退成
+			// 拿整包协议信封 grep，故当时印 matched_against=raw_body；回退撤掉后
+			// 如实打印来源，别再让读的人以为信封参与了匹配。
+			fields = append(fields, "matched_against="+string(source))
 		}
 		fields = append(fields, DigestSSE(body).fields()...)
 

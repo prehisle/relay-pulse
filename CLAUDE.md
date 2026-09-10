@@ -139,20 +139,30 @@ HTTP 响应
 - **429 限流**：响应体是错误信息，不做内容校验
 - **红色状态**：已是最差状态，不需要再校验
 - 若 2xx 响应但内容不匹配 → 降级为 🔴 红色（语义失败）
-- ⚠️ **匹配对象未必是模型正文**：`AggregateResponseText` 抽不出 SSE 正文时会**整包回退**，
-  于是 `success_contains` 变成拿整个协议信封做 grep。arith 族靠 `RP_ANSWER=` 前缀绝不出现在
-  题面/元数据里躲过这一劫（见 `prompt.go` 硬约束），换关键字前先想清楚这条。
-- ⚠️ **已知假绿，尚未修**：`response.reasoning_summary_text.delta` 的顶层 `delta` 是字符串，
-  被当成正文累加。模型只在思考摘要里写出答案、正文一个字没输出 → 判绿。cx 模板全是
-  `"summary": "auto"`，这条路径在生产上是通的。修它属判定变更，要先跑 blast-radius 审计。
+- **匹配对象只能是模型正文**（v2.90.0 起，动 `ExtractTextFromSSE` 前必读）。两条规矩：
+  - **SSE 抽不到正文 = 匹配空文本，不回退整包响应体**。回退等于拿协议信封（事件名、
+    request-id、usage、**思考摘要**）做 grep，「模型没输出」会被信封里恰好出现的关键字判绿。
+    非流式响应**不受影响**——那时响应体本身就是模型输出或上游错误体，整体即匹配对象。
+  - **顶层 `delta` / `text` 必须由事件类型授权**。Responses 协议把正文与思考摘要放在同名同型
+    的字段里（`response.output_text.delta` ↔ `response.reasoning_summary_text.delta`，`.done`
+    那对同理），只看字段分不出来。白名单见 `probe.go` 的 `event*` 常量，**未知事件类型一律
+    不贡献正文**——宁可抽不到判红，也不能把非正文当正文判绿。Anthropic `delta.text`、
+    OpenAI Chat `choices[].delta.content`、Gemini `candidates[]` 靠字段结构唯一识别，不需授权。
+  - 同一份正文会被 Responses 重复投递三到四次（delta / output_text.done / content_part.done /
+    output_item.done / completed），故按来源分桶、**取最高优先级的非空桶，绝不跨桶拼接**。
+- **匹配用与展示用是两个函数，别混**：`AggregateResponseText`（匹配，抽不到即空）
+  vs `ResponseSnippetText`（展示，抽不到退回响应体原文）。日志/管理后台要「看懂发生了什么」，
+  上游错误信封正是关键信息；内容校验要「模型到底输出了什么」，信封必须排除。此前两者共用
+  一个函数，三个调用点各自手写 `if snippet == "" { snippet = string(body) }` 找补、第四个漏写。
 
 **`content_mismatch` 的 `error_detail` 是结构化摘要，不是响应体片段**（`response_digest.go`）。
 首行给判据——`expected=` 本次注入后的关键字（arith 每次随机，不记就无法事后复核）、
 `extracted=Nchars`、SSE 的事件数/终止事件/`stop_reason`/上游自报错误；次行给原文，
 **抽到正文就给正文（截头部），一个字没抽到就给响应体尾部**。取尾是刻意的：SSE 开头恒为
 握手元数据，判红的证据全在尾部——旧实现原样截前 512 字节，对这个红态零诊断力。
-`matched_against=raw_body` 出现即表示走了上面那条整包回退。scheduler 与 inline 两条探测路径
-共用同一个 `BuildContentMismatchSummary`，有测试锁死逐字一致。
+`matched_against=none` 表示这条流里根本没有模型正文——结论是「上游没产出」，不是「模型答错了」
+（v2.90.0 前此处印 `raw_body`，因为当时确实会回退成拿整包信封 grep）。scheduler 与 inline 两条
+探测路径共用同一个 `BuildContentMismatchSummary`，有测试锁死逐字一致。
 
 **细分状态（SubStatus）**：
 

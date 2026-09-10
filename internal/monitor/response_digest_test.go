@@ -116,9 +116,10 @@ func TestBuildContentMismatchSummary_SSEWithoutText(t *testing.T) {
 	summary := BuildContentMismatchSummary([]byte(body), "RP_ANSWER=79")
 
 	for _, want := range []string{
-		`expected="RP_ANSWER=79"`,  // 判据本身：arith 每次随机，不记就无法复核
-		"extracted=0chars",         // 一个字都没抽到
-		"matched_against=raw_body", // 于是内容校验实际在 grep 协议信封
+		`expected="RP_ANSWER=79"`, // 判据本身：arith 每次随机，不记就无法复核
+		"extracted=0chars",        // 一个字都没抽到
+		// 2026-09-11 起匹配对象是空文本而非整包信封（此前印 raw_body）。
+		"matched_against=none",
 		"sse_events=2",
 		"last_event=response.failed",
 		`error="upstream closed connection"`,
@@ -305,8 +306,8 @@ func TestBuildContentMismatchSummary_WhitespaceOnlyTextCountsAsEmpty(t *testing.
 	if !strings.Contains(summary, "extracted=0chars") {
 		t.Errorf("纯空白应算作没抽到正文，实际:\n%s", summary)
 	}
-	if !strings.Contains(summary, "matched_against=raw_body") {
-		t.Errorf("纯空白时匹配走的是整包回退，应标注，实际:\n%s", summary)
+	if !strings.Contains(summary, "matched_against=none") {
+		t.Errorf("纯空白等于没有正文，匹配对象应标注为 none，实际:\n%s", summary)
 	}
 	if !strings.Contains(summary, "body_tail(") {
 		t.Errorf("纯空白时应回退给响应体尾部，实际:\n%s", summary)

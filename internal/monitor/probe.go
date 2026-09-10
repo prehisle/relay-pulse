@@ -434,10 +434,7 @@ retryLoop:
 		logArgs = append(logArgs, "prompt", lastPrompt, "expected", lastExpectedAnswer)
 	}
 	if len(lastBodyBytes) > 0 {
-		snippet := strings.TrimSpace(AggregateResponseText(lastBodyBytes))
-		if snippet == "" {
-			snippet = strings.TrimSpace(string(lastBodyBytes))
-		}
+		snippet := ResponseSnippetText(lastBodyBytes)
 		if len(snippet) > 200 {
 			snippet = snippet[:200] + "..."
 		}
@@ -471,10 +468,7 @@ func buildFailureSnippet(result *ProbeResult, body []byte, successContains strin
 
 	var snippet string
 	if len(body) > 0 {
-		snippet = strings.TrimSpace(AggregateResponseText(body))
-		if snippet == "" {
-			snippet = strings.TrimSpace(string(body))
-		}
+		snippet = ResponseSnippetText(body)
 	} else if result.Error != nil {
 		snippet = result.Error.Error()
 	}
@@ -493,10 +487,7 @@ func (p *Prober) logFailedProbe(cfg *config.ServiceConfig, result *ProbeResult, 
 			"body_bytes", len(bodyBytes), "summary", BuildContentMismatchSummary(bodyBytes, successContains))
 	} else if len(bodyBytes) > 0 {
 		// 其他红色状态：保持原有行为，在有响应体时输出片段
-		snippet := strings.TrimSpace(AggregateResponseText(bodyBytes))
-		if snippet == "" {
-			snippet = strings.TrimSpace(string(bodyBytes))
-		}
+		snippet := ResponseSnippetText(bodyBytes)
 		if snippet != "" {
 			if len(snippet) > maxSnippetLen {
 				snippet = snippet[:maxSnippetLen] + "... (truncated)"
@@ -742,22 +733,66 @@ func (p *Prober) determineStatus(statusCode, latency int, slowLatency time.Durat
 	return 0, storage.SubStatusClientError
 }
 
-// aggregateResponseText 将原始响应体整理为用于关键字匹配的文本。
-// - 普通 JSON/文本：直接使用完整 body
-// - SSE / 流式响应：尝试解析 data: 行中的增量内容并拼接
-func AggregateResponseText(body []byte) string {
+// responseTextSource 说明内容校验最终拿什么在做匹配。
+type responseTextSource string
+
+const (
+	// textSourceEmpty：响应体为空。
+	textSourceEmpty responseTextSource = "empty"
+	// textSourceSSE：从 SSE 流里抽到了模型正文。
+	textSourceSSE responseTextSource = "sse_text"
+	// textSourceBody：非流式响应，响应体本身就是匹配对象。
+	textSourceBody responseTextSource = "body"
+	// textSourceNone：确实是 SSE 流，但一个字正文都没抽到。
+	//
+	// 它必须与 textSourceBody 分开：2026-09-11 之前两者被合并成「回退到整包 body」，
+	// 于是 success_contains 变成拿协议信封（事件名、request-id、usage、**思考摘要**）
+	// 做 grep——模型正文一个字没输出，也可能被信封里恰好出现的关键字判绿。
+	textSourceNone responseTextSource = "none"
+)
+
+// aggregateResponseText 给出内容校验应当匹配的文本及其来源。
+func aggregateResponseText(body []byte) (string, responseTextSource) {
 	if len(body) == 0 {
-		return ""
+		return "", textSourceEmpty
 	}
 
-	if looksLikeSSE(body) {
-		if sseText := ExtractTextFromSSE(body); sseText != "" {
-			return sseText
+	if !looksLikeSSE(body) {
+		// 非流式响应：响应体本身就是模型输出（或上游错误体），整体即匹配对象。
+		return string(body), textSourceBody
+	}
+
+	text := ExtractTextFromSSE(body)
+	if strings.TrimSpace(text) == "" {
+		// ⚠️ 这里刻意**不回退整包 body**，理由见 textSourceNone。
+		return "", textSourceNone
+	}
+	return text, textSourceSSE
+}
+
+// AggregateResponseText 是内容校验（success_contains）的匹配对象。
+//
+// ⚠️ SSE 流抽不到正文时返回空串，**不回退到整包响应体**。要「给人看」的片段
+// 请用 ResponseSnippetText——同一份响应体，两个问题的正确答案在这一点上相反。
+func AggregateResponseText(body []byte) string {
+	text, _ := aggregateResponseText(body)
+	return text
+}
+
+// ResponseSnippetText 给出**展示用**片段：抽得到正文就给正文，抽不到就退回响应体原文。
+//
+// 与匹配用的 AggregateResponseText 分开是必须的：日志与管理后台要的是「看懂发生了
+// 什么」，此时上游的错误信封恰恰是关键信息；内容校验要的是「模型到底输出了什么」，
+// 信封必须排除。此前两者共用一个函数，三个调用点各自手写
+// `if snippet == "" { snippet = string(body) }` 找补，第四个（internal/probe/inline.go）
+// 漏写——管理后台点一次探测就看不到上游错误。语义收进函数即不再有第五次漏写。
+func ResponseSnippetText(body []byte) string {
+	if text, source := aggregateResponseText(body); source == textSourceSSE || source == textSourceBody {
+		if trimmed := strings.TrimSpace(text); trimmed != "" {
+			return trimmed
 		}
 	}
-
-	// 回退到原始响应体
-	return string(body)
+	return strings.TrimSpace(string(body))
 }
 
 // looksLikeSSE 启发式判定响应体是否为 text/event-stream 风格：
@@ -770,27 +805,89 @@ func looksLikeSSE(body []byte) bool {
 	return bytes.HasPrefix(body, []byte("data:")) || bytes.Contains(body, []byte("\ndata:"))
 }
 
-// extractTextFromSSE 从 text/event-stream 风格的响应体中抽取语义文本。
-// 当前支持的模式：
-// - Anthropic: event: content_block_delta + data: {"delta":{"type":"text_delta","text":"..."}}
-// - OpenAI Chat: data: {"choices":[{"delta":{"content":"..."}}]}
-// - OpenAI Responses API:
-//   - event: response.output_text.delta + data: {"delta":"..."}（增量）
-//   - event: response.output_text.done + data: {"text":"..."}（完整，兜底）
-//   - Gemini API: data: {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
-//     注意：Gemini SSE 没有 event: 行，只有 data: 行；流式响应中 text 可能被拆分
+// OpenAI Responses 协议里承载正文的事件。这几个名字必须显式列出：该协议把正文与
+// **思考摘要**放在同名同型的字段里（顶层 `delta` / 顶层 `text`），只看字段分不出来。
+const (
+	eventOutputTextDelta   = "response.output_text.delta"
+	eventOutputTextDone    = "response.output_text.done"
+	eventContentPartDone   = "response.content_part.done"
+	eventOutputItemDone    = "response.output_item.done"
+	eventResponseCompleted = "response.completed"
+)
+
+// sseTextCandidates 按来源分桶收集正文候选。
 //
-// 解析失败时会尽量回退到原始 data 文本。
+// 为什么不能像 2026-09-11 之前那样边扫边往同一个 builder 里写：Responses 协议会把
+// 同一份正文重复投递三到四次（delta 增量 / output_text.done / content_part.done /
+// output_item.done / completed 快照），混在一起就是同一句话被拼四遍；而「先到先得」
+// （旧代码的 `b.Len() == 0`）又会让先到的半截 delta 挡住后到的完整快照。
+// 分桶 + 只取一个，两个方向的错都不会发生。
+type sseTextCandidates struct {
+	completed strings.Builder // response.completed（整份响应快照，最完整）
+	itemDone  strings.Builder // response.output_item.done
+	partDone  strings.Builder // response.content_part.done
+	textDone  strings.Builder // response.output_text.done
+	textDelta strings.Builder // response.output_text.delta（增量，按到达顺序拼接）
+
+	// nonResponses 装**不属于 Responses 协议**的形态：Anthropic content_block_delta、
+	// OpenAI Chat chunk、Gemini candidates，以及无事件类型的私有格式。
+	// 它们靠字段结构就能唯一识别，不需要（也拿不到）事件授权。
+	nonResponses strings.Builder
+}
+
+// pick 取最高优先级的非空候选。**绝不跨桶拼接**——各桶装的是同一段正文的不同
+// 投递形态，拼起来等于把同一句话说好几遍。
+func (c *sseTextCandidates) pick() string {
+	for _, b := range []*strings.Builder{
+		&c.completed, &c.itemDone, &c.partDone, &c.textDone, &c.textDelta, &c.nonResponses,
+	} {
+		if b.Len() > 0 {
+			return b.String()
+		}
+	}
+	return ""
+}
+
+// ExtractTextFromSSE 从 text/event-stream 风格的响应体中抽取**模型正文**。
+// 支持的形态：
+//   - Anthropic: event: content_block_delta + data: {"delta":{"type":"text_delta","text":"..."}}
+//   - OpenAI Chat: data: {"choices":[{"delta":{"content":"..."}}]}
+//   - OpenAI Responses: output_text.delta / output_text.done / content_part.done /
+//     output_item.done / completed，见上方常量
+//   - Gemini: data: {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
+//     （Gemini SSE 没有 event: 行，且 text 可能被拆到多个 chunk，需累积拼接）
+//
+// ⚠️ **只有正文算数，思考摘要不算**。Responses 协议的 reasoning_summary_text.delta /
+// .done 与正文事件用同名同型的字段传内容，2026-09-11 之前它们被一视同仁地累加，
+// 于是「模型只在思考里写出答案、正文一个字没输出」也判绿——生产上 8 条火山方舟
+// native 通道实测命中这条路径（reasoning done 恰好排在正文之前，把当时还空的
+// builder 填满）。所以顶层 `delta` / `text` 一律需要事件类型授权。
 func ExtractTextFromSSE(body []byte) string {
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	// 提升单行上限，避免极端情况下行太长
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
-	var b strings.Builder
+	var cand sseTextCandidates
+
+	// SSE 的 event: 行在 data: 行之前，故需跨行记忆；空行是帧分隔符，作用域到此为止。
+	//
+	// ⚠️ 与 SSEDigest.LastEvent 的**粘滞**语义刻意不同：那里「最后一个叫得出名字的
+	// 事件」是有用的摘要字段；这里必须是**当前帧**的类型，沿用上一帧会把 reasoning
+	// 的内容记到 output 名下——那正是本函数要防的事。
+	pendingEvent := ""
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
+
+		if line == "" {
+			pendingEvent = ""
+			continue
+		}
+		if strings.HasPrefix(line, "event:") {
+			pendingEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			continue
+		}
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
@@ -800,27 +897,34 @@ func ExtractTextFromSSE(body []byte) string {
 			continue
 		}
 
+		event := pendingEvent
+
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(payload), &obj); err != nil {
-			// 非 JSON data，直接拼接原始内容
-			if b.Len() > 0 {
-				b.WriteByte(' ')
+			// 私有非 JSON 格式：只有本帧完全没有事件类型时才当正文。
+			// 带着事件名却解不出 JSON 的，是已知协议的畸形帧，不该混进正文。
+			if event == "" {
+				if cand.nonResponses.Len() > 0 {
+					cand.nonResponses.WriteByte(' ')
+				}
+				cand.nonResponses.WriteString(payload)
 			}
-			b.WriteString(payload)
 			continue
 		}
 
-		appendText := func(s string) {
-			if s == "" {
-				return
+		// payload 自带的 type 优先于 event: 行——它与 payload 同帧，不会被跨帧串味。
+		if eventType, ok := obj["type"].(string); ok {
+			if trimmed := strings.TrimSpace(eventType); trimmed != "" {
+				event = trimmed
 			}
-			b.WriteString(s)
 		}
 
-		// Anthropic: {"type":"content_block_delta", "delta":{"type":"text_delta","text":"..."}}
+		// —— 以下三种靠字段结构即可唯一识别，不属于 Responses 协议，无需事件授权 ——
+
+		// Anthropic: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
 		if delta, ok := obj["delta"].(map[string]any); ok {
 			if text, ok := delta["text"].(string); ok {
-				appendText(text)
+				cand.nonResponses.WriteString(text)
 			}
 		}
 
@@ -836,26 +940,12 @@ func ExtractTextFromSSE(body []byte) string {
 					continue
 				}
 				if text, ok := delta["content"].(string); ok {
-					appendText(text)
+					cand.nonResponses.WriteString(text)
 				}
 			}
 		}
 
-		// OpenAI Responses API: {"delta":"pong",...} - 顶层 delta 直接是字符串
-		if delta, ok := obj["delta"].(string); ok {
-			appendText(delta)
-		}
-
-		// OpenAI Responses API: {"text":"pong",...} - response.output_text.done 事件
-		// 完整 text 通常已通过增量累积，这里仅作兜底（当 builder 为空时使用）
-		if text, ok := obj["text"].(string); ok {
-			if b.Len() == 0 {
-				appendText(text)
-			}
-		}
-
-		// Gemini API: {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
-		// 流式响应中 text 可能被拆分到多个 chunk（如 "po" + "ng"），需要累积拼接
+		// Gemini: {"candidates":[{"content":{"parts":[{"text":"..."}]}}]}
 		if candidates, ok := obj["candidates"].([]any); ok {
 			for _, c := range candidates {
 				cm, ok := c.(map[string]any)
@@ -876,26 +966,86 @@ func ExtractTextFromSSE(body []byte) string {
 						continue
 					}
 					if text, ok := pm["text"].(string); ok {
-						appendText(text)
+						cand.nonResponses.WriteString(text)
 					}
 				}
 			}
 		}
 
-		// 通用兜底：顶层 content / message 字段
-		if content, ok := obj["content"].(string); ok {
-			appendText(content)
+		// —— 以下是 Responses 协议：字段本身有歧义，一律由事件类型授权 ——
+		// 未知事件类型（含将来新增的 codex.* / responsesapi.* 一类私有事件）
+		// 走 default：不贡献任何正文。宁可抽不到判红，也不能把非正文当正文判绿。
+		switch event {
+		case eventOutputTextDelta:
+			if delta, ok := obj["delta"].(string); ok {
+				cand.textDelta.WriteString(delta)
+			}
+		case eventOutputTextDone:
+			if text, ok := obj["text"].(string); ok {
+				cand.textDone.WriteString(text)
+			}
+		case eventContentPartDone:
+			appendContentText(obj["part"], &cand.partDone)
+		case eventOutputItemDone:
+			if item, ok := obj["item"].(map[string]any); ok {
+				appendContentTexts(item["content"], &cand.itemDone)
+			}
+		case eventResponseCompleted:
+			if response, ok := obj["response"].(map[string]any); ok {
+				if output, ok := response["output"].([]any); ok {
+					for _, rawItem := range output {
+						item, ok := rawItem.(map[string]any)
+						if !ok {
+							continue
+						}
+						appendContentTexts(item["content"], &cand.completed)
+					}
+				}
+			}
 		}
-		if msg, ok := obj["message"].(string); ok {
-			appendText(msg)
+
+		// 私有格式的顶层正文字段：同样只在本帧没有事件类型时采纳。
+		// 实测 `{"type":"error","message":"Our servers are currently overloaded…"}`
+		// 会走到这里——那是上游错误信封、不是模型正文，混进来会让摘要印出
+		// `extracted=61chars` 却一个字正文都没有。
+		if event == "" {
+			if content, ok := obj["content"].(string); ok {
+				cand.nonResponses.WriteString(content)
+			}
+			if msg, ok := obj["message"].(string); ok {
+				cand.nonResponses.WriteString(msg)
+			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		// 扫描出错时，尽量返回已有内容；彻底失败则交由上层回退
+		// 扫描出错时，尽量返回已抽到的内容；彻底失败交由上层按「抽不到」处理。
+		_ = err
 	}
 
-	return b.String()
+	return cand.pick()
+}
+
+// appendContentTexts 收 `content: [{"text": "..."}]` 这种列表形态的正文。
+func appendContentTexts(v any, dst *strings.Builder) {
+	contents, ok := v.([]any)
+	if !ok {
+		return
+	}
+	for _, raw := range contents {
+		appendContentText(raw, dst)
+	}
+}
+
+// appendContentText 收单个 content part 的 text 字段。
+func appendContentText(v any, dst *strings.Builder) {
+	part, ok := v.(map[string]any)
+	if !ok {
+		return
+	}
+	if text, ok := part["text"].(string); ok {
+		dst.WriteString(text)
+	}
 }
 
 // SaveResult 保存探测结果到存储
