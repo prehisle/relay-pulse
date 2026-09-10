@@ -248,3 +248,27 @@ func TestLooksLikeSSE(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildContentMismatchSummary_CapsExpectedKeyword —— success_contains 来自模板、
+// 长度不受我们控制，不封顶就等于让每条红态记录按模板长度写库。
+func TestBuildContentMismatchSummary_CapsExpectedKeyword(t *testing.T) {
+	huge := strings.Repeat("k", 5000)
+	summary := BuildContentMismatchSummary([]byte(`{"a":1}`), huge)
+	if len(summary) > expectedKeywordLimit+contentMismatchExcerptLimit+200 {
+		t.Errorf("摘要未对 expected 封顶，长度 %d", len(summary))
+	}
+	if strings.Contains(summary, strings.Repeat("k", expectedKeywordLimit+1)) {
+		t.Errorf("expected 应被截断到 %d 字节", expectedKeywordLimit)
+	}
+}
+
+// TestDigestSSE_EventScopeEndsAtBlankLine —— 空行是 SSE 的帧分隔符。
+// 一个没带 data: 的孤立事件名不得漏进下一帧，否则末事件类型会被指认成错的那个。
+func TestDigestSSE_EventScopeEndsAtBlankLine(t *testing.T) {
+	body := "event: response.output_item.added\n\n" + // 只有事件名，没有 data
+		"data: " + `{"candidates":[{"content":{"parts":[{"text":"x"}]}}]}` + "\n\n"
+
+	if got := DigestSSE([]byte(body)).LastEvent; got != "" {
+		t.Errorf("上一帧的事件名不该漏进下一帧，LastEvent = %q", got)
+	}
+}

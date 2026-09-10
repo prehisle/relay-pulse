@@ -14,6 +14,9 @@ const (
 	contentMismatchExcerptLimit = 512
 	// sseErrorHintLimit 限制上游自报错误信息的长度，避免一条 stack trace 顶掉整段摘要。
 	sseErrorHintLimit = 200
+	// expectedKeywordLimit 给 expected 封顶。success_contains 来自模板、长度不受我们控制，
+	// 不封顶就等于让每条红态记录按模板长度写库。合法用法（RP_ANSWER=79 / pong）远在此之下。
+	expectedKeywordLimit = 200
 )
 
 // SSEDigest 是一次 SSE 响应体的结构化速览。
@@ -42,6 +45,13 @@ func DigestSSE(body []byte) SSEDigest {
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
+
+		// 空行是 SSE 的帧分隔符：event: 行的作用域到此为止，
+		// 不清掉会让一个没带 data: 的孤立事件名漏进下一帧。
+		if line == "" {
+			pendingEvent = ""
+			continue
+		}
 
 		if strings.HasPrefix(line, "event:") {
 			pendingEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
@@ -161,7 +171,7 @@ func errorMessageOf(v any) string {
 // 次行是原文片段，且**取哪一端由首行的结论决定**——抽到正文就给正文，
 // 一个字没抽到就给响应体尾部。
 func BuildContentMismatchSummary(body []byte, expected string) string {
-	fields := []string{"content_mismatch", fmt.Sprintf("expected=%q", expected)}
+	fields := []string{"content_mismatch", fmt.Sprintf("expected=%q", truncateHead(expected, expectedKeywordLimit))}
 
 	var excerpt string
 
