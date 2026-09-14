@@ -293,7 +293,13 @@ HTTP 响应
 
 - **残**：`internal/api/meta.go` 四语言 SSR 首页描述**仍未提**第一方厂商（原因是此前一条都没有，现已具备条件、属独立文案决策）；这批通道**未接 rpdiag 质量盲评**（落地顺序第 3 步，成本在给每 vendor 定档位阶梯 + 攒基线）。
 
-**模板占位符**: URL/headers/body 中的占位符在探测时由 `internal/monitor/probe.go` 的 `InjectVariables` 统一替换。支持：`{{BASE_URL}}`、`{{API_KEY}}`、`{{MODEL}}`（=`request_model`，为空回退 `model`）、`{{REQUEST_MODEL}}`、`{{USER_ID}}`、`{{USER_ID_HASH}}`、`{{USER_ACCOUNT_UUID}}`、`{{RAND_UUID}}`、`{{RAND_UUID2}}`、`{{PROMPT}}`、`{{EXPECTED_ANSWER}}`、`{{ARITH_A}}`、`{{ARITH_B}}`（同一次注入中两个 `{{RAND_UUID}}` 取同一值）。注意：`body` 按模板文件中的**原始字节**发送（仅 `TrimSpace`，不 re-marshal/不 compact），占位符按字符串替换；需与抓包字节一致时 body 要写成压缩单行、且不放占位符。
+**模板占位符**: URL/headers/body 中的占位符在探测时由 `internal/monitor/probe.go` 的 `InjectVariables` 统一替换。支持：`{{BASE_URL}}`、`{{API_KEY}}`、`{{MODEL}}`（=`request_model`，为空回退 `model`）、`{{REQUEST_MODEL}}`、`{{USER_ID}}`、`{{USER_ID_HASH}}`、`{{USER_ACCOUNT_UUID}}`、`{{RAND_UUID}}`、`{{RAND_UUID2}}`、`{{RAND_UUID_V7}}`、`{{RAND_UUID_V7_2}}`、`{{STABLE_UUID}}`、`{{STABLE_UUID2}}`、`{{UNIX_MS}}`、`{{PROMPT}}`、`{{EXPECTED_ANSWER}}`、`{{ARITH_A}}`、`{{ARITH_B}}`（**同一个占位符在一次注入中处处取同值**，故需要「多个字段同源」时复用同一个名字即可；不同名字之间取值互不相同）。注意：`body` 按模板文件中的**原始字节**发送（仅 `TrimSpace`，不 re-marshal/不 compact），占位符按字符串替换；需与抓包字节一致时 body 要写成压缩单行、且不放占位符。
+
+**⚠️ 伪装真实客户端标识时，别用 `{{USER_ACCOUNT_UUID}}` 和 `{{RAND_UUID}}`**（2026-09-15 解码 codex CLI 抓包得出，五个新占位符为此而加）：
+
+- **`{{USER_ACCOUNT_UUID}}` 产出的不是合法 UUID**。它走 `identity.uuidFromHash`，只把 sha256 切成 `8-4-4-4-12` 的形状、**不设 version/variant 位**，实测产出过 `variant=3`（RFC 4122 只允许 8/9/a/b）。要「按通道稳定且格式合法」用 **`{{STABLE_UUID}}` / `{{STABLE_UUID2}}`**（走 `identity.DeriveUUIDv4`，强制 version=4 + variant=RFC4122）。两个槽位是因为真实客户端常同时带多个互不相同的稳定标识（如 installation id 与 account id）——**这类标识绝不能在模板里写成固定常量**，那会让所有引用通道共用同一个身份，网关按它做账号级限流/去重/风控时会把所有通道当成同一个账号。`{{USER_ACCOUNT_UUID}}` 保持原状不修格式位，是因为 `cc-haiku-arith-20260506` 已在生产使用它。
+- **真实客户端的 session/turn 类标识普遍是 UUIDv7**，前 48 位是毫秒时间戳（codex CLI 实测：`session_id` 解出的时刻与同请求 `turn_started_at_unix_ms` 只差 38ms）。`{{RAND_UUID}}` 是 v4、前 48 位纯随机，**伪造不了这个**，解析 version 位或校验时间戳新鲜度的网关一眼可辨。用 **`{{RAND_UUID_V7}}` / `{{RAND_UUID_V7_2}}`**。
+- 模板里的**时间戳字段一律用 `{{UNIX_MS}}`**（写成不带引号的占位符即落成 JSON 数字）。冻结的时间戳不只会永久漂移，还会与 v7 UUID 内嵌的时间戳对不上——那比单纯冻结更可疑。
 
 **引用文件**: 对于大型请求体，使用 `body: "!include templates/filename.json"`（必须在 `templates/` 目录下）。
 

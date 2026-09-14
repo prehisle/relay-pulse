@@ -60,6 +60,30 @@ func NewProber(storage storage.RecordStorage, userIDMgr *identity.UserIDManager)
 	}
 }
 
+// newUUIDv7 生成 UUIDv7（前 48 位为当前毫秒时间戳）。
+//
+// ⚠️ 熵源失败时**返回空串并记 ERROR，绝不退回 v4**。曾经写成退回 v4，那是错的：
+// v7 的全部意义就是「版本位 + 内嵌真实时间戳」，拿 v4 顶替会让请求照常发出、
+// 上游照常 200、探针照常绿，熵源故障彻底不可见——正是本仓「不要静默兜底、
+// 问题要显式停下」那条准则针对的形态。何况同场景下 uuid.New()（= Must(NewRandom())）
+// 自己就会 panic，那个 fallback 既不保证成功也不保证可观察。
+//
+// 空串会让请求体里出现空标识、被上游拒掉判红，故障因此可见；选它而不是 panic，
+// 是因为一个通道的熵源问题不该拖垮整个监测进程。
+// uuidV7Source 是 uuid.NewV7 的可替换引用。生产恒为它本身；存在的唯一理由是
+// 让上面那条 fail-loud 分支能被测到——未被测试覆盖的错误处理等于没写。
+var uuidV7Source = uuid.NewV7
+
+func newUUIDv7() string {
+	u, err := uuidV7Source()
+	if err != nil {
+		logger.Error("probe", "生成 UUIDv7 失败，占位符将注入空串",
+			"error", err)
+		return ""
+	}
+	return u.String()
+}
+
 // InjectVariables 替换所有占位符，返回临时副本（不修改共享 ServiceConfig）
 func InjectVariables(cfg *config.ServiceConfig, uidMgr *identity.UserIDManager) (url, body string, headers map[string]string, successContains, prompt, expectedAnswer string) {
 	// 回退：非模板监测项可能没有 URLPattern，直接使用 BaseURL
@@ -109,6 +133,19 @@ func InjectVariables(cfg *config.ServiceConfig, uidMgr *identity.UserIDManager) 
 		"{{USER_ID_HASH}}", userIDHash,
 		"{{RAND_UUID}}", uuid.New().String(),
 		"{{RAND_UUID2}}", uuid.New().String(),
+		// v7 变体：前 48 位是当前毫秒时间戳。真实客户端的 session/turn 类标识
+		// 普遍是 v7（codex CLI 实测），拿 v4 冒充会在 version 位和「内嵌时间戳
+		// 对不上请求时刻」两处露馅。需要同值的多个字段共用一个占位符即可。
+		"{{RAND_UUID_V7}}", newUUIDv7(),
+		"{{RAND_UUID_V7_2}}", newUUIDv7(),
+		// 按通道派生、格式合法的稳定 UUID。与 {{USER_ACCOUNT_UUID}} 的区别是
+		// 格式位合规（见 identity.DeriveUUIDv4）；两个槽位是因为真实客户端常同时
+		// 带多个互不相同的稳定标识（如 installation id 与 account id）。
+		"{{STABLE_UUID}}", identity.DeriveUUIDv4(userIDHash, "stable_1"),
+		"{{STABLE_UUID2}}", identity.DeriveUUIDv4(userIDHash, "stable_2"),
+		// 当前 Unix 毫秒。模板里冻结的时间戳会永久漂移，且与 v7 UUID 内嵌的
+		// 时间戳对不上；写成不带引号的占位符即可落成 JSON 数字。
+		"{{UNIX_MS}}", strconv.FormatInt(time.Now().UnixMilli(), 10),
 		"{{USER_ACCOUNT_UUID}}", identity.DeriveUUID(userIDHash, "account_uuid"),
 		"{{PROMPT}}", prompt,
 		"{{EXPECTED_ANSWER}}", expectedAnswer,
