@@ -1,0 +1,60 @@
+{
+	"self_serve_visible": false,
+	"self_serve_label": "GPT-5.6（订阅态头）",
+	"model": "GPT-5.6-sub",
+	"request_model": "gpt-5.6-sol",
+	"model_vendor": "openai",
+	"_comment": "影子对照模板（2026-09-15 新建，隐藏、不进自助收录），**subhdr 影子族成员**。\n\n**本族的形态依据、占位符分配、相对真抓包的有意改动、已知风险与结果解读注意事项，全部记在 `cx-gpt6astra-subhdr-arith.json` 的 `_comment` 里，那是本族单一真相源**——要改形态、要判读结果、要决定删留，先读它。本文件是它的**逐字节派生**：除 `self_serve_label` / `model` / `request_model` / 本注释外，headers / body / response / probe 与之逐字相同（`diff` 应当只有这四行差异）。⚠️ **若要删除 astra 那一份，先把它的 `_comment` 挪到本族存活的任意一份上**，否则其余派生集体失去依据。\n\n**本族在验什么**：中转商是否按 codex **订阅态身份头**分叉到不同的网关代码路径。现役 cx 模板发的是平台态形态（假 UA `Codex-CLI/1.0`、无 `originator`），若中转商后端是订阅账号池、而真实用户跑 codex CLI 走订阅透传路径，那现役探针测的可能是 legacy 兼容路径、测不到用户的真实体验。本族把订阅态身份头换上去做对照。\n\n**⚠️ 收益未证实**：2026-09-15 在 saiai 上做过四格消去（订阅/极简 headers × 订阅/极简 body），**四格全部 HTTP 200**、`usage.attribution` 四格都有、延迟无规律差异、响应头无任何路由线索——在一个两条路径都做得好的网关上证不出分叉。判据只能到 **legacy 兼容路径做得差的中转商**（即当前红/黄那批通道）上找。**挂上后若状态/延迟相对现役 `cx-gpt56-arith` 无可见变化，该删不该留，别放着积灰。**\n\n**对照对象是 `cx-gpt56-arith`**（同打 `gpt-5.6-sol`，model 键 `GPT-5.6`），两者的形态差异见真相源里的「三处变化」段——那不是一个干净的单变量实验，解读时别把差异一律归给身份头。\n\n⚠️ **model 键刻意取 `GPT-5.6-sub`**（不是 `GPT-5.6`）：model 是 DB 业务键 (provider,service,channel,model) 的一部分，与现役模板同挂一条通道时必须各自独立成序列，否则两种形态混进同一条历史、对照作废。`request_model` 仍是 `gpt-5.6-sol`，打同一个真实模型。⚠️ **挂通道时监测行不要写 `model` 字段**——`config > template` 优先级会让行级值覆盖掉 `-sub`，独立序列当场失效。副作用：两行 `request_model` 相同，前端「模型」筛选器按 `request_model` 归并、会把两者算作同一个模型（热力图仍是两行，不影响对照）。\n\n**probe 档位 8s/15s 与 `retry: 0` 沿用 cx-gpt 全族**，本模板不另立判据——对照实验要求两边超时口径一致，否则延迟差异算不清。\n\n**实测（2026-09-15，saiai，走真实 `InjectVariables` 注入后发包，非推断）**：n=4 全部 **HTTP 200 绿**（1.1~2.8s），SSE 事件名全部落在 `probe.go` 正文白名单内，`success_contains` 每次命中。同批次的 `cx-gpt56luna-subhdr-arith` 亦 4/4 绿。",
+	"url": "{{BASE_URL}}/v1/responses",
+	"method": "POST",
+	"headers": {
+		"accept": "text/event-stream",
+		"Authorization": "Bearer {{API_KEY}}",
+		"chatgpt-account-id": "{{STABLE_UUID2}}",
+		"content-type": "application/json",
+		"originator": "codex_exec",
+		"session-id": "{{RAND_UUID_V7}}",
+		"thread-id": "{{RAND_UUID_V7}}",
+		"user-agent": "codex_exec/0.154.0 (Ubuntu 22.4.0; x86_64) VTE/6800 (codex_exec; 0.154.0)",
+		"version": "0.154.0",
+		"x-client-request-id": "{{RAND_UUID_V7}}",
+		"x-codex-beta-features": "remote_compaction_v2",
+		"x-codex-routing-hint": "model={{MODEL}}",
+		"x-codex-turn-metadata": "{\"installation_id\":\"{{STABLE_UUID}}\",\"session_id\":\"{{RAND_UUID_V7}}\",\"thread_id\":\"{{RAND_UUID_V7}}\",\"agent_name\":\"/root\",\"turn_id\":\"{{RAND_UUID_V7_2}}\",\"window_id\":\"{{RAND_UUID_V7}}:0\",\"window_number\":0,\"context_window_id\":\"{{RAND_UUID_V7}}\",\"request_kind\":\"turn\",\"root_turn_id\":\"{{RAND_UUID_V7_2}}\",\"thread_source\":\"user\",\"sandbox\":\"seccomp\",\"sandbox_mode\":\"read-only\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":{{UNIX_MS}}}",
+		"x-codex-window-id": "{{RAND_UUID_V7}}:0"
+	},
+	"body": {
+		"model": "{{MODEL}}",
+		"instructions": "You are Codex, based on GPT-5. You are running as a coding agent in the Codex CLI on a user's computer.",
+		"input": [
+			{
+				"type": "message",
+				"role": "user",
+				"content": [
+					{
+						"type": "input_text",
+						"text": "{{PROMPT}}"
+					}
+				]
+			}
+		],
+		"tools": [],
+		"tool_choice": "auto",
+		"parallel_tool_calls": false,
+		"reasoning": {
+			"effort": "low",
+			"summary": "auto"
+		},
+		"store": false,
+		"stream": true,
+		"prompt_cache_key": "{{RAND_UUID_V7}}"
+	},
+	"response": {
+		"success_contains": "{{EXPECTED_ANSWER}}"
+	},
+	"probe": {
+		"slow_latency": "8s",
+		"timeout": "15s",
+		"retry": 0
+	}
+}
