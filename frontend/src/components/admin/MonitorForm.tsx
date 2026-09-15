@@ -326,6 +326,7 @@ export function MonitorForm({ fetchTemplates, onSave, onCancel }: MonitorFormPro
           {t('admin.monitors.form.childChannels')}
         </legend>
         <p className="text-xs text-muted">{t('admin.monitors.form.childHint')}</p>
+        <p className="text-xs text-warning">{t('admin.monitors.form.modelKeyWarning')}</p>
 
         {children.map((child, i) => (
           <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] gap-3 items-end">

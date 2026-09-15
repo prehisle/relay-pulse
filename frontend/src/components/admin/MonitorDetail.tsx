@@ -578,6 +578,10 @@ export function MonitorDetail({
           )}
         </div>
 
+        {isEditing && (
+          <p className="text-xs text-warning">{t('admin.monitors.form.modelKeyWarning')}</p>
+        )}
+
         {isEditing ? (
           /* 编辑态：每个子通道展开为可编辑行 */
           editChildren.length === 0 ? (

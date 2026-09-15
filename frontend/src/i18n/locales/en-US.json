@@ -778,7 +778,8 @@
         "attributes": "Attributes",
         "childChannels": "Child Channels (Multi-Model)",
         "childHint": "Add child channels to monitor multiple models on the same PSC. Children inherit parent config.",
-        "modelPlaceholder": "Leave empty to use template default",
+        "modelPlaceholder": "Leave empty to follow template (changing breaks history)",
+        "modelKeyWarning": "Note: \"Model\" is the business key of this row's history series, not the model ID sent upstream. Leave it empty to follow the template; setting or changing it breaks this row's existing history.",
         "requiredFields": "Provider, Service, and Channel are required",
         "create": "Create"
       }
