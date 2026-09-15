@@ -6,6 +6,19 @@
 
 ## 检查点（最新在最上）
 
+- **最后同步**: 2026-09-15（HEAD=`7707285`，已发版 **v2.90.0** + **监测服务器已部署**[prod git_commit=`7707285`、go1.27.1、health/ready=200、`配置加载完成 monitors=309`、`调度器已启动`、`探测模板已刷新 variants=42`（+1=新模板）、`defaults` 未变（`cc=cc-haiku-arith cx=cx-gpt-arith gm=gm-flash-arith`）、无 panic；回滚锚 `rollback-20260915-subhdr-pre`=`0a4a073`/v2.89.2；**无 schema、无迁移**，故未新做 DB 备份]）。**新增 cx 订阅态身份头影子模板 + 5 个伪装客户端标识用的占位符。**
+
+  **本批夹带**：生产从 `0a4a073` 一次跨到 `7707285`，含两个此前未部署的纯注释订正（`64ce45b` 救回率判据、`c9f4985` degraded_weight 数值）。已逐字核对 `cx-gpt56-arith.json` **除 `_comment` 外完全相同** → 对现网 provable no-op。
+
+  **① 影子模板 `cx-gpt6astra-subhdr-arith`**（`self_serve_visible:false`，**未挂任何通道**）：验「中转商是否按 codex 订阅态身份头分叉到不同网关路径」。形态＝订阅态整套身份头 + 现役极简 body。`model` 取 `GPT-6-Astra-sub` 而非 `GPT-6-Astra`——model 是 DB 业务键，同挂一条通道必须各自独立成序列。⚠️ **挂通道时监测行不要写 `model`**（`config > template` 会覆盖掉 `-sub`，独立序列当场失效、对照作废）。
+  ⚠️ **收益未证实**：四格消去实验（订阅/极简 headers × 订阅/极简 body）在 saiai 上**四格全 200**，`usage.attribution` 四格都有（**不是路径判据**），延迟也无规律差异（极简那格反而最慢 22s）。判据只能去 legacy 兼容路径做得差的中转商（即当前红/黄那批）上找。**挂上后若状态/延迟相对 `cx-gpt6astra-arith` 无变化，该删不该留。**
+
+  **② 5 个新占位符**（`{{RAND_UUID_V7}}`/`{{RAND_UUID_V7_2}}`/`{{STABLE_UUID}}`/`{{STABLE_UUID2}}`/`{{UNIX_MS}}`）：解码 codex CLI 0.154.0 抓包发现真客户端的 session/thread/turn/window 类 id **全是 UUIDv7**（前 48 位毫秒时间戳，实测 session id 解出的时刻与同请求 `turn_started_at_unix_ms` 只差 38ms），而 `{{RAND_UUID}}` 是 v4、伪造不了；`{{USER_ACCOUNT_UUID}}` 走 `uuidFromHash`、**不设 version/variant 位**，实测产出过 `variant=3`，**根本不是合法 UUID**。稳定标识写成固定常量还会让所有引用通道共用同一个账号身份。既有的 `DeriveUUID`/`{{USER_ACCOUNT_UUID}}` **一字未动**，golden 测试钉住 `cc-haiku-arith-20260506` 发出的值不变。
+  **部署前审计（只读）**：生产 `monitors.d` + `config.yaml` 对 5 个新占位符**零引用**、对新模板**零引用** → provable no-op。
+  **部署后实证**：panic/fatal 零；sub_status 分布常态量级（失败全是上游原因：502 / 上游 `response.failed` / 额度用完 429）；唯一消费 `{{USER_ACCOUNT_UUID}}` 的 `cc-haiku-arith-20260506` 那 4 条通道里，`toproutercn/cc` 部署后探测 `code=200 status=1` 转绿（部署前最后一块红是偶发，非回归），`anyrouter/cc` 仍红属已知 prod-IP 级 TLS 封锁、站长裁定不修。
+
+  **③ bite-test 13 条变异全部检出**，清单入仓 `scripts/mutations_uuid.py`。顺带修了 meta 仓 bite-test 脚本把 pytest flag 硬编码进 runner 的问题——**Go 项目用它会让每条变异都假 RED、看着全绿实则什么都没验到**。
+
 - **最后同步**: 2026-09-11（HEAD=`c9f4985`，已发版 **v2.89.2** + **监测服务器已部署**[prod git_commit=`0a4a073`、go1.27.1、health/ready=200、`配置加载完成 monitors=309`、`调度器已启动`、`探测模板已刷新 variants=41`、无 panic；回滚锚 `rollback-20260911-cxgpt-pre`=`2fb6202`/v2.89.1；**无 schema、无迁移**（五份模板 JSON 的 probe 段），故未新做 DB 备份]）。**cx-gpt 全族探针 5s/10s → 8s/15s。**
 
   ⚠️ **这是 2026-09-06 在 gpt-6-astra 上做过、当天就回退的同一个动作**（v2.86.1/v2.86.2）。这次做的依据是**分布形状变了**，不是推翻当时的方法论——恰恰是照它「先取逐次原始读数看形状」才拿到许可。判据全文在 `templates/cx-gpt56-arith.json` 的 `_comment`，要点：gpt-5.6 逐次延迟 n=496 的 p95=9.0s/p99=9.89s/max=9.98s、5-10s 直方图 21/21/13/22/23（8-10s 密度不降反升）＝被 10s 切断；**99 个红样本里 66 个 latency 精确落在 9999~10001ms**；同中转商配对对照 cc 线 `network_error` 中位数 1.6% vs cx 线 19.5%，说明那个桶里混着大量撞闸样本（`timeout` 是整条 context，卡首字节的记 `network_error` 不记 `response_timeout`）。
