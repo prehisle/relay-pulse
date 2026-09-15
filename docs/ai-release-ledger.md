@@ -6,6 +6,18 @@
 
 ## 检查点（最新在最上）
 
+- **最后同步**: 2026-09-15（HEAD=`cf98cb1`，已发版 **v2.91.0** + **监测服务器已部署**[prod git_commit=`cf98cb1`、go1.27.1、health/ready=200、`配置加载完成 monitors=309`（未变）、`调度器已启动`、`探测模板已刷新 variants=45`（+3=三份新模板）、`defaults` 未变（`cc=cc-haiku-arith cx=cx-gpt-arith gm=gm-flash-arith`）、无 panic；部署后 10min 的 8 条 `level=ERROR` 全是分散在 8 个不同 provider 的探针失败=常态上游问题；回滚锚 `rollback-20260915-subhdr56-pre`=`7707285`/v2.90.0（同日第二次部署，故带简称后缀）；**无 schema、无迁移**，故未新做 DB 备份]）。**订阅态影子模板补齐到 gpt-5.6 三变体 + 族内逐字节派生守卫。**
+
+  **① 三份派生**（`cx-gpt56-subhdr-arith` / `cx-gpt56luna-subhdr-arith` / `cx-gpt56terra-subhdr-arith`，全部 `self_serve_visible:false`、**未挂任何通道**）：从 `cx-gpt6astra-subhdr-arith` **逐字节派生**，只换 `self_serve_label` / `model` / `request_model` / `_comment` 四行。四份 body 原始字节同一个 hash（**528B / sha256 `c7c73d3b…`**，我与 codex 两套独立实现算出同值）。**部署前只读审计**：生产 `monitors.d` 对三个新模板**零引用** → provable no-op。站长明确不碰收录默认模板 `cx-gpt-arith`（72 条通道在用），不做它的影子版。
+
+  **活体验证**（saiai，走真实 `InjectVariables` 注入后发包）：sol / luna 各 **4/4 绿**；terra 三轮交错对照每格 n=11，现役 `cx-gpt56terra-arith` **7/11 绿** vs 影子 **5/11 绿**，**Fisher 双尾 p=0.67**——未检出显著差异、样本不足以区分（差 18pp 落在噪音里）。⚠️ **p 值证不了「红态与形态无关」**（codex review 驳回了原本的强措辞，已改）；指向上游的是**机制证据**：两种失败形态在两个模板上都出现过，`content_mismatch` 那次两边拿到的是**同一句** `Our servers are currently overloaded`。⚠️ **verify-live 改了 `/tmp` 的 config 后必须 `-count=1`**——`go test` 会缓存，本轮踩过一次，`(cached)` 才发现。
+
+  **② 两个族级风险写进源模板注释**（wire 形态一字未动）：稳定身份按 `(provider,service,channel)` 派生、**不含 model** → 同通道挂 N 个影子会把同一个合成账号的请求频率放大 N 倍（`user_id_refresh_minutes>0` 时这两个标识还会周期轮转、破坏伪装前提；实测本地 230 处取值全为 0）；**影子行红了发出的通知与现役行不可区分**——`/api/events` 按映射后的 `request_model` 去重、notifier 的 `extractModels` 拿到非空 `RequestModels` 就不再并入业务 `Model`，且 `events`/`scheduler` 都不看 `hidden`、notifier 也无按通道过滤项 → **验收看面板热力图，别拿通知当对照出口**。
+
+  **③ 族内逐字节派生守卫**（`internal/config/template_subhdr_parity_test.go`）：族内四份「除四行外逐字节相同」是**对照实验的有效性前提**——单独改一份的 probe 档位 / header / body 空白都会让对照失去可比性，且不产生任何运行时报错。两道守卫（逐行比对 + 扫目录抓漏登记成员），**8 条变异全部检出**，清单入仓 `scripts/mutations_subhdr_parity.py`。
+
+  ⚠️ **部署时发现 astra 影子的挂法有误——未动生产配置，待站长处置**：`saiai--cx--o-web`（revision 42，2026-09-15 08:59 北京时间改的）的**父行**被直接换成 `cx-gpt6astra-subhdr-arith`，且行级 `model: GPT` 覆盖掉模板里的 `GPT-6-Astra-sub`。三个后果：① **独立序列没建立**（正是模板 `_comment` 与 v2.90.0 检查点警告过的那条）；② 父行模板被**替换**而非新增，**没有并行的现役行做对照**，实验根本没立起来；③ `GPT` 这条序列 08:59 起跑 `gpt-6-astra` 订阅态、之前是别的，混进同一条历史且**事后分不开**（`probe_history` 无 `request_model` 列）。**前后对比同样做不得**：08:59 后绿率是好看（09h 15绿/17），但改善**从凌晨 03h 就开始了**（03/05/07h 均 17/17 全绿）＝昼夜效应，不是模板的功劳；10h 那格转差还叠加了两个本次操作引入的混淆（verify-live 用同一把 key 额外打了 32 次、10:32 容器重启触发错峰重排）。父行原先挂什么模板**已不可考**（`monitors.d` 不进 git、`.archive/` 只存软删除、`probe_history` 无 `request_model` 列）。**正确挂法**：影子作为**额外子行**加入，行级**不写 `model`**，与现役行并行跑。
+
 - **最后同步**: 2026-09-15（HEAD=`7707285`，已发版 **v2.90.0** + **监测服务器已部署**[prod git_commit=`7707285`、go1.27.1、health/ready=200、`配置加载完成 monitors=309`、`调度器已启动`、`探测模板已刷新 variants=42`（+1=新模板）、`defaults` 未变（`cc=cc-haiku-arith cx=cx-gpt-arith gm=gm-flash-arith`）、无 panic；回滚锚 `rollback-20260915-subhdr-pre`=`0a4a073`/v2.89.2；**无 schema、无迁移**，故未新做 DB 备份]）。**新增 cx 订阅态身份头影子模板 + 5 个伪装客户端标识用的占位符。**
 
   **本批夹带**：生产从 `0a4a073` 一次跨到 `7707285`，含两个此前未部署的纯注释订正（`64ce45b` 救回率判据、`c9f4985` degraded_weight 数值）。已逐字核对 `cx-gpt56-arith.json` **除 `_comment` 外完全相同** → 对现网 provable no-op。
