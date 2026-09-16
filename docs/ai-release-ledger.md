@@ -6,6 +6,20 @@
 
 ## 检查点（最新在最上）
 
+- **最后同步**: 2026-09-16（HEAD=`fdcdcac`，已发版 **v2.93.0** + **监测服务器已部署**[prod git_commit=`fdcdcac`、go1.27.1、health=200、`/ready` 逐字 `{"status":"ok"}`（**无 `config_reload` 字段**=进程内从未跳过热更新）、`配置加载完成 monitors=313`、`探测模板已刷新 variants=41`（未变）、`defaults` 未变；回滚锚 `rollback-20260916-vendorcol-pre`=`741e4c0`/v2.92.0（**同日第二次部署，故带简称后缀**）；**纯前端 + 一个运行时开关值变更，无 schema、无迁移**，故未新做 DB 备份]）。**厂商列出全名 + 厂商筛选器在生产打开 + 筛选器排序改成漏斗序。**
+
+  **① 桌面表厂商列从 icon-only 改成「图标 + 厂商名」**（`9677bac`）。原设计三个出口统一 `iconOnly`、全名藏在 title/aria-label，对 Anthropic/OpenAI 尚可，对 MiniMax/月之暗面/智谱这类商标辨识度低的厂商**等于没有厂商信号**——而这一列的全部价值就是「别把 GLM 当成 Claude」。**只改桌面表**，移动卡片与 grid 卡片保持 `iconOnly`（那两处一行要同时塞通道名与模型名，宽度真的见底）。宽度代价 playwright 在生产页面实测有界：该列 **52→86px**（最宽内容是四汉字的「月之暗面」），增量被趋势列 287→253px 自动吸收，表内与页面零溢出；1920 视口下线上复测同为 86px、工具栏仍单行。⚠️ **非 `iconOnly` 时 `VendorBadge` 不再设 `aria-label` 是正确的**（有可见文字时 aria-label 会覆盖它，造成「所见≠所读」），别当回归改回去。
+
+  **② 测试断言翻面并验非真空**：`modelVendorColumn.test.tsx` 从「厂商格文本为空」改成「文本等于厂商名」，bite-test 临时改回 `iconOnly` 立刻变红；「品牌色只套 svg 不套徽章外层」那条的定位从 `[aria-label="智谱"]` 改成「按表头找厂商列 index → 取该 td 第一个 span」（`aria-label` 已不存在），同样 bite-test 把色类挪到外层验证变红。**别用全表第一个 svg 定位**——标注列与通道类型列也有图标，会误命中。
+
+  **③ 筛选器排序改成从粗到细的漏斗**（`fdcdcac`）：服务商 → 服务 → 通道 → **厂商 → 模型**。厂商是模型的上位概念，排在模型后面会让人先挑具体版本、再回头收窄厂商。**刻意不与表格列顺序对齐**（表格是模型列在前、厂商列在后）：列是阅读顺序，先答「跑什么模型」再答「谁家的」；筛选器是收窄顺序，两者不必一致。桌面那排与移动端抽屉共用同一个 `FilterSelects`，一处改两处生效。
+
+  **④ 生产 `hide_vendor_filter: true → false`**（配置热更新，不随镜像）。⚠️ **我第一次是直接在生产 `sed` 改的，违反 `/ops`「生产配置唯一真相源=本地 `testenv/config.yaml`、禁止远程逐行编辑」**——事后比对发现本地与生产仅差这一行、真相源未漂，已改本地那份再整体 `scp` 覆盖修正。**下次先改 `testenv/config.yaml` 再整体上传。** 线上实测：8 家厂商全在下拉里，选 MiniMax → 2 行全对、URL 落 `?vendor=minimax`。注意**厂商列独立于这个开关**（开关只藏筛选器，列的显隐是 `App.tsx` 里 `rawData.some(item => !!item.modelVendor)` 的纯数据驱动）。
+
+  ⚠️ **本轮 `docs/ai-release-ledger.md` 第 222 行那段「厂商列渲染的是 icon-only 的 SVG 徽章」与「用 innerText 量会假阴性」自本版起对桌面表不再成立**（移动/grid 仍成立）——那是 v2.77.0 轮的历史记录，不改历史条目，在此标注。
+
+  **codex review**：前两次调用撞上游故障（`stream disconnected` / `at capacity` 交替，本机出网正常），第三次通（SESSION `01a0aa38`）。四条结论与我自核一致（无障碍不是回归、无漏改的平行拷贝、新测试定位不真空、CLAUDE.md/AGENTS.md 无需同步），并多抓到一处我 grep 漏的——`StatusCard.tsx` 注释仍称「与表格、移动端行一致只出彩色商标」，已随 `9677bac` 一并修正。
+
 - **最后同步**: 2026-09-16（HEAD=`741e4c0`，已发版 **v2.92.0** + **监测服务器已部署**[prod git_commit=`741e4c0`、health/ready=200、`配置加载完成 monitors=309`（未变）、`调度器已启动`、`探测模板已刷新 variants=41`（**-4=删掉的四份影子模板**）、`defaults` 未变（`cc=cc-haiku-arith cx=cx-gpt-arith gm=gm-flash-arith`）、无 panic；回滚锚 `rollback-20260916`=`c87ad74e`/v2.91.1；**无 schema、无迁移**，故未新做 DB 备份]）。**cx 订阅态形态转正进现役 5 模板，影子族解散。**
 
   **① 落地方式是「形态搬进老文件名」，不是「配置改指影子模板」**：把 subhdr 的 `headers`/`body` 按原始字节搬进 `cx-gpt-arith` / `cx-gpt56-arith` / `cx-gpt56luna-arith` / `cx-gpt56terra-arith` / `cx-gpt6astra-arith`，再删掉 4 份 `*-subhdr-*.json`。理由：`model` 既是展示名又是 DB 业务键，沿用现役文件的 `model` 串让生产 **75 行**监测配置一个字不用改、历史序列零断裂。搬运后 body 的 sha256 仍是 v2.91.0 记的 `c7c73d3b…`（跨版本交叉验证）；5 个模板除 `headers`/`body`/`_comment` 外**无任何其它字段变动**（逐字段比对），`cx-gpt56-arith` 与 `cx-gpt6astra-arith` 原有的 probe 档位判据注释逐字节保留在新注释之后。
