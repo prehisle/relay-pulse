@@ -266,12 +266,13 @@ HTTP 响应
   |------|----------|------|
   | `cc-native-arith` | `max_tokens:20` | 不开思考的模型 |
   | `cc-native-arith-nothink` | 加 `thinking.disabled`、`max_tokens:64` | 默认开思考**且认这个开关**的模型（**首选**：最快最省） |
-  | `cc-native-arith-512` | 仅 `max_tokens:512`，不碰 thinking | 默认开思考**却不认 thinking 开关**的模型（实测 kimi-k2.7-code 对 `thinking.disabled` 返 400） |
+  | `cc-native-arith-512` | 仅 `max_tokens:512`，不碰 thinking | 默认开思考**却不认 thinking 开关**的模型（实测 kimi-k2.7-code；火山方舟 GLM 系自 2026-08-31 起也归此类）对 `thinking.disabled` 返 400 |
   | `cx-native-arith` | `{{BASE_URL}}/v1/responses` + `reasoning` 字段 | base_url **不含**版本段的端点 |
   | `cx-native-arith-noreason` | `{{BASE_URL}}/responses`、删 `reasoning` | base_url **已含**版本段的端点（如火山方舟 `…/api/coding/v3`）；某些模型对 `reasoning` 返 400 |
 
   ⚠️ **两个 cx 模板的 base_url 契约相反**（一个要求含版本段、一个要求不含），填错只在探测时变红、加载期没有校验——选模板前先对齐 base_url 形态。契约写在各自 `_comment` 里，但 admin 模板下拉只显示文件名不显示注释，属已知运维限制。
   ⚠️ **接第一方厂商最容易踩的坑**：给默认开思考的模型套 `max_tokens:20`，thinking 会吃光预算 → `stop_reason=max_tokens`、正文一个字都没有 → 内容校验判红。症状是「HTTP 200 却恒红 content_mismatch」。
+  ⚠️ **选型会过期——厂商可能中途撤回对某个字段的支持**。2026-08-31 火山方舟 GLM 系开始对 `thinking.disabled` 返 400（`thinking.type 'disabled' is not supported by this model`），`ark/cc/o-nat-glm` 自此恒红 16 天；同期 `ark/cx` 的 GLM 一直是绿的（那个模板不发 thinking），两边分裂正是这类「模板字段被撤回」的典型形状。**给 native 通道排障时，先用 `-512` 打一发对照再下「模型下架」的结论**：同一个错误既可能来自模型名失效，也可能来自请求字段失效，只有换模板对照能把两者分开。另注意 ark 这批都设了 `auto_move_exempt: true`，恒红**不会**掉板，也就没有任何被动提醒。
 - **收录来源**：`ChannelSourceCatalog` 的 `cc`/`cx` 各有一条 `nat`「厂商官方 API（自有模型）」（`Category=official` → 自动落 `O`）。`gm` 不加，Gemini 的 `api`（AI Studio）本身就是第一方入口。
 - **「一个通道一个厂商」不变量**：同一 PSC 三元组下**均非空**的 vendor 必须一致。只比非空值是刻意的——回填期必然出现同通道半填状态。聚合平台请按厂商拆成不同通道（复用 `channel_group`）。
 - **禁止从 `request_model` 前缀反推 vendor**（无论 relay-pulse 还是 rpdiag）：模型 ID 命名不稳、中转商可改写、同模型多别名，必然产生 join 漂移。vendor 是**声明**的，不是猜的。
