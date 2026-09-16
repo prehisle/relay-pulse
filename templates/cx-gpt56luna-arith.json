@@ -1,15 +1,26 @@
 {
 	"self_serve_label": "GPT-5.6 Luna",
+	"_comment": "订阅态形态（2026-09-16 转正），headers 与 body 与 `cx-gpt-arith` **逐字节相同**、模型靠 {{MODEL}} 占位符适配。**形态依据、5 处有意改动、占位符选择理由、已知风险一律见 `cx-gpt-arith` 的 _comment，别在本文件复述**；改动必须族内五份同步。",
 	"model": "GPT-5.6-Luna",
 	"request_model": "gpt-5.6-luna",
 	"model_vendor": "openai",
 	"url": "{{BASE_URL}}/v1/responses",
 	"method": "POST",
 	"headers": {
+		"accept": "text/event-stream",
 		"Authorization": "Bearer {{API_KEY}}",
-		"Content-Type": "application/json",
-		"openai-beta": "responses=experimental",
-		"User-Agent": "Codex-CLI/1.0"
+		"chatgpt-account-id": "{{STABLE_UUID2}}",
+		"content-type": "application/json",
+		"originator": "codex_exec",
+		"session-id": "{{RAND_UUID_V7}}",
+		"thread-id": "{{RAND_UUID_V7}}",
+		"user-agent": "codex_exec/0.154.0 (Ubuntu 22.4.0; x86_64) VTE/6800 (codex_exec; 0.154.0)",
+		"version": "0.154.0",
+		"x-client-request-id": "{{RAND_UUID_V7}}",
+		"x-codex-beta-features": "remote_compaction_v2",
+		"x-codex-routing-hint": "model={{MODEL}}",
+		"x-codex-turn-metadata": "{\"installation_id\":\"{{STABLE_UUID}}\",\"session_id\":\"{{RAND_UUID_V7}}\",\"thread_id\":\"{{RAND_UUID_V7}}\",\"agent_name\":\"/root\",\"turn_id\":\"{{RAND_UUID_V7_2}}\",\"window_id\":\"{{RAND_UUID_V7}}:0\",\"window_number\":0,\"context_window_id\":\"{{RAND_UUID_V7}}\",\"request_kind\":\"turn\",\"root_turn_id\":\"{{RAND_UUID_V7_2}}\",\"thread_source\":\"user\",\"sandbox\":\"seccomp\",\"sandbox_mode\":\"read-only\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"turn_started_at_unix_ms\":{{UNIX_MS}}}",
+		"x-codex-window-id": "{{RAND_UUID_V7}}:0"
 	},
 	"body": {
 		"model": "{{MODEL}}",
@@ -18,15 +29,24 @@
 			{
 				"type": "message",
 				"role": "user",
-				"content": [{ "type": "input_text", "text": "{{PROMPT}}" }]
+				"content": [
+					{
+						"type": "input_text",
+						"text": "{{PROMPT}}"
+					}
+				]
 			}
 		],
 		"tools": [],
 		"tool_choice": "auto",
 		"parallel_tool_calls": false,
-		"reasoning": { "effort": "low", "summary": "auto" },
+		"reasoning": {
+			"effort": "low",
+			"summary": "auto"
+		},
 		"store": false,
-		"stream": true
+		"stream": true,
+		"prompt_cache_key": "{{RAND_UUID_V7}}"
 	},
 	"response": {
 		"success_contains": "{{EXPECTED_ANSWER}}"
