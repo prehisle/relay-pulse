@@ -256,7 +256,7 @@ HTTP 响应
   - **我方生产的覆盖改由「内置模板全覆盖」保证**：`templates/` 下所有非 native 模板全部声明 vendor（`cc-*`→`anthropic`、`cx-*`→`openai`、`gm-*`→`google`；kiro 逆向线路跑的仍是 Claude 模型故同为 anthropic），而生产 `monitors.d/` 每一行都引用模板。**唯一例外是 native 族**（厂商无关、由监测行填 vendor），故套 native 模板的行必须行级写 `model_vendor`。守卫是 `TestBundledTemplatesDeclareModelVendor`（双向锁死，已 bite-test 验非真空）。
 - **native 模板族**（`<service>-native-*`：`cc-native-arith` / `cx-native-arith`）承接第一方厂商的 Anthropic Messages / OpenAI Responses 兼容端点，是**厂商无关**的：刻意不声明 `model`/`request_model`/`model_vendor`，三者必须由监测行按厂商填写。
 
-  ⚠️ **自 2026-08-21 起本族全部标了 `self_serve_visible: false`，是 admin-only 的**——公开表单已不给提交方任何填模型的入口（见下方「Onboarding 通道标识派生」），一个要求行级填模型的模板留在表单里只会让人选中后卡在「模板未声明模型」。生产上那 10 条火山方舟通道继续跑在本族模板上，**变更流程完全不受影响**：`internal/change/index.go` 构建候选与 `defaultTestVariant` 都不看可见性，`buildChangeTestConfig` 走的是 `ResolveVariant` 而非 onboarding 的 `resolveSelfServeTemplate`（守卫 `TestAuthIndex_Rebuild_SelfServeHiddenVariantsStillUsable`，已 bite-test 验非真空）。**要给自助表单加第一方厂商模型，是复制本族模板做一个专属模板，不是把本族标回可见。**
+  ⚠️ **自 2026-08-21 起本族全部标了 `self_serve_visible: false`，是 admin-only 的**——公开表单已不给提交方任何填模型的入口（见下方「Onboarding 通道标识派生」），一个要求行级填模型的模板留在表单里只会让人选中后卡在「模板未声明模型」。生产上那批火山方舟通道（2026-09-16 起 14 条）继续跑在本族模板上，**变更流程完全不受影响**：`internal/change/index.go` 构建候选与 `defaultTestVariant` 都不看可见性，`buildChangeTestConfig` 走的是 `ResolveVariant` 而非 onboarding 的 `resolveSelfServeTemplate`（守卫 `TestAuthIndex_Rebuild_SelfServeHiddenVariantsStillUsable`，已 bite-test 验非真空）。**要给自助表单加第一方厂商模型，是复制本族模板做一个专属模板，不是把本族标回可见。**
 
   **别给它补 vendor**——行级漏填时会经 `config > template` 回退链静默继承成错误厂商（`config.IsNativeProbeTemplate` 与守卫测试锁死这条）。请求形态与 `cc-haiku-arith`/`cx-gpt54-arith` 逐字一致（含 Claude Code / Codex CLI 私有 header 与身份串）：厂商开放兼容端点正是为承接这两个客户端，且保持严格形态使 native 模板**不构成** mock 回显作弊的宽松入口（spec 决策 D7 那条「宽松模板绝不回流给中转商通道」的硬规则因此无从触发；若某厂商确实不认某个头，另拆该厂商专用模板，别放宽通用模板）。行级漏填 vendor 时由 `validateFinal` 出一条**告警**（不阻断——挂 `validateFinal` 而非 `validateModelVendors` 是时序决定的：后者早于父子继承，在那里判空会误伤「vendor 只写父行、子行继承」）。判定函数是 `SplitN(name,"-",3)`，故**四段名同样算 native**（`cc-native-arith-nothink` → `["cc","native","arith-nothink"]`）。
 
@@ -282,7 +282,7 @@ HTTP 响应
   - 厂商展示名 `vendors.<code>` 四语言在前端，**词表本身仍只有后端一份**；未收录的 code 原样显示 code、不出图标，绝不猜名字。
   - 「服务」列表头加了 ⓘ 说明「服务=接入协议族，模型是谁家的看厂商列」——**与厂商列同生共死**（厂商列不在时该文案会指向一个看不见的列）。站长 2026-08-05 拍板：筛选下拉**保留客户端名**（`Claude Code (CC)`），不按 spec 字面改成协议名（用户是按「我用哪个客户端」找的）。
   - `channel_type=O` 文案已按 spec 改为「官方直连 / 官方转售」，措辞保持既有的不背书口径（「服务商声称/标记」）。
-- **第一家第一方厂商已接（2026-08-05，v2.73.0）**：火山方舟 `ark`，5 厂商 × cc/cx 共 10 条通道，`channel_type=O` + `channel_source=nat` + `key_type=user`，**board=secondary 观察期**。故生产厂商值现有 8 种（原厂三家 + bytedance/zhipu/moonshot/minimax/deepseek）。
+- **第一家第一方厂商已接（2026-08-05，v2.73.0）**：火山方舟 `ark`，`channel_type=O` + `channel_source=nat` + `key_type=user`，当日即升 **board=hot**，且全批 `auto_move_exempt`/`auto_cold_exempt` 双真（恒红也不掉板，见下条 ⚠️）。收录时 5 厂商 × cc/cx 共 10 条，**2026-09-16 起 14 条**（GLM/DeepSeek 各补了一条 Flash 低档位）。故生产厂商值现有 8 种（原厂三家 + bytedance/zhipu/moonshot/minimax/deepseek）。
   - ⚠️ **收录 native 模板通道必须走 admin API，不能手写 monitors.d**：手写文件缺 `model_id` 会被 fail-closed 闸拒绝整份加载，admin 写路径（`MonitorStore.Create/Update` → `BackfillFileIDs`）才会自动补 `model_id`/`channel_id`。
   - ⚠️ **admin JSON API 传不了 `request_model`**（`ServiceConfig.RequestModel` 标了 `json:"-"`，admin UI 也没这个字段——历史上它一律来自模板，native 族是第一个要求行级填的）。解法是 `model` 直接写完整模型 ID，靠 `{{MODEL}}` 的 `request_model → model` 回退链；副作用正面：`model` 作 DB 业务键更稳、不会因改展示名断历史。若将来要「短展示名 + 长请求 ID」，得先给 `RequestModel` 开 json tag。
 **⚠️ 「模型」筛选器（v2.82+，前端独有，不进 wire）**：按**版本级模型名**筛（`opus-4.8` / `gpt-5.6-terra`），下拉按**家族**分组、组标题一键全选该家族全部版本。四条踩过的坑：
@@ -326,7 +326,7 @@ HTTP 响应
 
 **给自助表单加一个第一方厂商模型 = 建一个专属模板**（2026-08-21 起的唯一做法）：复制该模型对应的 native 模板（cc 侧按思考行为、cx 侧一律 `cx-native-arith`），**body 逐字节保留**，只补 `model` / `request_model` / `model_vendor` / `self_serve_label` 四项。
 
-- `model` 写**规范模型 ID**（`glm-5.2`）而不是人话名：它同时是 DB 业务键与热力图展示名，与既有 native 通道写法保持同一个串，将来把那 10 条老行切到专属模板才不会断历史；人话名放 `self_serve_label`。
+- `model` 写**规范模型 ID**（`glm-5.3`）而不是人话名：它同时是 DB 业务键与热力图展示名，与既有 native 通道写法保持同一个串，将来把那批老行切到专属模板才不会断历史；人话名放 `self_serve_label`。
 - `model_vendor` 必须取自 `internal/modelvendor` 受控词表；别声明 `self_serve_default`（每 service 的默认模板只能是 `cc-haiku-arith`/`cx-gpt-arith`/`gm-flash-arith`）。
 - **cx 侧一律 `{{BASE_URL}}/v1/responses`**：base_url 含不含版本段是**中转商端点的属性**、不是模型属性，「base_url 不含版本段」是自助收录的统一约定（也是全部 5 个 cx 官方线模板的口径）。火山方舟那种自带版本段的端点继续走 `cx-native-arith-noreason` + admin 手工上架。
 - ⚠️ **`_comment` 里要如实区分「实测过的」与「推断的」**。现有 10 个模板的思考行为/reasoning 取舍都源自 2026-08-05 的**火山方舟**实测，中转商自建网关未逐一验证；`cx-kimi-k27code-arith` 的「`/v1/responses` + 无 `reasoning`」更是个**从未在真端点跑过的组合**（拆自「URL 由端点定、reasoning 认不认由模型定」两条正交推断）。这类不确定性代价有界——自助流程本就是「测通了才准提交」，测不过只是提交不了、不会产生坏数据，走 `/contact` 由我们评估另拆模板。
