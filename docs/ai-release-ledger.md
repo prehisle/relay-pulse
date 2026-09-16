@@ -6,6 +6,20 @@
 
 ## 检查点（最新在最上）
 
+- **最后同步**: 2026-09-16（HEAD=`741e4c0`，已发版 **v2.92.0** + **监测服务器已部署**[prod git_commit=`741e4c0`、health/ready=200、`配置加载完成 monitors=309`（未变）、`调度器已启动`、`探测模板已刷新 variants=41`（**-4=删掉的四份影子模板**）、`defaults` 未变（`cc=cc-haiku-arith cx=cx-gpt-arith gm=gm-flash-arith`）、无 panic；回滚锚 `rollback-20260916`=`c87ad74e`/v2.91.1；**无 schema、无迁移**，故未新做 DB 备份]）。**cx 订阅态形态转正进现役 5 模板，影子族解散。**
+
+  **① 落地方式是「形态搬进老文件名」，不是「配置改指影子模板」**：把 subhdr 的 `headers`/`body` 按原始字节搬进 `cx-gpt-arith` / `cx-gpt56-arith` / `cx-gpt56luna-arith` / `cx-gpt56terra-arith` / `cx-gpt6astra-arith`，再删掉 4 份 `*-subhdr-*.json`。理由：`model` 既是展示名又是 DB 业务键，沿用现役文件的 `model` 串让生产 **75 行**监测配置一个字不用改、历史序列零断裂。搬运后 body 的 sha256 仍是 v2.91.0 记的 `c7c73d3b…`（跨版本交叉验证）；5 个模板除 `headers`/`body`/`_comment` 外**无任何其它字段变动**（逐字段比对），`cx-gpt56-arith` 与 `cx-gpt6astra-arith` 原有的 probe 档位判据注释逐字节保留在新注释之后。
+
+  **② 转正依据是「不会变差」，不是「有收益」**：**73 个生产端点** × 老/新形态各 2 轮、顺序随机打散——两臂 `sub_status` 分布几乎逐项相同（auth_error 26:26、response_timeout 5:5、绿 36:35），配对置换检验通过率 **p=0.852**、延迟 **p=0.698**，**订阅态无任何独有的失败类别或独有 HTTP 码**。⚠️ **噪音水平已被量化**：转正后用转正后的文件对 11 个端点再打一轮，两臂打的是**同一个模板**，11 家里仍翻转 1 家——所以原 A/B 的「更好 8 / 更差 9」就是噪音，别去解读单家方向。**别再提「换个请求形态能不能把红通道救绿」**，v2.90.0 那轮的四格消去也找不到任何可观测信号证明网关两条路径真的分叉。
+
+  **③ 上线顺序是硬的（这次的主要风险点）**：模板**随镜像走**（Dockerfile `COPY templates/`，entrypoint 把 `/config/templates` 软链到 `/app/templates`，宿主上没有 templates 目录），而 `monitors.d` 在宿主、走热更新；部署前生产还有 **4 行**引用即将删除的 subhdr 模板。模板缺失会让 `resolveTemplates` → `LoadProbeTemplate` 返回 error、**整份配置加载失败**（冷启动＝拒启动）。故顺序必须是 **① 先改那 4 行的 `template` 指回现役模板（热更新，此时旧镜像里 subhdr 还在）→ ② 再部署镜像**。实际执行即此序，部署后 `配置加载完成 monitors=309` 即为该序正确的证明。
+
+  **④ 顺带修了 astra 影子的错误挂法**（v2.91.0 检查点里挂起待处置的那条）：`saiai--cx--o-web` 父行 `template` 从 `cx-gpt6astra-subhdr-arith` 改回 `cx-gpt-arith`，让 `model: GPT` 这条序列重新跑回它历史上一直在跑的 `gpt-5.6-sol`（此前它在跑 `gpt-6-astra`，持续污染同一条历史）。saiai 三行的 `model` 都是行级写死的，故改 template 后 model 不变、**历史连续**；`lattecode--cx--o-pro-main` 那行 `model` 为空由模板继承，从 `GPT-5.6-sub` 变 `GPT-5.6`（`probe_history` 展示读按 `model_id` 故热力图不断，`service_states`/`monitor_overrides` 留一天的孤儿行）。已实证热更新生效后该行确实改跑 `model=GPT-5.6`——⚠️ 热更新后紧邻的那次探测仍打旧 model，是 `dispatchDue` 的**堆外窗口**（任务已弹出堆、用的是旧 cfg 快照），不是热更新失败，别据此误判。
+
+  **⑤ 守卫换代**：删 `template_subhdr_parity_test.go`（守影子族逐行相同），新增 `internal/config/template_cxgpt_wire_parity_test.go`（守订阅态族 5 份的 `headers`/`body` **逐字节相同** + 非空壳断言 + 目录扫描抓漏登记）。5 份是**手工同步**的，改一份忘四份不产生任何运行时报错，只会让五个模型悄悄跑在两套客户端指纹上。`cx-gpt54-arith` 刻意不转正，在 `cxGPTPlatformEraTemplates` **显式豁免**而非靠命名碰巧漏掉。**8 条变异全部被检出**，清单入仓 `scripts/mutations_cxgpt_wire_parity.py`。已知盲区：抓不到「五份一起改错」、抓不到「冻结值相对真 codex CLI 已过时」。
+
+  ⚠️ **本轮 codex review 未做成**：四次调用全部失败（`Selected model is at capacity` 与 `stream disconnected` 交替），而本机出网正常（同期 ssh 生产与数百次真实 API 探测均成功）。其该查的项由我自行核实：字段级 diff、注释保留、sha256 交叉验证、bite-test 8/8、部署因果链的代码 trace。
+
 - **最后同步**: 2026-09-15（HEAD=`cf98cb1`，已发版 **v2.91.0** + **监测服务器已部署**[prod git_commit=`cf98cb1`、go1.27.1、health/ready=200、`配置加载完成 monitors=309`（未变）、`调度器已启动`、`探测模板已刷新 variants=45`（+3=三份新模板）、`defaults` 未变（`cc=cc-haiku-arith cx=cx-gpt-arith gm=gm-flash-arith`）、无 panic；部署后 10min 的 8 条 `level=ERROR` 全是分散在 8 个不同 provider 的探针失败=常态上游问题；回滚锚 `rollback-20260915-subhdr56-pre`=`7707285`/v2.90.0（同日第二次部署，故带简称后缀）；**无 schema、无迁移**，故未新做 DB 备份]）。**订阅态影子模板补齐到 gpt-5.6 三变体 + 族内逐字节派生守卫。**
 
   **① 三份派生**（`cx-gpt56-subhdr-arith` / `cx-gpt56luna-subhdr-arith` / `cx-gpt56terra-subhdr-arith`，全部 `self_serve_visible:false`、**未挂任何通道**）：从 `cx-gpt6astra-subhdr-arith` **逐字节派生**，只换 `self_serve_label` / `model` / `request_model` / `_comment` 四行。四份 body 原始字节同一个 hash（**528B / sha256 `c7c73d3b…`**，我与 codex 两套独立实现算出同值）。**部署前只读审计**：生产 `monitors.d` 对三个新模板**零引用** → provable no-op。站长明确不碰收录默认模板 `cx-gpt-arith`（72 条通道在用），不做它的影子版。
