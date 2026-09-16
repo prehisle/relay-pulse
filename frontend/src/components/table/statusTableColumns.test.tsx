@@ -6,7 +6,7 @@
 //
 // 本文件对 5 根条件轴做全组合（2^5 = 32 种）断言：
 //   ① col 数 == th 数 == 每行 td 数；
-//   ② 出现的表头按固定 canonical 顺序排列（厂商紧跟模型、质量紧邻趋势）；
+//   ② 出现的表头按固定 canonical 顺序排列（厂商紧挨在模型**之前**、质量紧邻趋势）；
 //   ③ 某轴关闭时，它在三处同时消失（不是只在表头消失）。
 //
 // 与 modelVendorColumn.test.tsx 的分工：那份钉厂商列的**渲染语义**（图标/占位/ⓘ），
@@ -99,8 +99,8 @@ function canonicalColumns(): Array<{ axis: keyof Axes | null; label: string }> {
     { axis: 'provider', label: t('table.headers.provider') },
     { axis: null, label: t('table.headers.service') },
     { axis: null, label: t('table.headers.channel') },
-    { axis: null, label: t('table.headers.model') },
     { axis: 'vendor', label: t('table.headers.modelVendor') },
+    { axis: null, label: t('table.headers.model') },
     { axis: 'price', label: t('table.headers.priceRatioLine1') },
     { axis: null, label: t('table.headers.listedDaysLine1') },
     { axis: null, label: t('table.headers.uptime') },

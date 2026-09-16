@@ -101,7 +101,9 @@ describe('模型厂商列', () => {
     const modelIdx = headers.findIndex((h) => h.includes('模型'));
     const vendorIdx = headers.findIndex((h) => h.includes('厂商'));
     expect(modelIdx).toBeGreaterThanOrEqual(0);
-    expect(vendorIdx).toBe(modelIdx + 1);
+    // 厂商在模型**之前**：厂商是模型的上位概念，且多模型通道里模型是三四行、
+    // 厂商只有一个徽章。与顶部筛选器同为「从粗到细」。
+    expect(vendorIdx).toBe(modelIdx - 1);
   });
 
   it('有厂商的行渲染「图标 + 厂商名」；无厂商的行渲染 "-"', () => {

@@ -275,7 +275,7 @@ HTTP 响应
 - **收录来源**：`ChannelSourceCatalog` 的 `cc`/`cx` 各有一条 `nat`「厂商官方 API（自有模型）」（`Category=official` → 自动落 `O`）。`gm` 不加，Gemini 的 `api`（AI Studio）本身就是第一方入口。
 - **「一个通道一个厂商」不变量**：同一 PSC 三元组下**均非空**的 vendor 必须一致。只比非空值是刻意的——回填期必然出现同通道半填状态。聚合平台请按厂商拆成不同通道（复用 `channel_group`）。
 - **禁止从 `request_model` 前缀反推 vendor**（无论 relay-pulse 还是 rpdiag）：模型 ID 命名不稳、中转商可改写、同模型多别名，必然产生 join 漂移。vendor 是**声明**的，不是猜的。
-- **前端（Phase 2 已落）**：「模型厂商」列位于「模型」列右侧，可排序（sort key `modelVendor`，按 **code** 字典序、未声明厂商恒沉底）、可筛选（URL 参数 `vendor`，**受 `hide_vendor_filter` 运行时开关门控**）。三个渲染出口（桌面表 / 移动卡片 / grid `StatusCard`）共用同一个 `showVendorColumn` 开关——`StatusCard` 那个 prop **刻意是必填**：它原本可选带 `false` 默认值，两个 grid 调用点都漏传，卡片视图便永远不显示厂商（Phase 3 修复），现在漏传直接编译不过。
+- **前端（Phase 2 已落）**：「模型厂商」列紧挨在「模型」列**左侧**（v2.94.0 起由右侧改来——厂商是模型的上位概念、一个通道恒定一家，而多模型通道的模型格是三四行；整张表因此与顶部筛选器同为「从粗到细」＝服务商→服务→通道→厂商→模型）。桌面表出「图标 + 厂商名」，**移动卡片与 grid `StatusCard` 仍 icon-only**（那两处一行要同时塞通道名与模型名）。可排序（sort key `modelVendor`，按 **code** 字典序、未声明厂商恒沉底）、可筛选（URL 参数 `vendor`，**受 `hide_vendor_filter` 运行时开关门控**，生产 2026-09-16 起为显示）。列序由 `columns.ts` 顶部的 canonical 注释 + `statusTableColumns.test.tsx` 的 32 种全组合守卫钉死，改序必须同步 colgroup/thead/td 三处。三个渲染出口（桌面表 / 移动卡片 / grid `StatusCard`）共用同一个 `showVendorColumn` 开关——`StatusCard` 那个 prop **刻意是必填**：它原本可选带 `false` 默认值，两个 grid 调用点都漏传，卡片视图便永远不显示厂商（Phase 3 修复），现在漏传直接编译不过。
   - **列显隐是数据驱动的，且基于「未筛选」数据判定**（App 用 `rawData`、ProviderPage 用按本 provider 过滤的 `rawData`）：全站没有任何通道声明厂商时（回填前的现状）整列 + 筛选器 + 服务列 ⓘ 全部不渲染，对用户零变化；用已筛数据算会让「筛一下列就冒出来/消失」。
   - **通道级厂商由 `deriveChannelVendor` 从各 layer 推导，规则严于后端校验**：后端只要求同通道**非空**值一致（回填期半填合法），前端要求**所有** layer 非空且同值，否则视为未知显示 `-`。半填状态显示成某厂商 = 用一半证据给出十成确定性，而厂商列的全部价值就是「别把 GLM 当成 Claude」。
   - 厂商展示名 `vendors.<code>` 四语言在前端，**词表本身仍只有后端一份**；未收录的 code 原样显示 code、不出图标，绝不猜名字。

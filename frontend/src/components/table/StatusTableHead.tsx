@@ -92,8 +92,8 @@ export function StatusTableHead({
         {columns.provider && <col className="w-px" />}
         <col className="w-px" /> {/* service */}
         <col className="w-px" /> {/* channel */}
+        {columns.vendor && <col className="w-px" />} {/* modelVendor —— 在 model 之前，见 thead 注释 */}
         <col className="w-px" /> {/* model */}
-        {columns.vendor && <col className="w-px" />} {/* modelVendor */}
         {columns.price && <col className="w-px" />} {/* priceRatio */}
         <col className="w-px" /> {/* listedDays */}
         <col className="w-px" /> {/* uptime */}
@@ -137,11 +137,12 @@ export function StatusTableHead({
               {t('table.headers.channel')} {sortIcon('channel')}
             </div>
           </SortableTh>
-          <th className="px-1.5 py-3 font-medium whitespace-nowrap">
-            {t('table.headers.model')}
-          </th>
-          {/* 模型厂商列：紧邻模型列——两者一起回答「跑的是谁家的什么模型」，
-              与左边「服务=接入协议族」正交（服务列表头 ⓘ 解释了这层关系）。 */}
+          {/* 模型厂商列：紧邻模型列且排在它**之前**——两者一起回答「跑的是谁家的什么模型」，
+              与左边「服务=接入协议族」正交（服务列表头 ⓘ 解释了这层关系）。
+              厂商在前是因为它是模型的上位概念、且一个通道恒定一家：多模型通道的模型格是
+              三四行（gpt-6-astra / gpt-5.6-sol / gpt-5.6-terra），厂商只有一个徽章，
+              放左边读作「这是 OpenAI 的：…」；反过来则是先看明细再回头找归属。
+              整张表因此与顶部筛选器同为「从粗到细」（服务商→服务→通道→厂商→模型）。 */}
           {columns.vendor && (
             <SortableTh sortKey="modelVendor" onSort={onSort}>
               <div className="flex items-center">
@@ -149,6 +150,9 @@ export function StatusTableHead({
               </div>
             </SortableTh>
           )}
+          <th className="px-1.5 py-3 font-medium whitespace-nowrap">
+            {t('table.headers.model')}
+          </th>
           {columns.price && (
             <SortableTh sortKey="priceRatio" onSort={onSort}>
               <div className="flex items-center">

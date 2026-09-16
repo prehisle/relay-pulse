@@ -4,7 +4,7 @@
  *  杜绝三处各算各的。守卫见 statusTableColumns.test.tsx（5 轴全组合列数与顺序）。
  *
  *  canonical 顺序（含恒显示列）：
- *    annotation? · provider? · service · channel · model · vendor? · price? ·
+ *    annotation? · provider? · service · channel · vendor? · model · price? ·
  *    listedDays · uptime · lastCheck · quality? · trend
  */
 export interface StatusTableColumns {
