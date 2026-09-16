@@ -155,7 +155,7 @@ export function Controls({
     filterChannel.length > 0,
     vendorFilterVisible && filterVendor.length > 0,
     showModelFilter && filterModel.length > 0,
-  ].filter(Boolean).length;
+  ].filter(Boolean).length; // 顺序无关，只数有几个维度在生效
 
   // 筛选器组件（桌面和移动端共用）
   const FilterSelects = () => (
@@ -200,6 +200,21 @@ export function Controls({
         searchable={channels.length > 5}
       />
 
+      {/* 模型厂商筛选器 - 数据里出现过厂商声明才渲染。
+          排在模型筛选器**之前**：整排筛选器是从粗到细的漏斗（服务商→服务→通道→厂商→模型），
+          厂商是模型的上位概念，放在它后面会让人先挑具体版本、再回头收窄厂商。
+          注意这与表格列顺序（模型列在前、厂商列在后）刻意不同——列是阅读顺序，
+          先答「跑什么模型」再答「谁家的」；筛选器是收窄顺序，两者不必一致。 */}
+      {vendorFilterVisible && (
+        <MultiSelect
+          value={filterVendor}
+          options={effectiveVendors}
+          onChange={onVendorChange}
+          placeholder={t('controls.filters.vendor')}
+          searchable={effectiveVendors.length > 5}
+        />
+      )}
+
       {/* 模型筛选器 - 按家族分组，组标题可一键全选整个家族（如所有 Opus 版本）。
           恒可搜索：版本级选项有二十来个，比其它维度都长。 */}
       {showModelFilter && (
@@ -209,17 +224,6 @@ export function Controls({
           onChange={onModelChange}
           placeholder={t('controls.filters.model')}
           searchable
-        />
-      )}
-
-      {/* 模型厂商筛选器 - 数据里出现过厂商声明才渲染 */}
-      {vendorFilterVisible && (
-        <MultiSelect
-          value={filterVendor}
-          options={effectiveVendors}
-          onChange={onVendorChange}
-          placeholder={t('controls.filters.vendor')}
-          searchable={effectiveVendors.length > 5}
         />
       )}
     </>
