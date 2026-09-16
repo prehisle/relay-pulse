@@ -104,7 +104,7 @@ describe('模型厂商列', () => {
     expect(vendorIdx).toBe(modelIdx + 1);
   });
 
-  it('有厂商的行只渲染图标（全名走 aria-label）；无厂商的行渲染 "-"', () => {
+  it('有厂商的行渲染「图标 + 厂商名」；无厂商的行渲染 "-"', () => {
     const container = renderTable(
       [monitor({ id: 'a', modelVendor: 'zhipu' }), monitor({ id: 'b' })],
       true,
@@ -116,10 +116,9 @@ describe('模型厂商列', () => {
 
     const withVendor = rows[0].querySelectorAll('td')[vendorIdx];
     expect(withVendor.querySelector('svg')).not.toBeNull();
-    // 桌面表也走 iconOnly：宽度是这张表最稀缺的资源，厂商名不占版面
-    expect(withVendor.textContent?.trim()).toBe('');
-    // 但语义不能丢——屏幕阅读器与 hover 仍拿得到全名
-    expect(withVendor.querySelector('[aria-label]')?.getAttribute('aria-label')).toBe('智谱');
+    // 桌面表出全名：商标只对 Anthropic/OpenAI 这类头部厂商自解释，认不出商标的厂商
+    // 在只有图标时等于没有厂商信号。这条断言同时钉住「别为省宽度改回 iconOnly」。
+    expect(withVendor.textContent?.trim()).toBe('智谱');
 
     const withoutVendor = rows[1].querySelectorAll('td')[vendorIdx];
     expect(withoutVendor.textContent?.trim()).toBe('-');
@@ -127,7 +126,13 @@ describe('模型厂商列', () => {
 
   it('图标着色：品牌色类只套在 svg 上，不套在徽章外层（否则会连带染厂商名）', () => {
     const container = renderTable([monitor({ modelVendor: 'zhipu' })], true);
-    const badge = container.querySelector('tbody [aria-label="智谱"]');
+    // 按表头定位厂商列，别用全表第一个 svg——标注/通道类型列也有图标，会误命中
+    const headers = Array.from(container.querySelectorAll('thead th')).map((th) => th.textContent ?? '');
+    const vendorIdx = headers.findIndex((h) => h.includes('厂商'));
+    const badge = container
+      .querySelectorAll('tbody tr')[0]
+      .querySelectorAll('td')[vendorIdx]
+      .querySelector('span');
     expect(badge).not.toBeNull();
     expect(badge!.className).not.toContain('text-vendor-');
 

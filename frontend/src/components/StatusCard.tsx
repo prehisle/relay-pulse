@@ -128,7 +128,8 @@ function StatusCardComponent({
                 {item.serviceType.toUpperCase()}
               </span>
               {/* 厂商徽章紧跟服务徽章：一眼读成「用这套协议接入、跑这家的模型」。
-                  与表格、移动端行一致只出彩色商标，全名走 title/aria-label。 */}
+                  卡片与移动端行只出彩色商标、全名走 title/aria-label；**桌面表格不同**，
+                  它出全名（宽度实测有余，见 StatusTableRow 的厂商列注释）。 */}
               {showVendorColumn && (
                 <VendorBadge vendor={item.modelVendor} compact iconOnly className="text-[10px] text-secondary" />
               )}
