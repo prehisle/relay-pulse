@@ -114,8 +114,11 @@ func TestBuildModelCatalog_FirstPartyVendorsAreSelfServable(t *testing.T) {
 	//
 	// 只断言「这家厂商有条目」挡不住误标 vendor（把 kimi 的模板标成 zhipu 照样过）。
 	// 模型 ID 同时是 DB 业务键，写错会让上架行的历史与既有 native 通道对不上，故这里锁到串。
+	// ⚠️ 这里锁的是模型 ID，不是模板文件名——两者会脱节：zhipu 那条跑的仍是
+	// templates/cc-glm52-arith.json，但模板内的模型 2026-09-20 已抬到 glm-5.3
+	// （模板名是配置业务键、改名会让引用它的配置整份加载失败，故有意不改名）。
 	firstParty := map[string]string{
-		"zhipu":     "glm-5.2",
+		"zhipu":     "glm-5.3",
 		"moonshot":  "kimi-k2.7-code",
 		"minimax":   "minimax-m3",
 		"deepseek":  "deepseek-v4-pro",

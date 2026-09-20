@@ -25,12 +25,14 @@ const opus: ModelOption = {
 
 // 第一方厂商模型现在也是一个专属模板条目，与原厂模型同形状——
 // 没有行级模型、没有可编辑标记，模型 ID 只作只读展示。
+// 夹具照着真实模板写：模板名仍是 cc-glm52-arith（配置业务键，不改名），
+// 而模型已抬到 glm-5.3——名字与版本脱节是有意的，别「顺手对齐」成 glm53。
 const glm: ModelOption = {
   key: 'cc-glm52-arith',
-  label: 'GLM-5.2',
+  label: 'GLM-5.3',
   vendor: 'zhipu',
   template: 'cc-glm52-arith',
-  request_model: 'glm-5.2',
+  request_model: 'glm-5.3',
 };
 
 const meta = {
@@ -88,7 +90,7 @@ describe('selectionFromOption', () => {
 describe('describeModelSelection', () => {
   it('显示人话名，不显示模板名', () => {
     expect(describeModelSelection(meta, 'cc', haiku.key)).toBe('Claude Haiku 4.5');
-    expect(describeModelSelection(meta, 'cc', glm.key)).toBe('GLM-5.2');
+    expect(describeModelSelection(meta, 'cc', glm.key)).toBe('GLM-5.3');
   });
 
   it('目录取不到时回落到 key，不返回空串', () => {

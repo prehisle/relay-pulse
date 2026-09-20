@@ -1,9 +1,9 @@
 {
-	"self_serve_label": "GLM-5.2",
-	"model": "glm-5.2",
-	"request_model": "glm-5.2",
+	"self_serve_label": "GLM-5.3",
+	"model": "glm-5.3",
+	"request_model": "glm-5.3",
 	"model_vendor": "zhipu",
-	"_comment": "智谱 GLM-5.2 的 Anthropic Messages 兼容端点探针。请求形态逐字节复制自 cc-native-arith-nothink（含 thinking.disabled 与 max_tokens 64），只补上模型元数据。为什么关思考：默认开深度思考的厂商模型会把小 max_tokens 全用在 thinking 上，stop_reason=max_tokens、正文一个字都没有，内容校验直接判红——探针问的是「端点还活着吗」，不是推理质量。GLM 接受 thinking.disabled 这一条由 2026-08-05 火山方舟真端点实测得出。⚠️ 证据边界：那次实测打的是火山方舟转售端点；中转商自建网关的行为未逐一验证，若某家不接受该字段，自助测试会直接失败（提交不了、不会产生坏数据），由其走 /contact 由我们评估另拆专用模板。model 写规范模型 ID 而非人话名，是因为 model 同时是 DB 业务键——与既有 native 通道的写法保持同一个串，将来把老行切到本模板不会断历史；人话名在 self_serve_label。别加 self_serve_default：每条 service 的自助默认模板只能是 cc-haiku-arith / cx-gpt-arith / gm-flash-arith。",
+	"_comment": "智谱 GLM-5.3 的 Anthropic Messages 兼容端点探针。请求形态逐字节复制自 cc-native-arith-512（max_tokens 512、不带 thinking 字段），只补上模型元数据。⚠️ 本模板 2026-08-21 建立时复制的是 cc-native-arith-nothink（thinking.disabled + max_tokens 64），2026-09-20 改成现在这样——不是原来选错了，是厂商中途撤回了对该字段的支持：2026-08-05 火山方舟真端点实测 GLM 接受 thinking.disabled，2026-08-31 起同一端点对它返 400（`thinking.type 'disabled' is not supported by this model`），生产通道 ark/cc/o-nat-glm 因此恒红 16 天，而同期不发 thinking 的 ark/cx 侧 GLM 一直是绿的。关不掉思考就只能放大预算：GLM 默认开深度思考，max_tokens 太小会被 thinking 吃光，stop_reason=max_tokens、正文一个字都没有，内容校验判红——探针问的是「端点还活着吗」，不是推理质量。⚠️ 证据边界，实测的只有一条：「火山方舟的 GLM 端点不再接受 thinking.disabled」。两条是推断——中转商自建网关是否同样拒收该字段未逐一验证；中转商卖的到底是 glm-5.3 还是仍挂 glm-5.2，也没实测（火山已下架 5.2 并 alias 到 5.3，第三方转售端点未必跟着映射）。推断错的代价有界：自助流程本就是「测通了才准提交」，测不过只是提交不了、不会产生坏数据，由其走 /contact 由我们评估另拆专用模板。⚠️ probe 档位维持 5s/10s 是**有意的**，不是忘了随形态重标：同形态先例 cc-kimi-k27code-arith（同样 512 预算、同样默认开思考而不发 thinking）就在 5s/10s，其火山方舟实测 2.4s；而 GLM-5.3 在本形态下一个延迟样本都没有，凭「开思考跑 512 token 应该更慢」放宽属于无证据放水。这条线卡得很实，别当成只是颜色问题：2xx 但超 slow_latency 会被 classifyHTTPStatus 判 probe_status=2，自助流程据此不签发 proof（ConnectionTestStep 的 testPassed 只认 1），中转商当场就提交不了；同一个阈值还同时喂生产 scheduler，放宽等于让 GLM 通道在热力图上最高 8s 仍报绿，而同预算的 kimi 通道 5s 就转黄——无实证的跨厂商口径分裂。所以正确顺序是：第一例 slow_latency 自测失败就是第一个真实延迟样本，拿到样本后照 cx-gpt 族那次的规矩按救回率立判据再调，别先放宽。⚠️ 文件名仍是 cc-glm52-arith 而模型已经是 glm-5.3：模板名是配置业务键，生产 monitors.d / 内联 config.yaml / 待发布的 onboarding 申请都可能引用它，而配置加载是 fail-closed 的（模板文件找不到 = 整份配置加载失败、容器起不来），故有意不改名。判模型认 JSON 里的 model，别认文件名。model 写规范模型 ID 而非人话名，是因为 model 同时是 DB 业务键——与既有 native 通道的写法保持同一个串，将来把老行切到本模板不会断历史；人话名在 self_serve_label。别加 self_serve_default：每条 service 的自助默认模板只能是 cc-haiku-arith / cx-gpt-arith / gm-flash-arith。",
 	"url": "{{BASE_URL}}/v1/messages",
 	"method": "POST",
 	"headers": {
@@ -17,11 +17,8 @@
 	},
 	"body": {
 		"model": "{{MODEL}}",
-		"max_tokens": 64,
+		"max_tokens": 512,
 		"stream": true,
-		"thinking": {
-			"type": "disabled"
-		},
 		"metadata": {
 			"user_id": "{{USER_ID}}"
 		},

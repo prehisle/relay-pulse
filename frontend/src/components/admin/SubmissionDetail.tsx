@@ -508,7 +508,7 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
             label={t('admin.detail.model')}
             value={draft.model}
             onChange={(v) => updateField('model', v)}
-            placeholder="glm-5.2"
+            placeholder="glm-5.3"
           />
           <SelectField
             label={t('admin.detail.modelVendor')}

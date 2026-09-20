@@ -1,9 +1,9 @@
 {
-	"self_serve_label": "GLM-5.2",
-	"model": "glm-5.2",
-	"request_model": "glm-5.2",
+	"self_serve_label": "GLM-5.3",
+	"model": "glm-5.3",
+	"request_model": "glm-5.3",
 	"model_vendor": "zhipu",
-	"_comment": "智谱 GLM-5.2 的 OpenAI Responses 兼容端点探针。请求形态逐字节复制自 cx-native-arith（含 reasoning 字段），只补上模型元数据。URL 是 {{BASE_URL}}/v1/responses，与本站全部 cx 模板（cx-gpt-arith / cx-gpt5*-arith）同口径——「base_url 不含版本段」是自助收录的统一约定，也是 Codex CLI 的标准形态。⚠️ 别照 cx-native-arith-noreason 改成 {{BASE_URL}}/responses：那一款是给火山方舟 https://ark.../api/coding/v3 这类 base_url 自带版本段的端点特设的，属**端点属性**不是模型属性，继续只由 admin 手工上架。⚠️ 证据边界：本模型在「/v1/responses + 带 reasoning」这一组合下尚未在真端点验证过（既有实测只覆盖火山方舟的 /responses 形态）；若某中转商不接受 reasoning，自助测试会直接失败、提交不了，由其走 /contact 由我们评估另拆无 reasoning 的专用模板。model 写规范模型 ID 而非人话名，是因为 model 同时是 DB 业务键——与既有 native 通道保持同一个串，将来切模板不断历史；人话名在 self_serve_label。别加 self_serve_default。",
+	"_comment": "智谱 GLM-5.3 的 OpenAI Responses 兼容端点探针。请求形态逐字节复制自 cx-native-arith（含 reasoning 字段），只补上模型元数据。URL 是 {{BASE_URL}}/v1/responses，与本站全部 cx 模板（cx-gpt-arith / cx-gpt5*-arith）同口径——「base_url 不含版本段」是自助收录的统一约定，也是 Codex CLI 的标准形态。⚠️ 别照 cx-native-arith-noreason 改成 {{BASE_URL}}/responses：那一款是给火山方舟 https://ark.../api/coding/v3 这类 base_url 自带版本段的端点特设的，属**端点属性**不是模型属性，继续只由 admin 手工上架。⚠️ 证据边界：本模型在「/v1/responses + 带 reasoning」这一组合下尚未在真端点验证过（既有实测只覆盖火山方舟的 /responses 形态）；若某中转商不接受 reasoning，自助测试会直接失败、提交不了，由其走 /contact 由我们评估另拆无 reasoning 的专用模板。model 写规范模型 ID 而非人话名，是因为 model 同时是 DB 业务键——与既有 native 通道保持同一个串，将来切模板不断历史；人话名在 self_serve_label。别加 self_serve_default。⚠️ 2026-09-20 把模型由 glm-5.2 抬到 glm-5.3（火山已下架 5.2 并 alias 到 5.3；第三方转售端点是否跟着映射没实测，属推断）。**本次只改模型元数据，请求形态一字未动**——cc 侧同批要改形态是因为 GLM 系自 2026-08-31 起对 thinking.disabled 返 400，而本模板从来不发 thinking，生产上 ark/cx 的 GLM 全程是绿的，没有任何需要跟改的依据。⚠️ 文件名仍是 cx-glm52-arith 而模型已经是 glm-5.3：模板名是配置业务键，生产 monitors.d / 内联 config.yaml / 待发布的 onboarding 申请都可能引用它，而配置加载 fail-closed（模板文件找不到 = 整份配置加载失败），故有意不改名。判模型认 JSON 里的 model，别认文件名。",
 	"url": "{{BASE_URL}}/v1/responses",
 	"method": "POST",
 	"headers": {
