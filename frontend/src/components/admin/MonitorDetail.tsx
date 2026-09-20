@@ -1,7 +1,7 @@
 import { useEffect, useState, type InputHTMLAttributes } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, Copy, Check, X } from 'lucide-react';
-import type { MonitorConfig, MonitorFile, ProbeHistoryEntry, ProbeTarget } from '../../types/monitor';
+import type { MonitorConfig, MonitorFile, MonitorToggleRequest, ProbeHistoryEntry, ProbeTarget } from '../../types/monitor';
 import type { ProbeResult } from '../../hooks/useMonitorAdmin';
 import { PARENT_TARGET_KEY } from '../../hooks/useMonitorAdmin';
 import { MonitorLogsTab } from './MonitorLogsTab';
@@ -26,7 +26,7 @@ interface MonitorDetailProps {
   onBack: () => void;
   onSave: (file: MonitorFile, revision: number) => Promise<void>;
   onDelete: () => void;
-  onToggle: (field: 'disabled' | 'hidden', value: boolean) => void;
+  onToggle: (req: MonitorToggleRequest) => void;
   onProbe: (
     overrides?: { template?: string; base_url?: string; api_key?: string },
     targetModel?: string,
@@ -85,6 +85,12 @@ export function MonitorDetail({
 
   const root = monitorFile.monitors.find(m => !m.parent) || monitorFile.monitors[0];
   const children = monitorFile.monitors.filter(m => m.parent);
+  // 子行停用态的真相源：probe_targets 只给「有效」值，这里按 model_id 回连到磁盘行。
+  const rawChildByModelID = new Map(children.filter(c => c.model_id).map(c => [c.model_id!, c]));
+  // 父通道停用会继承给所有子行（config/parent_inheritance.go），此时切某个子模型**当下**
+  // 看不出任何变化（有效状态恒为停用），只会改变父通道恢复后的形态。置灰是取舍：宁可挡掉
+  // 「预配置下次恢复后的状态」这种罕见用法，也不让人点了按钮却发现界面纹丝不动。
+  const rootDisabled = !!root?.disabled;
   // 子通道测试行直接由后端 resolved 的 child 目标驱动（不和 raw children 按下标配对），
   // 这样 model 标签与探测请求 target_model 完全同源，避免 raw/runtime 集合错位导致串行。
   const childTargets = probeTargets.filter(t => t.role === 'child');
@@ -540,7 +546,7 @@ export function MonitorDetail({
         {/* 状态切换 */}
         <div className="flex gap-3 pt-2">
           <button
-            onClick={() => onToggle('disabled', !root?.disabled)}
+            onClick={() => onToggle({ scope: 'channel', field: 'disabled', value: !root?.disabled })}
             className={`px-3 py-1.5 text-xs rounded-lg border transition ${
               root?.disabled
                 ? 'border-success/30 text-success hover:bg-success/10'
@@ -550,7 +556,7 @@ export function MonitorDetail({
             {root?.disabled ? t('admin.monitors.enable') : t('admin.monitors.disable')}
           </button>
           <button
-            onClick={() => onToggle('hidden', !root?.hidden)}
+            onClick={() => onToggle({ scope: 'channel', field: 'hidden', value: !root?.hidden })}
             className={`px-3 py-1.5 text-xs rounded-lg border transition ${
               root?.hidden
                 ? 'border-success/30 text-success hover:bg-success/10'
@@ -643,7 +649,7 @@ export function MonitorDetail({
                   <button
                     onClick={() => removeChild(i)}
                     className="px-2 py-1 text-danger hover:text-danger/80 transition"
-                    title={t('admin.monitors.removeChild')}
+                    title={t('admin.monitors.removeChildWarning')}
                     aria-label={t('admin.monitors.removeChild')}
                   >
                     <X className="w-4 h-4" aria-hidden="true" />
@@ -678,11 +684,22 @@ export function MonitorDetail({
                 const rowProbing = !!(target.model && probingTargets[target.model]);
                 const rowResult = target.model ? probeResults[target.model] : undefined;
                 const rowError = target.model ? probeErrors[target.model] : undefined;
+                // 停用态读 monitors.d 原始行，不读 target.disabled——后者是父子继承后的有效值，
+                // 父通道停用时全为 true，会把每一行的按钮文案都显示反。
+                const rawRow = target.model_id ? rawChildByModelID.get(target.model_id) : undefined;
+                const rowDisabled = !!rawRow?.disabled;
                 return (
-                  <div key={`${target.model}-${target.template}-${i}`} className="py-1.5 border-b border-default/30 last:border-0 space-y-1.5">
+                  <div key={target.model_id || `${target.model}-${target.template}-${i}`} className="py-1.5 border-b border-default/30 last:border-0 space-y-1.5">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
-                      <span className="text-primary font-medium">{target.model || t('admin.monitors.noModel')}</span>
+                      <span className={`font-medium ${rowDisabled ? 'text-muted line-through' : 'text-primary'}`}>
+                        {target.model || t('admin.monitors.noModel')}
+                      </span>
                       <span className="text-muted">{target.template}</span>
+                      {rowDisabled && (
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-danger/20 text-danger">
+                          {t('admin.monitors.statusDisabled')}
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleChildProbe(target.model)}
@@ -692,6 +709,22 @@ export function MonitorDetail({
                       >
                         {rowProbing ? t('admin.monitors.probing') : t('admin.monitors.probe')}
                       </button>
+                      {/* 没有 model_id（旧后端/手写文件）就不渲染：没有目标的切换按钮会落到父通道上 */}
+                      {rawRow && target.model_id && (
+                        <button
+                          type="button"
+                          onClick={() => onToggle({ scope: 'model', field: 'disabled', value: !rowDisabled, modelId: target.model_id! })}
+                          disabled={rootDisabled}
+                          title={rootDisabled ? t('admin.monitors.childToggleBlockedByParent') : undefined}
+                          className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition disabled:opacity-40 ${
+                            rowDisabled
+                              ? 'border-success/30 text-success hover:bg-success/10'
+                              : 'border-danger/30 text-danger hover:bg-danger/10'
+                          }`}
+                        >
+                          {rowDisabled ? t('admin.monitors.enable') : t('admin.monitors.disable')}
+                        </button>
+                      )}
                       <ProbeResultLine result={rowResult} error={rowError} />
                     </div>
                     {/* 子通道 api_key 由后端继承解析、前端不持有，故 curl 仅提供脱敏版 */}

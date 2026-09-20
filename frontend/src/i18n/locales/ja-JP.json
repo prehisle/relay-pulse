@@ -654,6 +654,8 @@
       "noChildren": "子チャネルなし",
       "addChild": "子チャネルを追加",
       "removeChild": "削除",
+      "childToggleBlockedByParent": "親チャネルが無効です。モデル単位の切り替えは親を有効化してから反映されます。",
+      "removeChildWarning": "削除（このモデルの監視履歴が永久に失われます。一時停止したい場合は「無効化」を使用）",
       "enable": "有効化",
       "disable": "無効化",
       "show": "表示",

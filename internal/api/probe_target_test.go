@@ -13,8 +13,8 @@ func anyrouterRuntime() *config.AppConfig {
 		Monitors: []config.ServiceConfig{
 			// 另一个无关通道，确认 PSC 过滤生效
 			{Provider: "Other", Service: "cc", Channel: "cc", Model: "X", Template: "t-x"},
-			{Provider: "AnyRouter", Service: "cc", Channel: "cc", Model: "Haiku", Template: "cc-haiku-arith-20260506"},
-			{Provider: "AnyRouter", Service: "cc", Channel: "cc", Model: "Opus", Parent: "AnyRouter/cc/cc", Template: "cc-opus-arith-anyrouter"},
+			{Provider: "AnyRouter", Service: "cc", Channel: "cc", Model: "Haiku", ModelID: "md_11111111-1111-4111-8111-111111111111", Template: "cc-haiku-arith-20260506"},
+			{Provider: "AnyRouter", Service: "cc", Channel: "cc", Model: "Opus", ModelID: "md_22222222-2222-4222-8222-222222222222", Parent: "AnyRouter/cc/cc", Template: "cc-opus-arith-anyrouter"},
 		},
 	}
 }
@@ -114,6 +114,29 @@ func TestBuildProbeTargets(t *testing.T) {
 		h := &Handler{config: anyrouterRuntime()}
 		if h.buildProbeTargets(nil, nil) != nil {
 			t.Error("nil root 应返回 nil")
+		}
+	})
+
+	// ModelID 是前端「停用/启用某个子模型」的唯一定位键（展示名对模板驱动子行是空串、
+	// 同一父下不唯一）。两条取数分支都必须带出来，缺了前端就只能退回删除子行——那正是
+	// model_id 被重铸、热力图历史变孤儿的事故路径。
+	t.Run("两条分支都带出 model_id", func(t *testing.T) {
+		h := &Handler{config: anyrouterRuntime()}
+		runtimeTargets := h.buildProbeTargets(root, nil)
+		if runtimeTargets[0].ModelID != "md_11111111-1111-4111-8111-111111111111" ||
+			runtimeTargets[1].ModelID != "md_22222222-2222-4222-8222-222222222222" {
+			t.Errorf("runtime 分支应带出各行 model_id，实际 %+v", runtimeTargets)
+		}
+
+		hRaw := &Handler{config: &config.AppConfig{}} // runtime 无该 PSC，走 raw 回退
+		raw := []config.ServiceConfig{
+			{Provider: "AnyRouter", Service: "cc", Channel: "cc", ModelID: "md_33333333-3333-4333-8333-333333333333"},
+			{Parent: "AnyRouter/cc/cc", ModelID: "md_44444444-4444-4444-8444-444444444444"},
+		}
+		rawTargets := hRaw.buildProbeTargets(root, raw)
+		if rawTargets[0].ModelID != "md_33333333-3333-4333-8333-333333333333" ||
+			rawTargets[1].ModelID != "md_44444444-4444-4444-8444-444444444444" {
+			t.Errorf("raw 回退分支应带出各行 model_id，实际 %+v", rawTargets)
 		}
 	})
 }

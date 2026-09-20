@@ -220,7 +220,7 @@ HTTP 响应
 - 热更新同时监听 config.yaml 和 monitors.d/ 目录变化
 - ⚠️ **写路径两不变量（动 `monitor_store.go` 前必读，v2.77.0 起）**：
   1. **子行合并一对一**——既有子行被某个 updated 行认领即移出候选（`claimed` 数组 + `claimExistingChild`），匹配不到的行走 `BackfillFileIDs` 铸新 id。**绝不允许一个既有行的 `model_id` 被复制给多行**：模板驱动子行的展示名来自模板、行里不写 `model`，磁盘上是空串，多对一会让新加的空 model 子行集体撞同一个 id。两个 pass 是**两个完整循环**（不是行内二级 fallback），保证全局 `model_id` 匹配优先于展示名兜底；副作用是 updated 数组顺序不再决定归属冲突，**稳定 id 恒胜出**（已被测试固定）。
-  2. **写盘前 `ValidateFileModelIDsUnique` fail-loud**——一对一只杜绝「复制既有 id」，客户端 payload 自带的重复非空 id 仍会原样落盘（`BackfillFileIDs` 只补空值、绝不覆盖既有 id）。重复即拒、不写盘、不递增 revision；api 层用 `errors.As(&config.DuplicateModelIDError)` 映射 400（toggle 路径刻意保持 5xx：payload 只有 disabled/hidden，重复必来自磁盘历史坏文件=服务端状态问题）。
+  2. **写盘前 `ValidateFileModelIDsUnique` fail-loud**——一对一只杜绝「复制既有 id」，客户端 payload 自带的重复非空 id 仍会原样落盘（`BackfillFileIDs` 只补空值、绝不覆盖既有 id）。重复即拒、不写盘、不递增 revision；api 层用 `errors.As(&config.DuplicateModelIDError)` 映射 400（toggle 路径刻意保持 5xx：那里**只写** disabled/hidden，`model_id` 是纯选择器不落盘，重复必来自磁盘历史坏文件=服务端状态问题）。
   - 边界：**不主动修复历史坏行**（自动决定保留哪个 id 有误接历史数据的风险）；跨文件重复仍由 loader 全局 `validateModelIDs` 兜底；`cmd/migrate` 直接调 `BackfillFileIDs`+`AtomicWriteYAML`、不经 MonitorStore，故不受守卫 2 覆盖。
   - 回归测试在 `monitor_store_test.go` 的「子行一对一认领」段，改动前先跑。
 
@@ -357,7 +357,13 @@ HTTP 响应
 - **`DELETE /api/admin/monitors/:key`** 是**软删除**（归档到 `monitors.d/.archive/`），不是真删。
 - **公开写入端点一律 IP 限流**：`POST /api/onboarding/submit`、`/api/onboarding/test`、`/api/change/test` 都按 IP 日配额限流（`onboarding.max_per_ip_per_day` 默认 **5**；`onboarding.change_requests.max_per_ip_per_day` 默认 **3**，两者**独立计数**、change 侧与 onboarding 解耦）。2026-07-25 遭过系统化探测，别在新增公开写入端点时忘了挂限流。
 - **全部 `/api/admin/*` 走 Bearer token 鉴权**（`onboarding.admin_token`）——包括 changes / submissions / monitors 三组。新增 admin 路由必须挂进已有鉴权组，别单独注册。
-- **`POST /api/admin/changes/:id/apply` 仅 auto 模式可用**；`POST /api/admin/monitors/:key/toggle` 只切 `disabled`/`hidden` 两个 flag（payload 只有这两项，故重复 model_id 之类错误必来自磁盘历史坏文件 = 服务端状态问题，刻意保持 5xx 不降 400）。
+- **`POST /api/admin/changes/:id/apply` 仅 auto 模式可用**；`POST /api/admin/monitors/:key/toggle` 只**写** `disabled`/`hidden` 两个 flag（故重复 model_id 之类错误必来自磁盘历史坏文件 = 服务端状态问题，刻意保持 5xx 不降 400）。
+
+  **目标行由可选的 `model_id` 选择器决定**（只读不落盘）：字段缺省 → 父行（历史语义，旧客户端不变）；字段存在但为空串/空白/`null` → **400**；非空但文件里找不到 → **404，绝不回落父行**。三条分支都在 `store.Get` 之前或之后立即 return，不写盘、不递增 revision。
+  - 选择器只能是 `model_id`：模板驱动的子行磁盘上 `model` 是空串，同一父下多个子行展示名完全相同（`config.childMatchKeyByModel`），按名字选会停错行。
+  - 「缺省」与「空值」语义相反，故 Go 侧用自定义 `optionalString` 而非 `*string`——后者把显式 `null` 和字段缺省都解成 nil，会让 `{"model_id":null}` 静默停掉整条通道（2026-09-20 codex review 抓出，已有回归测试）。
+  - 前端 `MonitorToggleRequest` 是判别联合（`scope: 'channel' | 'model'`），`scope:'model'` 漏写 `modelId` 编译不过；`scope` 只在前端，不上 wire。
+  - 这是「子模型只能删、不能停」那条事故路径的根因入口：删子行会抹掉它的 `model_id`，加回来铸新 id → 热力图历史成孤儿（见 `model` 字段的双重身份一节）。
 - **`GET /api/events`** 除强制鉴权外走**游标分页**；**`GET /api/admin/monitors/:key/logs`** 支持 `since`/`limit`/`model` 且返回 `error_detail`。
 - **`GET /api/events` 的 `channel` / `model` 是标识键，不能直接当人话显示**：`status_events` 只存标识（`channel=O-web`、`model=GPT` 那个展示名兼 DB 业务键），而站点上给人看的是 `channel_name`（`O-Pro`）与 `request_model`（`gpt-6-astra`）。故读取时按运行时配置 join 出 **`channel_name` + `request_models[]`** 一并下发（`buildChannelDisplayIndex`，不落库、无迁移、改配置即刻生效）。三条约定：① 索引键用**配置原值**不做大小写归一——四元组唯一性本身就是原值比较，归一会把只差大小写的两个合法监测项折叠；② `request_models` 取 `Meta["models"] ∪ model` 后逐个映射，与 notifier 既有取名口径一致，查不到的（通道已下架/改名）回退原业务键；③ 两个字段都是 `omitempty` 的加性字段，旧 notifier 连新 API、新 notifier 连旧 API 双向都退回原行为。消费端在 `notifier/internal/notifier`（`displayChannel` / `extractModels`），跨服务契约由两侧各一个测试钉住（`TestEventItemWireShape` ↔ `TestRenderFromRealWirePayload`）。
 - **`GET /ready`**：含存储连通性；热更新未被应用时 GET body 附 `config_reload{last_skipped_at,last_error,skipped_count}` **信息化**，HTTP 状态**恒不因此翻 503**。两条静默失败路径已全覆盖（v2.77.0）：① `CheckRuntimeModelIDs` fail-closed 闸跳过——`last_error` 是该闸原文（只含 provider/service/channel/model + 固定文案，已知可公开）；② `loadOrRollback` 加载/`validate()` 失败后「保留旧配置」（model_id 重复、yaml 语法错等）——`last_error` 是**固定脱敏串**「配置热更新失败，保持旧配置；详情见服务端日志」，原始错误只进日志（`/ready` 无鉴权，loader 错误可能含 yaml 路径与解析细节）。

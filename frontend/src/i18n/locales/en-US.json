@@ -654,6 +654,8 @@
       "noChildren": "No child channels",
       "addChild": "Add Child",
       "removeChild": "Remove",
+      "childToggleBlockedByParent": "The parent channel is disabled; per-model switches take effect only after it is re-enabled.",
+      "removeChildWarning": "Remove (permanently orphans this model’s monitoring history — use \"Disable\" to pause it instead)",
       "enable": "Enable",
       "disable": "Disable",
       "show": "Show",

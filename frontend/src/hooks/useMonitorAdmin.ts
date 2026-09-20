@@ -8,6 +8,7 @@ import type {
   AdminMonitorLogsResponse,
   ProbeHistoryEntry,
   ProbeTarget,
+  MonitorToggleRequest,
 } from '../types/monitor';
 
 /** 父通道在按 target 分桶的 probe 状态里使用的固定 key。 */
@@ -246,14 +247,26 @@ export function useMonitorAdmin(token: string) {
   }, [token, authHeaders]);
 
   // Toggle
-  const toggleMonitor = useCallback(async (key: string, field: 'disabled' | 'hidden', value: boolean) => {
+  //
+  // scope='model' 时**无条件**带上 model_id，哪怕是空串——空串会被后端 400 拒掉，
+  // 而「按 truthy 过滤掉空串」会让请求退化成旧形态、被当成切父通道执行：用户以为停一个
+  // 子模型、实际停掉整条通道。宁可报错也不能猜意图。
+  //
+  // 这里只 setSelectedMonitor 不重拉详情：UI 的停用态读的是响应里的 monitors.d 原始行（权威且
+  // 即时），而 probe_targets 的 disabled 是热更新后的运行时值，此刻重拉多半还没 reload 完，
+  // 拿到的是另一种陈旧，不会更准。
+  const toggleMonitor = useCallback(async (key: string, req: MonitorToggleRequest) => {
     if (!token) return;
     setError(null);
 
     try {
       const resp = await apiPost<{ monitor: MonitorFile }>(
         `/api/admin/monitors/${key}/toggle`,
-        { field, value },
+        {
+          field: req.field,
+          value: req.value,
+          ...(req.scope === 'model' ? { model_id: req.modelId } : {}),
+        },
         { headers: authHeaders() },
       );
       setSelectedMonitor(resp.monitor);

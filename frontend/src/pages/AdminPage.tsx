@@ -166,9 +166,9 @@ export default function AdminPage() {
                         monitor.deleteMonitor(monitor.selectedKey);
                       }
                     }}
-                    onToggle={(field, value) => {
+                    onToggle={(req) => {
                       if (monitor.selectedKey) {
-                        monitor.toggleMonitor(monitor.selectedKey, field, value);
+                        monitor.toggleMonitor(monitor.selectedKey, req);
                       }
                     }}
                     onProbe={async (overrides, targetModel) => {

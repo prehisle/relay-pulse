@@ -32,6 +32,7 @@ func newAdminMonitorTestHandler(t *testing.T) *gin.Engine {
 	r.POST("/api/admin/monitors", h.AdminCreateMonitor)
 	r.GET("/api/admin/monitors/:key", h.AdminGetMonitor)
 	r.PUT("/api/admin/monitors/:key", h.AdminUpdateMonitor)
+	r.POST("/api/admin/monitors/:key/toggle", h.AdminToggleMonitor)
 	return r
 }
 

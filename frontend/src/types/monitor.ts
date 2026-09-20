@@ -47,6 +47,11 @@ export interface MonitorConfig {
   channel: string;
   channel_name?: string;
   model?: string;
+  /**
+   * monitors.d 行的稳定身份（`md_<uuid>`），由后端生成、不可变。热力图历史按它查，
+   * 所以它一变就等于断历史——**编辑时必须原样带回**，别在 payload 里丢掉。
+   */
+  model_id?: string;
   /** 模型厂商受控 code（internal/modelvendor）；native 族模板必须行级填，否则厂商列显示未知 */
   model_vendor?: string;
   parent?: string;
@@ -98,10 +103,31 @@ export interface MonitorFile {
  *  未热重载时可能为空（前端据此禁用该行测试按钮）。 */
 export interface ProbeTarget {
   role: 'parent' | 'child';
+  /** 探测选择器（runtime 已解析的展示名），发给 `/probe` 的 target_model 用它。 */
   model: string;
+  /** 停用/启用选择器（monitors.d 行身份）。展示名对模板驱动子行是空串且同父下不唯一，只有它能定位到行。 */
+  model_id?: string;
   template: string;
+  /**
+   * **有效** disabled（父子继承后），不是磁盘值：父通道停用时子行恒为 true。
+   * 渲染「停用/启用」文案必须回读 `monitorFile.monitors` 里的原始行，别用这个。
+   */
   disabled: boolean;
 }
+
+/**
+ * 切换某一行的 disabled/hidden。
+ *
+ * 刻意做成判别联合而不是「可选 modelId」：漏传目标行会让请求退化成「切父通道」，
+ * 即用户以为停一个子模型、实际停掉整条通道。有了 `scope` 标签，`{scope:'model'}`
+ * 少写 modelId 直接编译不过——把这个事故挡在 tsc 而不是运行时。
+ *
+ * `scope` 只存在于前端，不上 wire：后端按「model_id 缺省 = 父行」保持向后兼容，
+ * 并对显式空值/null 回 400。
+ */
+export type MonitorToggleRequest =
+  | { scope: 'channel'; field: 'disabled' | 'hidden'; value: boolean }
+  | { scope: 'model'; field: 'disabled' | 'hidden'; value: boolean; modelId: string };
 
 /** Admin Monitor API 响应 */
 export interface AdminMonitorListResponse {

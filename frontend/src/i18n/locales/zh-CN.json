@@ -654,6 +654,8 @@
       "noChildren": "暂无子通道",
       "addChild": "添加子通道",
       "removeChild": "移除",
+      "childToggleBlockedByParent": "父通道已停用，子模型的开关在它恢复后才生效",
+      "removeChildWarning": "移除（会永久丢失该模型的监测历史，只是想临时停请用\"停用\"）",
       "enable": "启用",
       "disable": "停用",
       "show": "显示",

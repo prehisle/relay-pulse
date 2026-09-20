@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -37,9 +38,18 @@ type adminProbeRequest struct {
 // adminProbeTarget 是 AdminGetMonitor 附带返回的"可探测目标"项，供前端为父/子
 // 通道分别渲染测试按钮。Model 取自 runtime 已解析配置（与 scheduler 同源、且
 // (P,S,C,Model) 经 validate 强制唯一），是探测请求 target_model 的稳定标识。
+//
+// ModelID 与 Model 分工不同，别混用：探测按 Model 选目标（scheduler 同源），
+// 停用/启用按 ModelID 选目标（monitors.d 行身份）。模板驱动的子行磁盘上 Model 是
+// 空串、同一父下多行完全同键，只有 ModelID 能唯一定位到「要改哪一行」。
+//
+// Disabled 是**有效值**而非磁盘值：runtime 命中时它已经过父子继承（父停用则子恒为
+// true），仅在 runtime 尚无该 PSC、回退 raw 文件时才等于磁盘值。故前端渲染「停用/
+// 启用」文案必须回读 monitors.d 原始行，不能用这个字段。
 type adminProbeTarget struct {
 	Role     string `json:"role"` // "parent" | "child"
 	Model    string `json:"model"`
+	ModelID  string `json:"model_id,omitempty"`
 	Template string `json:"template"`
 	Disabled bool   `json:"disabled"`
 }
@@ -338,8 +348,9 @@ func (h *Handler) AdminCreateMonitor(c *gin.Context) {
 // isDuplicateModelIDError 判定 store 写路径是否因 payload 内 model_id 重复被拒。
 // 这是客户端可修正的请求问题（4xx），与 5xx 的服务端故障区分开；用 errors.As 而非
 // 错误文本子串，避免文案调整时静默退化成 500。
-// 注意 toggle 路径刻意不映射：那里的 payload 只有 disabled/hidden，重复 id 必然来自磁盘
-// 上的历史坏文件，属服务端状态问题，保持 5xx + 日志更诚实。
+// 注意 toggle 路径刻意不映射：那里的 payload **只写** disabled/hidden（`model_id` 是
+// 纯选择器、不落进 MonitorFile），重复 id 必然来自磁盘上的历史坏文件，属服务端状态
+// 问题，保持 5xx + 日志更诚实。
 func isDuplicateModelIDError(err error) bool {
 	var dup *config.DuplicateModelIDError
 	return errors.As(err, &dup)
@@ -425,8 +436,40 @@ func (h *Handler) AdminDeleteMonitor(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "archived"})
 }
 
+// optionalString 区分 JSON 字段的三种状态：缺省 / 显式 null / 有值。
+//
+// 标准 `*string` 只能分出两种——缺省与 null 都是 nil。对「缺省」和「空值」语义相反的
+// 字段（如 toggle 的 model_id：缺省=改父行、空值=拒绝）这个折叠是危险的。
+// encoding/json 对实现了 Unmarshaler 的**非指针**字段，在值为 null 时同样会调用
+// UnmarshalJSON，字段整个缺省时才不调用——Present 据此成立。
+type optionalString struct {
+	Present bool
+	Value   string
+}
+
+func (o *optionalString) UnmarshalJSON(b []byte) error {
+	o.Present = true
+	if string(b) == "null" {
+		o.Value = "" // 显式 null 按「给了空值」处理，由调用方决定拒绝还是容忍
+		return nil
+	}
+	return json.Unmarshal(b, &o.Value)
+}
+
 // AdminToggleMonitor 切换监测项的 disabled/hidden 状态
 // POST /api/admin/monitors/:key/toggle
+//
+// 目标行由可选的 `model_id` 选择：
+//   - 字段缺省 → 改该文件的父行（历史语义，旧客户端不受影响）
+//   - 字段存在但为空/空白 → 400。这是「前端渲染了一个没有目标的按钮」的形状，
+//     绝不能按缺省语义悄悄落到父行上——用户以为停一个模型，实际停掉整条通道。
+//   - 字段非空 → 精确命中该 model_id 的那一行；找不到 404，**永不回落父行**。
+//
+// 为什么选择器只能是 model_id：模板驱动的子行磁盘上 `model` 是空串，同一父下多个
+// 子行的展示名完全相同（见 config.childMatchKeyByModel），按名字选会停错行。
+//
+// `model_id` 只读不写——它不会进入落盘的 MonitorFile，故 store 写盘报 model_id
+// 重复时仍是服务端状态问题，维持 5xx（见 isDuplicateModelIDError 注释）。
 func (h *Handler) AdminToggleMonitor(c *gin.Context) {
 	if !h.checkAdminToken(c) {
 		return
@@ -443,6 +486,9 @@ func (h *Handler) AdminToggleMonitor(c *gin.Context) {
 	var req struct {
 		Field string `json:"field" binding:"required"` // "disabled" or "hidden"
 		Value bool   `json:"value"`
+		// 自定义类型而非 *string：两者都能表达「缺省」，但 *string 会把显式 `null`
+		// 也解成 nil，于是 {"model_id":null} 悄悄按父行执行——正是本字段要堵的事故。
+		ModelID optionalString `json:"model_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "请求参数无效")
@@ -451,6 +497,14 @@ func (h *Handler) AdminToggleMonitor(c *gin.Context) {
 	if req.Field != "disabled" && req.Field != "hidden" {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "field 只能是 disabled 或 hidden")
 		return
+	}
+	targetModelID := ""
+	if req.ModelID.Present {
+		targetModelID = strings.TrimSpace(req.ModelID.Value)
+		if targetModelID == "" {
+			apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "model_id 不能为空；要切换父通道请整个省略该字段")
+			return
+		}
 	}
 
 	file, err := store.Get(key)
@@ -464,15 +518,38 @@ func (h *Handler) AdminToggleMonitor(c *gin.Context) {
 		return
 	}
 
-	for i := range file.Monitors {
-		if strings.TrimSpace(file.Monitors[i].Parent) != "" {
-			continue // 只修改父通道
-		}
+	applyToggle := func(m *config.ServiceConfig) {
 		switch req.Field {
 		case "disabled":
-			file.Monitors[i].Disabled = req.Value
+			m.Disabled = req.Value
 		case "hidden":
-			file.Monitors[i].Hidden = req.Value
+			m.Hidden = req.Value
+		}
+	}
+
+	if targetModelID == "" {
+		for i := range file.Monitors {
+			if strings.TrimSpace(file.Monitors[i].Parent) != "" {
+				continue // 未指定 model_id：只修改父通道
+			}
+			applyToggle(&file.Monitors[i])
+		}
+	} else {
+		matched := false
+		for i := range file.Monitors {
+			// 只 trim 入参、不 trim 盘上的值：ValidateFileModelIDsUnique 按原串判重，
+			// 两边口径不一致会让 " md_x " 与 "md_x" 在这里撞成同一行、却逃过唯一性校验。
+			if file.Monitors[i].ModelID != targetModelID {
+				continue
+			}
+			applyToggle(&file.Monitors[i])
+			matched = true
+			break // model_id 在文件内唯一（ValidateFileModelIDsUnique 写盘前把关）
+		}
+		if !matched {
+			apiError(c, http.StatusNotFound, ErrCodeNotFound,
+				"该通道下不存在 model_id 为 "+targetModelID+" 的监测行")
+			return
 		}
 	}
 
@@ -761,6 +838,7 @@ func (h *Handler) buildProbeTargets(root *config.ServiceConfig, rawMonitors []co
 		targets = append(targets, adminProbeTarget{
 			Role:     role,
 			Model:    m.Model,
+			ModelID:  m.ModelID,
 			Template: m.Template,
 			Disabled: m.Disabled,
 		})
