@@ -6,6 +6,20 @@
 
 ## 检查点（最新在最上）
 
+- **最后同步**: 2026-09-21（HEAD=`ff33b16`，已发版 **v2.94.0** + **监测服务器已部署**[prod git_commit=`ff33b16`、go1.27.1、health=200、`配置加载完成 monitors=321`、`调度器已启动 monitors=321`、`探测模板已刷新 variants=41`（未变）、`defaults` 未变、无 panic/ERROR；回滚锚 `rollback-20260921-v2940-pre`=`948442e`/v2.93.1；无 schema、无迁移]）。**子通道可单独停用 + 智谱专属模板抬到 glm-5.3。**
+
+  **发版车攒了一天才推**：本批实际是 5 个 commit（两个功能 `b719059`/`ff33b16` + 三个文档），代码与 codex review 都在 2026-09-20 那轮完成，本轮只做 pre-flight → push → 部署 → 实证。**部署前本地重跑了 CI 的五道闸**（gofmt / go vet / go test / 前端 lint+470 测试 / vite build）全绿，CI 四 job 一次过。
+
+  **① 部署前只读 blast-radius 审计：模板改动对现网探针 provable no-op**。`cc-glm52-arith` / `cx-glm52-arith` 的 `model` 从 `glm-5.2` 抬到 `glm-5.3`，而 `model` 同时是 DB 业务键——若有生产监测行继承模板的 `model`，这次部署就会静默断掉它的历史序列。实际扫生产 `monitors.d`：**两个模板零引用**，四条 ark GLM 行跑的是 `cc-native-arith-512` / `cx-native-arith-noreason` 且行级写死 `model`，唯一引用 `cc-native-arith-nothink` 的 `llmgateway--cc--o-api-main` 是 `disabled+hidden` 的死行。而 `cc-native-arith-nothink` 本轮**只改 `_comment`**（模板无 version 字段、注释不参与任何派生）→ 现网请求形态一字未动。**所以这两份模板的改动只作用于自助收录表单**。
+  ⚠️ **顺带记一条现状**：`ark/cc/o-nat-glm` 那 16 天恒红**已经在本次部署前就好了**（生产配置早已换成 `cc-native-arith-512` + `glm-5.3`，部署后实测 200/2146ms 绿），别把它算作本版的功劳。
+
+  **② 子通道单独停用在生产上做了一次完整的开关往返实证**（`88code--cc--re.antigravity`，冷板通道，playwright 打真实 admin 后台）：子行出现「停用」按钮 → 点 Opus 那行 → 该行出「停用」徽章、按钮翻成「启用」，**Sonnet 行不受影响**；同时 `GET /api/admin/monitors/:key` 显示仅 Opus `disabled=true`，**三行 `model_id` 逐个未变**；再点「启用」还原，磁盘上三个 `model_id` 仍是原值，`revision` 2→3，日志两条 `热更新成功 monitors=321`。这正是该特性要解决的那条事故路径——此前子行只能删，删行会抹掉 `model_id`、加回来铸新 id、热力图历史成孤儿（`saiai/cc/o-max` 的 Fable 5.1 就是这么丢的 12348 条）。
+  附带确认 `probe_targets` 已随本版带出 `model_id`（toggle 的选择器就读它）。
+
+  **③ 自助表单侧实证**：`/api/onboarding/meta` 里智谱两条（cc/cx）都显示 **GLM-5.3**，全站再无 `glm-5.2` 残留。
+
+  ⚠️ **本轮没有新的 codex review**——本批代码未做任何新改动，review 在 2026-09-20 写码那轮已做（`{"model_id":null}` 静默停整条通道那个坑就是 codex 抓出来的）。
+
 - **最后同步**: 2026-09-16（HEAD=`948442e`，已发版 **v2.93.1** + **监测服务器已部署**[prod git_commit=`948442e`、health=200、`/ready` 逐字 `{"status":"ok"}`（无 `config_reload`）、`配置加载完成 monitors=313`、`探测模板已刷新 variants=41`（未变）；回滚锚 `rollback-20260916-vendororder-pre`=`fdcdcac`/v2.93.0（**同日第三次部署**）；纯前端，无 schema、无迁移]）。**厂商列从模型列右侧挪到左侧。**
 
   **理由**：厂商是模型的上位概念，且一个通道恒定一家——多模型通道的模型格是三四行（`gpt-6-astra` / `gpt-5.6-sol` / `gpt-5.6-terra`），厂商只有一个徽章。放左边读作「这是 OpenAI 的：…」，反过来是先看明细再回头找归属。整张表因此与顶部筛选器同为「从粗到细」＝服务商→服务→通道→厂商→模型。**移动卡片与 grid 卡片不动**：那两处厂商不是「列」而是行内徽章，grid 里它紧跟的是服务徽章而非模型。
