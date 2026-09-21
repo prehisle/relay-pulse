@@ -84,6 +84,26 @@ func newUUIDv7() string {
 	return u.String()
 }
 
+// sessionUUID 取本次注入要用的会话级标识。
+//
+// **有稳定行身份（ModelID）才做窗口化派生**，否则退回一次性随机 v7。这个分叉不是保守
+// 兜底，它对应两种真实形态：
+//   - 调度器探测的是一条长期存在的监测行（`model_id` 由 loader/admin 保证非空），它每
+//     5 分钟发一轮，窗口化后就是「一条持续一小时的会话」。用 ModelID 而不是 Model 展示名，
+//     是因为改展示名是运维动作，不该让上游看到「这条会话突然换了身份」。
+//   - inline 探测（自助收录 `/api/onboarding/test`、变更 `/api/change/test`）是**一次性**的
+//     手动动作，一次性会话本来就是它的真实形态。⚠️ 这里更是个正确性问题：onboarding 测试
+//     的 PSC 是占位值（provider 空串 + `channel=__test__`，见 buildOnboardingTestConfig），
+//     模型又由模板钉死，若一并走派生，**不同提交方在同一小时内的测试会共用一个 session-id
+//     与 prompt_cache_key**——各自的 key/base_url 完全不同，却对上游自称同一条会话。
+func sessionUUID(cfg *config.ServiceConfig, requestModel string) string {
+	if cfg.ModelID == "" {
+		return newUUIDv7()
+	}
+	return identity.DeriveSessionUUIDv7(
+		cfg.Provider, cfg.Service, cfg.Channel, cfg.ModelID, requestModel, time.Now())
+}
+
 // InjectVariables 替换所有占位符，返回临时副本（不修改共享 ServiceConfig）
 func InjectVariables(cfg *config.ServiceConfig, uidMgr *identity.UserIDManager) (url, body string, headers map[string]string, successContains, prompt, expectedAnswer string) {
 	// 回退：非模板监测项可能没有 URLPattern，直接使用 BaseURL
@@ -138,6 +158,11 @@ func InjectVariables(cfg *config.ServiceConfig, uidMgr *identity.UserIDManager) 
 		// 对不上请求时刻」两处露馅。需要同值的多个字段共用一个占位符即可。
 		"{{RAND_UUID_V7}}", newUUIDv7(),
 		"{{RAND_UUID_V7_2}}", newUUIDv7(),
+		// 会话级标识：按监测行 + 滚动时间窗派生，窗口内恒定（分叉见 sessionUUID）。
+		// 语义分工与「为什么不能永久冻结」写在 identity.DeriveSessionUUIDv7 与
+		// SessionWindow 的注释里。
+		// ⚠️ 别拿它替 {{RAND_UUID_V7}} 去填 x-client-request-id 这类请求级字段。
+		"{{SESSION_UUID_V7}}", sessionUUID(cfg, requestModel),
 		// 按通道派生、格式合法的稳定 UUID。与 {{USER_ACCOUNT_UUID}} 的区别是
 		// 格式位合规（见 identity.DeriveUUIDv4）；两个槽位是因为真实客户端常同时
 		// 带多个互不相同的稳定标识（如 installation id 与 account id）。

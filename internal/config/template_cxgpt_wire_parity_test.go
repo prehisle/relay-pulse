@@ -58,8 +58,20 @@ var cxGPTWireRequiredHeaderMarkers = []string{
 	`"originator": "codex_exec"`,
 	`"x-codex-turn-metadata"`,
 	`"chatgpt-account-id": "{{STABLE_UUID2}}"`,
-	`"{{RAND_UUID_V7}}"`,
 	`{{UNIX_MS}}`,
+	// 会话级 / 请求级的分工（2026-09-21 拆开，理由见 cx-gpt-arith 的 _comment 与
+	// identity.DeriveSessionUUIDv7）。两条一起钉，任何一侧被改回同一个占位符都会红。
+	`"session-id": "{{SESSION_UUID_V7}}"`,
+	`"thread-id": "{{SESSION_UUID_V7}}"`,
+	`"x-codex-window-id": "{{SESSION_UUID_V7}}:0"`,
+	`\"session_id\":\"{{SESSION_UUID_V7}}\"`,
+	`\"thread_id\":\"{{SESSION_UUID_V7}}\"`,
+	`\"window_id\":\"{{SESSION_UUID_V7}}:0\"`,
+	`\"context_window_id\":\"{{SESSION_UUID_V7}}\"`,
+	`"x-client-request-id": "{{RAND_UUID_V7}}"`,
+	// 轮次级独立成组：turn 与 root-turn 同值、但与会话/请求两组都不同（真抓包的关系）。
+	`\"turn_id\":\"{{RAND_UUID_V7_2}}\"`,
+	`\"root_turn_id\":\"{{RAND_UUID_V7_2}}\"`,
 }
 
 // cxGPTWireForbiddenHeaderMarkers 钉死「订阅态抓包里没有的东西不许回来」。
@@ -68,10 +80,16 @@ var cxGPTWireRequiredHeaderMarkers = []string{
 var cxGPTWireForbiddenHeaderMarkers = []string{
 	"openai-beta",
 	"Codex-CLI/1.0",
+	// 会话级字段退回每请求随机 = revert 掉 2026-09-21 那次改动。它不会有任何运行时
+	// 症状（请求照发、探针照绿），只会让上游重新看到 288 会话/天/行。
+	`"session-id": "{{RAND_UUID_V7}}"`,
+	`"thread-id": "{{RAND_UUID_V7}}"`,
 }
 
 var cxGPTWireRequiredBodyMarkers = []string{
-	`"prompt_cache_key": "{{RAND_UUID_V7}}"`,
+	// prompt_cache_key 跟会话走：真 codex 的缓存键就是会话级的，一边发着稳定的
+	// session-id、一边每请求换缓存键，这个组合本身不是任何真实客户端的形态。
+	`"prompt_cache_key": "{{SESSION_UUID_V7}}"`,
 	`"model": "{{MODEL}}"`,
 	`"{{PROMPT}}"`,
 }

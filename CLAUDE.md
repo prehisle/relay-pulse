@@ -294,13 +294,17 @@ HTTP 响应
 
 - **残**：`internal/api/meta.go` 四语言 SSR 首页描述**仍未提**第一方厂商（原因是此前一条都没有，现已具备条件、属独立文案决策）；这批通道**未接 rpdiag 质量盲评**（落地顺序第 3 步，成本在给每 vendor 定档位阶梯 + 攒基线）。
 
-**模板占位符**: URL/headers/body 中的占位符在探测时由 `internal/monitor/probe.go` 的 `InjectVariables` 统一替换。支持：`{{BASE_URL}}`、`{{API_KEY}}`、`{{MODEL}}`（=`request_model`，为空回退 `model`）、`{{REQUEST_MODEL}}`、`{{USER_ID}}`、`{{USER_ID_HASH}}`、`{{USER_ACCOUNT_UUID}}`、`{{RAND_UUID}}`、`{{RAND_UUID2}}`、`{{RAND_UUID_V7}}`、`{{RAND_UUID_V7_2}}`、`{{STABLE_UUID}}`、`{{STABLE_UUID2}}`、`{{UNIX_MS}}`、`{{PROMPT}}`、`{{EXPECTED_ANSWER}}`、`{{ARITH_A}}`、`{{ARITH_B}}`（**同一个占位符在一次注入中处处取同值**，故需要「多个字段同源」时复用同一个名字即可；不同名字之间取值互不相同）。注意：`body` 按模板文件中的**原始字节**发送（仅 `TrimSpace`，不 re-marshal/不 compact），占位符按字符串替换；需与抓包字节一致时 body 要写成压缩单行、且不放占位符。
+**模板占位符**: URL/headers/body 中的占位符在探测时由 `internal/monitor/probe.go` 的 `InjectVariables` 统一替换。支持：`{{BASE_URL}}`、`{{API_KEY}}`、`{{MODEL}}`（=`request_model`，为空回退 `model`）、`{{REQUEST_MODEL}}`、`{{USER_ID}}`、`{{USER_ID_HASH}}`、`{{USER_ACCOUNT_UUID}}`、`{{RAND_UUID}}`、`{{RAND_UUID2}}`、`{{RAND_UUID_V7}}`、`{{RAND_UUID_V7_2}}`、`{{SESSION_UUID_V7}}`、`{{STABLE_UUID}}`、`{{STABLE_UUID2}}`、`{{UNIX_MS}}`、`{{PROMPT}}`、`{{EXPECTED_ANSWER}}`、`{{ARITH_A}}`、`{{ARITH_B}}`（**同一个占位符在一次注入中处处取同值**，故需要「多个字段同源」时复用同一个名字即可；不同名字之间取值互不相同）。注意：`body` 按模板文件中的**原始字节**发送（仅 `TrimSpace`，不 re-marshal/不 compact），占位符按字符串替换；需与抓包字节一致时 body 要写成压缩单行、且不放占位符。
 
 **⚠️ 伪装真实客户端标识时，别用 `{{USER_ACCOUNT_UUID}}` 和 `{{RAND_UUID}}`**（2026-09-15 解码 codex CLI 抓包得出，五个新占位符为此而加）：
 
 - **`{{USER_ACCOUNT_UUID}}` 产出的不是合法 UUID**。它走 `identity.uuidFromHash`，只把 sha256 切成 `8-4-4-4-12` 的形状、**不设 version/variant 位**，实测产出过 `variant=3`（RFC 4122 只允许 8/9/a/b）。要「按通道稳定且格式合法」用 **`{{STABLE_UUID}}` / `{{STABLE_UUID2}}`**（走 `identity.DeriveUUIDv4`，强制 version=4 + variant=RFC4122）。两个槽位是因为真实客户端常同时带多个互不相同的稳定标识（如 installation id 与 account id）——**这类标识绝不能在模板里写成固定常量**，那会让所有引用通道共用同一个身份，网关按它做账号级限流/去重/风控时会把所有通道当成同一个账号。`{{USER_ACCOUNT_UUID}}` 保持原状不修格式位，是因为 `cc-haiku-arith-20260506` 已在生产使用它。
-- **真实客户端的 session/turn 类标识普遍是 UUIDv7**，前 48 位是毫秒时间戳（codex CLI 实测：`session_id` 解出的时刻与同请求 `turn_started_at_unix_ms` 只差 38ms）。`{{RAND_UUID}}` 是 v4、前 48 位纯随机，**伪造不了这个**，解析 version 位或校验时间戳新鲜度的网关一眼可辨。用 **`{{RAND_UUID_V7}}` / `{{RAND_UUID_V7_2}}`**。
+- **真实客户端的 session/turn 类标识普遍是 UUIDv7**，前 48 位是毫秒时间戳（codex CLI 实测：`session_id` 解出的时刻与同请求 `turn_started_at_unix_ms` 只差 38ms）。`{{RAND_UUID}}` 是 v4、前 48 位纯随机，**伪造不了这个**，解析 version 位或校验时间戳新鲜度的网关一眼可辨。用 **`{{RAND_UUID_V7}}` / `{{RAND_UUID_V7_2}}`**——但 session 这一类要改用 **`{{SESSION_UUID_V7}}`**（见下条，2026-09-21 起会话级与请求级分开）。
 - 模板里的**时间戳字段一律用 `{{UNIX_MS}}`**（写成不带引号的占位符即落成 JSON 数字）。冻结的时间戳不只会永久漂移，还会与 v7 UUID 内嵌的时间戳对不上——那比单纯冻结更可疑。
+- **会话级字段与请求级字段必须用不同的占位符**（2026-09-21 补 `{{SESSION_UUID_V7}}`）：session / thread / window / context-window / `prompt_cache_key` 属**会话级**，同一条 `(provider, service, channel, model_id, request_model)` 在**一小时滚动窗口**内恒定（含同一次探测的各次重试）、跨窗口换新且内嵌时间戳同步前移，窗口相位按行派生错开，不会全站整点齐刷；`x-client-request-id` 与 `turn_id`/`root_turn_id` 属**请求级/轮次级**，必须保持每次随机。**inline 探测（自助收录 / 变更测试）例外**：那条路径没有稳定 `model_id`、PSC 又是占位值（provider 空串 + `channel=__test__`），窗口化派生会让不同提交方在同一小时内共用一个 session；故 `model_id` 为空时退回一次性随机 v7——一次性会话本来就是「点一次测试」的真实形态。
+  - **别把会话级冻成永久常量**（站长 2026-09-21 提过，评估后否决）：UUIDv7 前 48 位是会话**创建时刻**，冻死后与同请求的 `{{UNIX_MS}}` 越差越远，「创建于三个月前、仍在发第 25000 轮」比「会话数偏多」显眼得多，模板从 v4 换到 v7 换来的真实性会被它抵消。
+  - **更别把 `x-client-request-id` 一起冻住**：真 claude-cli 抓包实证「同一次调用的 6 次重试里唯一在变的就是它」，固定值可能撞上网关的去重/幂等，而探针的算术题每次重新生成——命中旧响应就是 `content_mismatch` **假红**。
+  - 窗口长度、相位、派生键为何同时含 `model_id` 与 `request_model`，理由写在 `internal/identity/session.go`；守卫是 `internal/identity/session_test.go` + `TestInjectSessionUUID_StablePerRowAcrossProbes`，变异清单 `scripts/mutations_session_uuid.py`（9/9 已验非真空）。
 
 **引用文件**: 对于大型请求体，使用 `body: "!include templates/filename.json"`（必须在 `templates/` 目录下）。
 
@@ -317,7 +321,7 @@ HTTP 响应
 
 | 形态 | 成员 | 特征 |
 |---|---|---|
-| **订阅态**（现役主力） | `cx-gpt-arith` / `cx-gpt56-arith` / `cx-gpt56luna-arith` / `cx-gpt56terra-arith` / `cx-gpt6astra-arith` | 真 codex CLI 0.154.0 抓包的整套身份头（`originator`、`x-codex-turn-metadata`、UUIDv7 会话串…），**无** `openai-beta`，body 带 `prompt_cache_key` |
+| **订阅态**（现役主力） | `cx-gpt-arith` / `cx-gpt56-arith` / `cx-gpt56luna-arith` / `cx-gpt56terra-arith` / `cx-gpt6astra-arith` | 真 codex CLI 0.154.0 抓包的整套身份头（`originator`、`x-codex-turn-metadata`、UUIDv7 会话串——2026-09-21 起按行 + 1 小时窗口稳定，见上节…），**无** `openai-beta`，body 带 `prompt_cache_key` |
 | **平台态**（保留不动） | `cx-gpt54-arith`、`cx-native-*` 族 | 假 UA `Codex-CLI/1.0`、带 `openai-beta: responses=experimental`、极简 body |
 
 - **订阅态族五份的 `headers`/`body` 逐字节相同**，模型差异全部由 `{{MODEL}}` 承担；形态依据、5 处相对真抓包的有意改动、占位符选择理由、已知风险**全部只写在 `cx-gpt-arith` 的 `_comment` 里**（族内单一真相源），另四份只有指路短注。改动必须五份同步——它们是手工同步的，改一份忘四份**不产生任何运行时报错**，只会让五个模型悄悄跑在两套客户端指纹上。守卫是 `TestCxGPTSubscriptionFamilyShareWireShape` + `TestCxGPTFamilyMembersAreAllClassified`（后者要求每个 `cx-gpt*.json` 都显式归类，新建模板漏登记即红），变异清单 `scripts/mutations_cxgpt_wire_parity.py`。

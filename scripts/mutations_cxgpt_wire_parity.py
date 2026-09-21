@@ -63,8 +63,24 @@ MUTATIONS = [
     # ⑥ 非真空保障：把 headers 掏空。少了长度与标记断言，「都空 = 逐字节相同」会通过。
     ("把 astra 的 headers 掏成空对象（守卫若只比相等则会放过）",
      ASTRA,
-     '"x-codex-window-id": "{{RAND_UUID_V7}}:0"',
+     '"x-codex-window-id": "{{SESSION_UUID_V7}}:0"',
      '"x-codex-window-id": ""',
+     SELECTORS),
+
+    # ⑨ 会话级字段退回每请求随机（2026-09-21 那次改动被 revert 的形态）。零运行时症状：
+    #    请求照发、探针照绿，只有上游重新看到 288 会话/天/行。
+    ("把源的 session-id 改回 {{RAND_UUID_V7}}（会话级退回每请求随机）",
+     SRC,
+     '"session-id": "{{SESSION_UUID_V7}}"',
+     '"session-id": "{{RAND_UUID_V7}}"',
+     SELECTORS),
+
+    # ⑩ 反向：把请求级的 x-client-request-id 也并进会话占位符。真 claude-cli 抓包里
+    #    同一次调用的 6 次重试中唯一在变的就是它；冻住它可能撞上网关去重 = 探针假红。
+    ("把源的 x-client-request-id 并进会话占位符（请求级退化成会话级）",
+     SRC,
+     '"x-client-request-id": "{{RAND_UUID_V7}}"',
+     '"x-client-request-id": "{{SESSION_UUID_V7}}"',
      SELECTORS),
 
     # ⑦ 新增模板漏登记的对偶：从族名单里摘掉一项，目录里就多出一个不受保护的成员。
