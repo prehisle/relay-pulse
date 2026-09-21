@@ -6,6 +6,22 @@
 
 ## 检查点（最新在最上）
 
+- **最后同步**: 2026-09-21（HEAD=`f760adf`，已发版 **v2.95.0** + **监测服务器已部署**[prod git_commit=`f760adf`、go1.27.1、health=200、`/ready` 逐字 `{"status":"ok"}`（无 `config_reload`）、`配置加载完成 monitors=322`、`调度器已启动 monitors=322`、`探测模板已刷新 variants=41`（未变）、`defaults` 未变、无 panic/ERROR；回滚锚 `rollback-20260921-session-pre`=`ff33b16`/v2.94.0（**同日第二次部署，故带简称后缀**）；无 schema、无迁移]）。**cx-gpt 会话级标识改为按监测行 + 1 小时窗口派生。**
+
+  **起因是站长的一句观察**：每探测一次换一个新 session，上游看到的会话数太多（5 分钟一次 ⇒ 288/天/行）。**落地成窗口化、不是永久固定**——UUIDv7 前 48 位是会话**创建时刻**，冻死后与同请求 `{{UNIX_MS}}` 越差越远，「创建于三个月前、仍在发第 25000 轮」比会话数偏多显眼得多，等于抵消掉模板从 v4 换 v7 换来的真实性。现形态：会话数降到 24/天/行，窗口相位按行派生错开（`sessionWindowStart` 先减相位再 `Truncate` 再加回，结果恒 ≤ now），避免全站整点齐刷、多条通道的会话 id 前 48 位逐字节相同。
+
+  **① 一个占位符拆成三组语义**：会话级（session/thread/window/context_window/`prompt_cache_key`）→ 新增 `{{SESSION_UUID_V7}}`；**请求级**（`x-client-request-id`）→ 仍 `{{RAND_UUID_V7}}`；轮次级（turn/root_turn）→ `{{RAND_UUID_V7_2}}` 不变。**请求级绝不能跟着冻住**：真 claude-cli 抓包实证「同一次调用的 6 次重试里唯一在变的就是它」，固定值可能撞网关去重/幂等，而 arith 题面每次重出 → 命中旧响应就是 `content_mismatch` **假红**。⚠️ 但要如实记账：codex 抓包是**单轮**请求，session 与 client-request-id 五个值本来就相同，**区分不出它是每请求变还是每会话变**——三组划分里只有「轮次级独立」有抓包直接支持，拆 client-request-id 是本站基于字段语义的**有意偏离**，已写进 `cx-gpt-arith` 的 `_comment`。
+
+  **② 派生键 = (provider, service, channel, model_id, request_model)**：`model_id` 保证两条监测行永不撞会话（改展示名是运维动作、不该换会话身份），`request_model` 保证换了真实模型就换会话。**`model_id` 为空退回一次性随机 v7**——这条是 codex review 抓出来的真 bug：onboarding 自助测试的 PSC 是占位值（provider 空串 + `channel=__test__`）、模型又由模板钉死，一并走派生会让**不同提交方在同一小时内的测试共用 session-id 与 `prompt_cache_key`**。一次性会话也正是「点一次测试」的真实形态。
+
+  **③ 生产实证是拿 admin 探测的 `curl` 回显做的**（`saiai--cx--o-web` / GPT-5.6-Terra，两发间隔 2 分钟）：`session_id` == `thread_id` == `window_id` == `context_window_id` == `prompt_cache_key` 且**两发完全一致**，`turn_id` 两发不同，version 位都是 7，会话年龄 116s（< 1h 窗口），`probe_status=1` / http 200 / 2188ms。部署后 9 分钟 cx 线 65 个样本**无新增失败类别**（ok 29 / network_error 17 / response_timeout 8 / slow_latency 6 / content_mismatch 2 / auth_error 2 / server_error 1），比例与部署前一小时同分布——⚠️ 样本太小只够排除「当场炸了」，**真正的对照要等满窗、且必须同时段比**。
+
+  ⚠️ **收益未经证实，别把它当可观测改进**：探针打的是中转商，「中转商→OpenAI」那一跳我们抓不到，OpenAI 侧到底还会不会看到 288 个会话是推断。验收判据只有「cx 线 sub_status 分布不变差」这一条否定式。**别拿本版解释任何通道的红转绿。**
+
+  **CI 撞了一次 ghcr 瞬时故障**：`docker` job 报 `error writing layer blob: not_found`（build 全过、推层失败），`release`/`tag-version` 随之 skipped。**这类不要重推空 commit**——此时还没建 tag，直接 `rerun-failed-jobs` 即可，第二次四 job 全绿。
+
+  **守卫**：新增 `internal/identity/session_test.go`（形状/窗口内稳定/跨窗口轮转且时间戳前移/时间戳落在刚过去/每维都参与派生/长度前缀单射/相位逐行错开）+ `TestInjectSessionUUID_*` 两条（注入层喂参 + inline 一次性分叉）+ wire parity 守卫补齐全部会话字段与三组分工。两份变异清单 `scripts/mutations_session_uuid.py`（10 条）与 `scripts/mutations_cxgpt_wire_parity.py`（10 条）**各 10/10 全 RED**。
+
 - **最后同步**: 2026-09-21（HEAD=`ff33b16`，已发版 **v2.94.0** + **监测服务器已部署**[prod git_commit=`ff33b16`、go1.27.1、health=200、`配置加载完成 monitors=321`、`调度器已启动 monitors=321`、`探测模板已刷新 variants=41`（未变）、`defaults` 未变、无 panic/ERROR；回滚锚 `rollback-20260921-v2940-pre`=`948442e`/v2.93.1；无 schema、无迁移]）。**子通道可单独停用 + 智谱专属模板抬到 glm-5.3。**
 
   **发版车攒了一天才推**：本批实际是 5 个 commit（两个功能 `b719059`/`ff33b16` + 三个文档），代码与 codex review 都在 2026-09-20 那轮完成，本轮只做 pre-flight → push → 部署 → 实证。**部署前本地重跑了 CI 的五道闸**（gofmt / go vet / go test / 前端 lint+470 测试 / vite build）全绿，CI 四 job 一次过。
