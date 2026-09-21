@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /bin/notifier ./cmd/notifier
 
 # Stage 3: Runtime
-FROM ubuntu:24.04
+FROM ubuntu:25.10
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
