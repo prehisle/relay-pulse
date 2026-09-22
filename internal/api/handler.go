@@ -171,6 +171,10 @@ func (c *statusCache) setWithTTL(key string, data []byte, ttl time.Duration) {
 		ttl = c.ttl
 	}
 
+	if c.maxSize <= 0 {
+		return // 容量为 0 即不缓存
+	}
+
 	buf := make([]byte, len(data))
 	copy(buf, data)
 
@@ -178,18 +182,26 @@ func (c *statusCache) setWithTTL(key string, data []byte, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 容量限制：超出时清理过期条目
-	if len(c.entries) >= c.maxSize {
+	// 容量限制：只在写入新 key 时检查（刷新已有 key 不增加条目），先清理过期条目
+	if _, exists := c.entries[key]; !exists && len(c.entries) >= c.maxSize {
 		for k, v := range c.entries {
 			if now.After(v.expireAt) {
 				delete(c.entries, k)
 			}
 		}
-	}
 
-	// 仍然超出则跳过写入（防止 DoS）
-	if len(c.entries) >= c.maxSize {
-		return
+		// 仍然超出则淘汰最早到期的一条再写入。不能跳过写入：请求方用随机查询参数填满缓存后，
+		// 合法 key 就再也进不来，每次都直达数据库。maxSize 很小，线性扫描足够。
+		if len(c.entries) >= c.maxSize {
+			var oldestKey string
+			var oldestExpire time.Time
+			for k, v := range c.entries {
+				if oldestKey == "" || v.expireAt.Before(oldestExpire) {
+					oldestKey, oldestExpire = k, v.expireAt
+				}
+			}
+			delete(c.entries, oldestKey)
+		}
 	}
 
 	c.entries[key] = &cacheEntry{
@@ -241,19 +253,20 @@ func (c *statusCache) loadWithTTL(key string, ttl time.Duration, loader func() (
 
 // Handler API处理器
 type Handler struct {
-	storage       storage.Storage
-	config        *config.AppConfig
-	cfgMu         sync.RWMutex         // 保护config的并发访问
-	cache         *statusCache         // API 响应缓存
-	autoMover     *automove.Service    // 自动移板服务（可选）
-	inlineProber  *probe.InlineProber  // 内联探测器
-	probeLimiter  *probe.IPLimiter     // 公共探测端点限流
-	onboardingMu  sync.RWMutex         // 保护 onboardingSvc 热替换
-	onboardingSvc *onboarding.Service  // 自助收录服务（可选）
-	changeMu      sync.RWMutex         // 保护 changeSvc 热替换
-	changeSvc     *change.Service      // 变更请求服务（可选）
-	monitorStore  *config.MonitorStore // monitors.d/ CRUD（可选）
-	rpdiagClient  *rpdiag.Client       // rpdiag 质量分客户端（可选，启动时一次性注入）
+	storage          storage.Storage
+	config           *config.AppConfig
+	cfgMu            sync.RWMutex         // 保护config的并发访问
+	cache            *statusCache         // API 响应缓存
+	autoMover        *automove.Service    // 自动移板服务（可选）
+	inlineProber     *probe.InlineProber  // 内联探测器
+	probeLimiter     *probe.IPLimiter     // 公共探测端点限流
+	adminAuthLimiter *authFailureLimiter  // 管理后台鉴权失败限速（可选）
+	onboardingMu     sync.RWMutex         // 保护 onboardingSvc 热替换
+	onboardingSvc    *onboarding.Service  // 自助收录服务（可选）
+	changeMu         sync.RWMutex         // 保护 changeSvc 热替换
+	changeSvc        *change.Service      // 变更请求服务（可选）
+	monitorStore     *config.MonitorStore // monitors.d/ CRUD（可选）
+	rpdiagClient     *rpdiag.Client       // rpdiag 质量分客户端（可选，启动时一次性注入）
 }
 
 // NewHandler 创建处理器
@@ -314,6 +327,11 @@ func (h *Handler) GetRpdiagScores(c *gin.Context) {
 // SetProbeLimiter 设置公共探测端点限流器。
 func (h *Handler) SetProbeLimiter(l *probe.IPLimiter) {
 	h.probeLimiter = l
+}
+
+// EnableAdminAuthLimit 开启管理后台鉴权失败限速：每 IP 每分钟回补 perMinute 次失败额度，最多累积 burst 次。
+func (h *Handler) EnableAdminAuthLimit(perMinute, burst int) {
+	h.adminAuthLimiter = newAuthFailureLimiter(perMinute, burst)
 }
 
 // SetOnboardingService 设置自助收录服务（并发安全，支持热更新时替换实例）

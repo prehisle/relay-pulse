@@ -54,10 +54,21 @@ func (h *Handler) checkAdminToken(c *gin.Context) bool {
 		return false
 	}
 
+	// 只对 token 比对失败计数（缺头/格式错猜不到任何东西）：比对前先扣一个令牌、成功再退回，
+	// 见 authFailureLimiter 的说明。耗尽后该 IP 连正确 token 也先拒。
+	ip := c.ClientIP()
+	if h.adminAuthLimiter != nil && !h.adminAuthLimiter.acquire(ip) {
+		apiError(c, http.StatusTooManyRequests, ErrCodeRateLimited, "鉴权失败次数过多，请稍后再试")
+		return false
+	}
+
 	token := strings.TrimPrefix(authHeader, bearerPrefix)
 	if subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) != 1 {
 		apiError(c, http.StatusForbidden, ErrCodeForbidden, "管理员 token 无效")
 		return false
+	}
+	if h.adminAuthLimiter != nil {
+		h.adminAuthLimiter.refund(ip)
 	}
 
 	return true

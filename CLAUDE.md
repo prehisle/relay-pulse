@@ -362,7 +362,7 @@ HTTP 响应
 - **`POST /api/admin/monitors/:key/probe`**：走完整 `ServiceConfig`，与 scheduler **字段级一致**；且**配了代理就自动走代理**（公开 onboarding/change 自测永不走）。
 - **`DELETE /api/admin/monitors/:key`** 是**软删除**（归档到 `monitors.d/.archive/`），不是真删。
 - **公开写入端点一律 IP 限流**：`POST /api/onboarding/submit`、`/api/onboarding/test`、`/api/change/test` 都按 IP 日配额限流（`onboarding.max_per_ip_per_day` 默认 **5**；`onboarding.change_requests.max_per_ip_per_day` 默认 **3**，两者**独立计数**、change 侧与 onboarding 解耦）。2026-07-25 遭过系统化探测，别在新增公开写入端点时忘了挂限流。
-- **全部 `/api/admin/*` 走 Bearer token 鉴权**（`onboarding.admin_token`）——包括 changes / submissions / monitors 三组。新增 admin 路由必须挂进已有鉴权组，别单独注册。
+- **全部 `/api/admin/*` 走 Bearer token 鉴权**（`onboarding.admin_token`）——包括 changes / submissions / monitors 三组。新增 admin 路由必须挂进已有鉴权组，别单独注册。token 比对失败按 IP 限速（`authFailureLimiter`：每分钟回补 10 次、最多攒 10 次，成功与缺头不计；耗尽后该 IP 连正确 token 也回 429）。IP 取自 `server.trusted_platform`，prod 是 `CF-Connecting-IP`——没配它时所有请求同一个来源 IP，攻击者能把站长一起锁在外面。
 - **`POST /api/admin/changes/:id/apply` 仅 auto 模式可用**；`POST /api/admin/monitors/:key/toggle` 只**写** `disabled`/`hidden` 两个 flag（故重复 model_id 之类错误必来自磁盘历史坏文件 = 服务端状态问题，刻意保持 5xx 不降 400）。
 
   **目标行由可选的 `model_id` 选择器决定**（只读不落盘）：字段缺省 → 父行（历史语义，旧客户端不变）；字段存在但为空串/空白/`null` → **400**；非空但文件里找不到 → **404，绝不回落父行**。三条分支都在 `store.Get` 之前或之后立即 return，不写盘、不递增 revision。

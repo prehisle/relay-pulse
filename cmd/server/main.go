@@ -340,6 +340,8 @@ func main() {
 	probeLimiter := probe.NewIPLimiter(10, 10) // 每 IP 每分钟 10 次
 	server.GetHandler().SetInlineProber(inlineProber)
 	server.GetHandler().SetProbeLimiter(probeLimiter)
+	// 管理后台鉴权失败限速：每 IP 每分钟 10 次失败，耗尽后该 IP 的管理请求一律 429
+	server.GetHandler().EnableAdminAuthLimit(10, 10)
 	logger.Info("main", "内联探测器已初始化")
 
 	// 初始化自助收录服务（如果启用）

@@ -495,6 +495,41 @@ func TestStatusCacheClear(t *testing.T) {
 	}
 }
 
+// 缓存被未过期条目填满后，新 key 仍要能写入（淘汰最早到期的一条），
+// 否则请求方用随机参数填满缓存即可让合法请求永远直达数据库。
+func TestStatusCacheEvictsOldestWhenFull(t *testing.T) {
+	cache := newStatusCache(10*time.Second, 3)
+
+	cache.setWithTTL("oldest", []byte("a"), 5*time.Second)
+	cache.setWithTTL("k2", []byte("b"), 10*time.Second)
+	cache.setWithTTL("k3", []byte("c"), 10*time.Second)
+
+	cache.set("fresh", []byte("d"))
+
+	if data, ok := cache.get("fresh"); !ok || string(data) != "d" {
+		t.Fatalf("new key must be cached when full, got ok=%v data=%q", ok, data)
+	}
+	if _, ok := cache.get("oldest"); ok {
+		t.Error("entry with earliest expiry should have been evicted")
+	}
+	for _, k := range []string{"k2", "k3"} {
+		if _, ok := cache.get(k); !ok {
+			t.Errorf("entry %q should survive eviction", k)
+		}
+	}
+	if n := len(cache.entries); n != 3 {
+		t.Errorf("cache size: want 3, got %d", n)
+	}
+}
+
+func TestStatusCacheZeroSizeDisablesCaching(t *testing.T) {
+	cache := newStatusCache(10*time.Second, 0)
+	cache.set("k", []byte("v"))
+	if _, ok := cache.get("k"); ok {
+		t.Error("cache with maxSize 0 must not store entries")
+	}
+}
+
 // --- incrementStatusCount ---
 
 func TestIncrementStatusCount(t *testing.T) {
