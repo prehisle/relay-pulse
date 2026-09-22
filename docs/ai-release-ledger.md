@@ -6,6 +6,14 @@
 
 ## 检查点（最新在最上）
 
+- **最后同步**: 2026-09-23（HEAD=`59bc56f`，已发版 **v2.96.1**（`da0de4c`）+ **v2.96.2**（`59bc56f`），**监测服务器已部署 v2.96.2**[02:12:29 CST 重建；prod git_commit=`59bc56f`、health=200、`/ready` `{"status":"ok"}`、`配置加载完成 monitors=323`、`探测模板已刷新 variants=42`（未变）、无 panic/ERROR；回滚锚 `rollback-20260923-batchA-pre`=`b82e2e4`/v2.96.0；无 schema、无迁移]）。审计清单批次 A，真相源 meta 仓 `docs/audit-2026-09-22.md`。
+
+  **内容**：① 管理后台 token 比对失败按客户端 IP 限速（`authFailureLimiter`，比对前扣令牌、成功退回，并发猜测越不过额度）；② `/api/status` 缓存满时淘汰最早到期条目，不再跳过写入；③ 调度器取并发槽挪进探测协程，同一监测项在途则跳过本轮（日志「跳过本轮」），CI 对 scheduler/api 加 `-race`；④ 监测容器非 root：入口脚本 root 段修 `/config` `/data` `/app/archive` 属主后 su-exec 到 uid 10001，入口脚本与二进制挪到 `/usr/local/bin`（codex 抓出留在可写 `/app` 会被替换后以 root 执行）；⑤ `.gitignore` 行内注释修正、WAL 守卫测试收紧。
+
+  **两次返工**：v2.96.1 部署前只读核 prod compose，发现 `./archive:/app/archive` 绑定挂载（root 755、归档 `enabled: true`），入口脚本原只修两个目录 → 补 `58efd1a`；该提交 CI 的 `-race` 撞出既有 `TestUpdateConfig` 读堆计数的竞态（派发不再阻塞后更易撞上）→ `59bc56f` 改为等计数稳定，-race 连跑 30 次绿。
+
+  **prod 实证**：主进程用户 `relaypulse`；运行用户写 `/config`、`monitors.d`、`/app/archive` 均成功，删 `/usr/local/bin/monitor` 被拒；宿主 `config/`、`archive/` 属主变为 uid 10001（宿主 root 照常读写）。admin 正确 token 连打 3 次全 200、错误 token 403；公开 `/api/status` 200。部署后 12 分钟内 107 个活跃序列全部落库（部署前 1 小时同为 107），「跳过本轮」0 次、无保存失败。**残**：v2.96.0+批次 A 合并做同时段绿率/延迟对比（部署前取 09-23 01:39 CST 之前，排除 saiai/cc/o-max 的 Opus 行），至少等满一天。
+
 - **最后同步**: 2026-09-23（HEAD=`b82e2e4`，已发版 **v2.96.0** + **监测服务器已部署**[prod git_commit=`b82e2e4`、go1.27.1、health=200、`/ready` 逐字 `{"status":"ok"}`、`配置加载完成 monitors=323`、`探测模板已刷新 variants=41→42`、`defaults` 未变、无 panic/ERROR；回滚锚 `rollback-20260923-opus55-pre`=`f760adf`/v2.95.0；无 schema、无迁移]）。**新增 Claude Opus 5.5 ping 探针，并把 saiai/cc/o-max 的 Opus 行就地换成 opus-5.5；同批带上审计 #6（`bb7e248`，响应体/解压 10MB 上限）。**
 
   **模板 `cc-opus55-ping-20260923`**：claude-cli 2.1.280 真抓包（mitm 拦官方端点、零外发），3 次同参抓包只有 session/request-id/cch/cc_prompt_id 在变；`claudebilling` 对 3 份原样抓包逐字复现 cch，2.1.280 档已校准。**opus-5.5 不接受 `thinking.disabled`**（上游 400 原话写在模板 `_comment`），只能照 fable 族保留 adaptive、`max_tokens` 1024；effort=low 下实测仅 4 个 output token。2.1.280 形态变化（新头 `x-claude-code-request-class`、beta 多 4 项、billing header 多 `cc_turn_origin`、user 消息变纯字符串、环境块挪进 `role=system` 消息）逐项记在该模板 `_comment`。verify-live 打 saiai 5/5 绿、curl 核回显 `claude-opus-5-5`。
