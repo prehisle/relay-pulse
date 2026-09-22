@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -360,18 +361,27 @@ func TestRebuildTasks_LegacyKeyFallbackWhenModelIDEmpty(t *testing.T) {
 
 // --- 堆外窗口：旧代任务不得被推回 ---
 
-// runDispatchInHeapGap 把一个已到期任务放进堆，用占满的信号量把 dispatchDue 卡在
-// runTask 的信号量等待处——此刻任务已被弹出、尚未推回，正是那个「堆外窗口」。
+// runDispatchInHeapGap 把一个已到期任务放进堆，用 afterPopHook 把 dispatchDue 卡在弹出之后——
+// 此刻任务已被弹出、尚未推回，正是那个「堆外窗口」。
 // 返回 dispatchDue 结束信号与解除阻塞的函数。
 func runDispatchInHeapGap(t *testing.T, s *Scheduler, m config.ServiceConfig, interval time.Duration) (done chan struct{}, release func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
+	gate := make(chan struct{})
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			cancel() // 已取消：runTask 登记的 goroutine 立即退出，不发真探测
+			close(gate)
+		})
+	}
 
 	s.mu.Lock()
 	s.running = true
 	s.ctx = ctx
 	s.sem = make(chan struct{}, 1)
-	s.sem <- struct{}{} // 占满：runTask 会阻塞在获取信号量
+	s.sem <- struct{}{} // 占满：放行后 runTask 的 goroutine 只能走 ctx.Done 退出
+	s.afterPopHook = func() { <-gate }
 	s.generation++
 	s.tasks = s.tasks[:0]
 	s.tasks = append(s.tasks, &task{
@@ -398,12 +408,12 @@ func runDispatchInHeapGap(t *testing.T, s *Scheduler, m config.ServiceConfig, in
 			break
 		}
 		if time.Now().After(deadline) {
-			cancel()
+			release()
 			t.Fatal("等不到 dispatchDue 弹出任务，堆外窗口没造出来")
 		}
 		time.Sleep(time.Millisecond)
 	}
-	return done, cancel
+	return done, release
 }
 
 func countTasksByIdentity(s *Scheduler, m config.ServiceConfig) int {
@@ -431,7 +441,7 @@ func TestDispatchDue_DropsStaleTaskAfterRebuild(t *testing.T) {
 		t.Fatalf("重建后该监测项应恰有 1 个任务，实际 %d", got)
 	}
 
-	release() // 让 runTask 从信号量等待中退出，dispatchDue 继续走到「推回堆」
+	release() // 放开堆外窗口，dispatchDue 继续走到「推回堆」
 	<-done
 
 	if got := countTasksByIdentity(s, m); got != 1 {

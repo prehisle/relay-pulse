@@ -191,6 +191,14 @@ type Scheduler struct {
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup // 追踪在途探测 goroutine
 
+	// inflight 已派发但未结束（排队等并发槽或正在探测）的监测项身份，键为 taskIdentityKey。
+	// 取并发槽在 goroutine 里进行，派发循环不再被饱和的信号量卡住；代价是失去原来的阻塞背压，
+	// 所以同一监测项上一轮没结束时本轮直接跳过，避免排队 goroutine 与重复探测堆积。
+	inflight map[string]struct{}
+
+	// afterPopHook 仅供测试：dispatchDue 弹出任务、释放锁之后调用，用来确定性地撑住「堆外窗口」
+	afterPopHook func()
+
 	// generation 每次重建任务堆（含 Stop）递增，用于识别并丢弃堆外窗口里的旧代任务，见 task.generation
 	generation uint64
 	// lastStaggerEnabled 上一次重建时组间错峰是否生效；切换时强制全量重排，
@@ -209,6 +217,7 @@ func NewScheduler(store storage.RecordStorage, interval time.Duration, userIDMgr
 		prober:   monitor.NewProber(store, userIDMgr),
 		fallback: interval,
 		wakeCh:   make(chan struct{}, 1),
+		inflight: make(map[string]struct{}),
 	}
 }
 
@@ -786,9 +795,14 @@ func (s *Scheduler) dispatchDue() {
 
 		// 弹出到期任务
 		heap.Pop(&s.tasks)
+		afterPop := s.afterPopHook
 		s.mu.Unlock()
 
-		// 异步执行探测任务
+		if afterPop != nil {
+			afterPop()
+		}
+
+		// 登记后立即返回，探测在 goroutine 里等并发槽
 		s.runTask(next)
 
 		// 使用"至少间隔"语义：下次执行时间 = max(计划时间+interval, 当前时间+interval)
@@ -813,31 +827,43 @@ func (s *Scheduler) dispatchDue() {
 	}
 }
 
-// runTask 在并发控制下执行单个探测任务
+// runTask 登记并异步执行单个探测任务，并发槽在 goroutine 内等待，不阻塞派发循环
 func (s *Scheduler) runTask(t *task) {
+	key := taskIdentityKey(t.monitor)
+
 	s.mu.Lock()
+	if !s.running || s.ctx == nil || s.sem == nil {
+		s.mu.Unlock()
+		return
+	}
+	if _, busy := s.inflight[key]; busy {
+		s.mu.Unlock()
+		logger.Warn("scheduler", "上一轮探测仍在排队或执行，跳过本轮（并发上限可能不足）",
+			"provider", t.monitor.Provider, "service", t.monitor.Service, "channel", t.monitor.Channel, "model", t.monitor.Model)
+		return
+	}
 	ctx := s.ctx
 	sem := s.sem
 	eventSvc := s.eventService
+	s.inflight[key] = struct{}{}
+	// 必须与上面的 running 检查同在 s.mu 内 Add：Stop 持锁置 running=false 后才 wg.Wait，
+	// 锁外 Add 可能与 Wait 并发，违反 WaitGroup 的使用约束
+	s.wg.Add(1)
 	s.mu.Unlock()
 
-	if ctx == nil || sem == nil {
-		return
-	}
-
-	// 获取信号量
-	select {
-	case sem <- struct{}{}:
-	case <-ctx.Done():
-		return
-	}
-
-	// 追踪在途 goroutine
-	s.wg.Add(1)
-
-	// 异步执行，释放信号量
 	go func(m config.ServiceConfig) {
 		defer s.wg.Done()
+		defer func() {
+			s.mu.Lock()
+			delete(s.inflight, key)
+			s.mu.Unlock()
+		}()
+
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
 		defer func() { <-sem }()
 
 		result := s.prober.Probe(ctx, &m)

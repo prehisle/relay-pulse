@@ -107,6 +107,10 @@ jobs:
       - name: Go coverage report
         run: go tool cover -func=coverage.out
 
+      # 并发敏感的包单独跑竞态检测（调度器派发/在途登记、admin 鉴权限速与状态缓存）
+      - name: Go race (scheduler, api)
+        run: go test -race -count=1 ./internal/scheduler/ ./internal/api/
+
       # 前端 lint
       - name: Frontend lint
         working-directory: frontend

@@ -423,3 +423,114 @@ func TestRebuildTasks_SkipsRuntimeColdPSC(t *testing.T) {
 		t.Fatalf("remaining task = %s, want hot/svc/std", got)
 	}
 }
+
+// blockingProbeServer 起一个把每次探测都挂住直到 release 的上游，并记录到达次数。
+func blockingProbeServer(t *testing.T) (url string, arrived *atomic.Int32, started <-chan struct{}, release func()) {
+	t.Helper()
+	releaseCh := make(chan struct{})
+	var once sync.Once
+	startedCh := make(chan struct{}, 64)
+	var count atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		count.Add(1)
+		startedCh <- struct{}{}
+		<-releaseCh
+		w.WriteHeader(200)
+	}))
+	release = func() { once.Do(func() { close(releaseCh) }) }
+	t.Cleanup(srv.Close)
+	t.Cleanup(release) // 先于 srv.Close 执行（Cleanup 后进先出），否则 Close 等挂住的请求会卡死
+	return srv.URL, &count, startedCh, release
+}
+
+// 并发槽饱和时派发循环不能被卡住：到期任务都应登记完并按周期推回堆里。
+func TestDispatchNotBlockedBySaturatedSemaphore(t *testing.T) {
+	store := newTestStore(t)
+	s := NewScheduler(store, time.Minute, nil)
+	url, _, started, _ := blockingProbeServer(t)
+
+	cfg := &config.AppConfig{IntervalDuration: time.Minute, MaxConcurrency: 1, StaggerProbes: boolPtr(false)}
+	for i := 0; i < 3; i++ {
+		cfg.Monitors = append(cfg.Monitors, mkMonitor(fmt.Sprintf("p%d", i), "svc", "ch", "m", url, time.Minute))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.Start(ctx, cfg)
+	t.Cleanup(s.Stop)
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for first probe")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		queued, inflight := len(s.tasks), len(s.inflight)
+		s.mu.Unlock()
+		if queued == 3 && inflight == 3 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dispatch loop stuck: tasks back in heap=%d inflight=%d, want 3/3", queued, inflight)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// 同一监测项上一轮还没结束时再次到期（此处用 TriggerNow 模拟），不能再派发一次。
+func TestInflightMonitorNotDispatchedTwice(t *testing.T) {
+	store := newTestStore(t)
+	s := NewScheduler(store, time.Minute, nil)
+	url, arrived, started, release := blockingProbeServer(t)
+
+	cfg := &config.AppConfig{
+		IntervalDuration: time.Minute,
+		MaxConcurrency:   2, // 并发槽富余：旧实现会为同一监测项再起一个探测
+		StaggerProbes:    boolPtr(false),
+		Monitors:         []config.ServiceConfig{mkMonitor("p", "svc", "ch", "m", url, time.Minute)},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.Start(ctx, cfg)
+	t.Cleanup(s.Stop)
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for first probe")
+	}
+
+	for i := 0; i < 3; i++ {
+		s.TriggerNow()
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := arrived.Load(); n != 1 {
+		t.Fatalf("probe requests while first still in flight: want 1, got %d", n)
+	}
+
+	// 放行后身份释放，下一次到期可以正常派发
+	release()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		busy := len(s.inflight)
+		s.mu.Unlock()
+		if busy == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("inflight identity not released after probe finished")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.TriggerNow()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("monitor should be dispatched again after previous probe finished")
+	}
+}
