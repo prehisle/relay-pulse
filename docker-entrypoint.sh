@@ -12,7 +12,8 @@ set -e
 # ============================================
 RUN_USER="relaypulse"
 if [ "$(id -u)" = "0" ]; then
-    for dir in /config /data; do
+    # /app/archive 是归档默认输出目录（./archive），生产把宿主 ./archive 绑定挂载到这里
+    for dir in /config /data /app/archive; do
         [ -d "$dir" ] || continue
         # 只改属主不对的条目，避免每次启动全量 chown；-h 只改软链本身（/config/templates 指向镜像内目录）。
         # 跳过多链接的普通文件：运行用户可在同一文件系统里把 root 的文件硬链进来，诱使这里改掉其属主
