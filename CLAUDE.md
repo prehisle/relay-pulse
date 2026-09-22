@@ -345,7 +345,7 @@ HTTP 响应
 - **可选项不受影响**：下拉里仍是该 service 的**全部**模板（含新加的 Claude 5 / gpt-5.6），用户可手动改选；`Order` 也仍是纯字典序。
 - 守卫：`TestInitTemplates_BundledDefaultsAreExplicit`（内置默认值 + 每 service 恰好一份声明）、`TestAuthIndex_Rebuild_DefaultTestVariant`（变更流程跟随自身模板）。部署后可直接从启动日志核对：`msg=探测模板已刷新 … defaults="cc=cc-haiku-arith cx=cx-gpt-arith gm=gm-flash-arith"`。
 
-**Claude 5 世代 body 约束**：`thinking` 默认开且 `max_tokens` 是「思考+正文」总预算 → 不关思考必 `stop_reason=max_tokens`、正文为空、**HTTP 200 却恒红 `content_mismatch`**；关思考（仅 effort ≤ high 时被接受）就**必须同时删 `context_management`**（`clear_thinking_20251015` 与 `disabled` 互斥、直接 400）；**fable-5 根本不接受关思考**（always-on adaptive），只能放大 `max_tokens`。另外抓包自带的 `fallbacks:[{model:...}]` **必须删**——目标模型不可用时上游会自动改服回退模型、探针照样绿。
+**Claude 5 世代 body 约束**：`thinking` 默认开且 `max_tokens` 是「思考+正文」总预算 → 不关思考必 `stop_reason=max_tokens`、正文为空、**HTTP 200 却恒红 `content_mismatch`**；关思考（仅 effort ≤ high 时被接受）就**必须同时删 `context_management`**（`clear_thinking_20251015` 与 `disabled` 互斥、直接 400）；**fable-5 / fable-5.1 / opus-5.5 都不接受关思考**（上游 400 `"thinking.type.disabled" is not supported for this model`），只能保留 adaptive、放大 `max_tokens`（现用 1024）——**别默认新 opus 跟 opus-5 一样能关**。另外抓包自带的 `fallbacks:[{model:...}]` **必须删**——目标模型不可用时上游会自动改服回退模型、探针照样绿。
 
 ### 存储与功能模块
 

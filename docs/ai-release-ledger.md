@@ -6,6 +6,14 @@
 
 ## 检查点（最新在最上）
 
+- **最后同步**: 2026-09-23（HEAD=`b82e2e4`，已发版 **v2.96.0** + **监测服务器已部署**[prod git_commit=`b82e2e4`、go1.27.1、health=200、`/ready` 逐字 `{"status":"ok"}`、`配置加载完成 monitors=323`、`探测模板已刷新 variants=41→42`、`defaults` 未变、无 panic/ERROR；回滚锚 `rollback-20260923-opus55-pre`=`f760adf`/v2.95.0；无 schema、无迁移]）。**新增 Claude Opus 5.5 ping 探针，并把 saiai/cc/o-max 的 Opus 行就地换成 opus-5.5；同批带上审计 #6（`bb7e248`，响应体/解压 10MB 上限）。**
+
+  **模板 `cc-opus55-ping-20260923`**：claude-cli 2.1.280 真抓包（mitm 拦官方端点、零外发），3 次同参抓包只有 session/request-id/cch/cc_prompt_id 在变；`claudebilling` 对 3 份原样抓包逐字复现 cch，2.1.280 档已校准。**opus-5.5 不接受 `thinking.disabled`**（上游 400 原话写在模板 `_comment`），只能照 fable 族保留 adaptive、`max_tokens` 1024；effort=low 下实测仅 4 个 output token。2.1.280 形态变化（新头 `x-claude-code-request-class`、beta 多 4 项、billing header 多 `cc_turn_origin`、user 消息变纯字符串、环境块挪进 `role=system` 消息）逐项记在该模板 `_comment`。verify-live 打 saiai 5/5 绿、curl 核回显 `claude-opus-5-5`。
+
+  **就地替换、零迁移**：先按新子行 `Opus 5.5` 上线（调度器真探测绿 3788ms），站长随即要求替换 opus-5 并保历史——父行改 `template: cc-opus55-ping-20260923` + **显式 `model: Opus`**（父行原本没写 `model`、展示名来自旧模板，不写就会跟新模板变成 `Opus 5.5` 断键），删掉试点子行。结果 `model_id`（`md_a2057dfe…`）不变、`probe_history` 的 `Opus` 序列 13178→13179 续写、`/api/status` 该层 `request_model=claude-opus-5-5`，热更新 `replanned_groups=1`。试点子行在库里留 1 条孤儿记录（`model=Opus 5.5`），随 retention 自然清掉。⚠️ `Opus` 序列自 2026-09-23 01:44 CST 起是 opus-5.5 的数据，前面是 opus-5，面板上看不出分界。
+
+  **验证**：推前在只含 HEAD 的干净 worktree 跑 gofmt/vet/全量 `go test`（工作区当时有另一会话的批次 A 改动，不能直接在工作区测）；前端无改动未跑。**残**：审计 #6 的同时段绿率/延迟前后对比待做（2026-09-24 同时段对照 09-22），结果写进 meta 仓 `docs/audit-2026-09-22.md` 的「六、状态」。
+
 - **最后同步**: 2026-09-21（HEAD=`f760adf`，已发版 **v2.95.0** + **监测服务器已部署**[prod git_commit=`f760adf`、go1.27.1、health=200、`/ready` 逐字 `{"status":"ok"}`（无 `config_reload`）、`配置加载完成 monitors=322`、`调度器已启动 monitors=322`、`探测模板已刷新 variants=41`（未变）、`defaults` 未变、无 panic/ERROR；回滚锚 `rollback-20260921-session-pre`=`ff33b16`/v2.94.0（**同日第二次部署，故带简称后缀**）；无 schema、无迁移]）。**cx-gpt 会话级标识改为按监测行 + 1 小时窗口派生。**
 
   **起因是站长的一句观察**：每探测一次换一个新 session，上游看到的会话数太多（5 分钟一次 ⇒ 288/天/行）。**落地成窗口化、不是永久固定**——UUIDv7 前 48 位是会话**创建时刻**，冻死后与同请求 `{{UNIX_MS}}` 越差越远，「创建于三个月前、仍在发第 25000 轮」比会话数偏多显眼得多，等于抵消掉模板从 v4 换 v7 换来的真实性。现形态：会话数降到 24/天/行，窗口相位按行派生错开（`sessionWindowStart` 先减相位再 `Truncate` 再加回，结果恒 ≤ now），避免全站整点齐刷、多条通道的会话 id 前 48 位逐字节相同。
