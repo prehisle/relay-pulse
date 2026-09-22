@@ -6,6 +6,24 @@ set -e
 # 处理配置文件挂载逻辑和环境变量
 # ============================================
 
+# ============================================
+# 降权：以 root 启动时先把可写挂载点交给运行用户，再以该用户重新执行本脚本。
+# 已经是非 root（compose 里显式写了 user:）则原样运行、不做任何属主修改。
+# ============================================
+RUN_USER="relaypulse"
+if [ "$(id -u)" = "0" ]; then
+    for dir in /config /data; do
+        [ -d "$dir" ] || continue
+        # 只改属主不对的条目，避免每次启动全量 chown；-h 只改软链本身（/config/templates 指向镜像内目录）。
+        # 跳过多链接的普通文件：运行用户可在同一文件系统里把 root 的文件硬链进来，诱使这里改掉其属主
+        if ! find "$dir" \! -user "$RUN_USER" \( -type d -o -type l -o -links 1 \) \
+                -exec chown -h "$RUN_USER:$RUN_USER" {} + 2>/dev/null; then
+            echo "[Entrypoint] ⚠️ 无法修改 $dir 属主（可能是只读挂载），请确认 $RUN_USER(uid $(id -u "$RUN_USER")) 对其有所需的读写权限"
+        fi
+    done
+    exec su-exec "$RUN_USER" "$0" "$@"
+fi
+
 CONFIG_FILE="/app/config.yaml"
 MOUNTED_CONFIG="/config/config.yaml"
 DEFAULT_CONFIG="/app/config.yaml.default"
@@ -50,4 +68,4 @@ echo "[Entrypoint] 启动监测服务..."
 echo "----------------------------------------"
 
 # 执行主程序（main.go 通过 os.Args[1] 读取配置文件路径，不需要 -config 标志）
-exec /app/monitor "$ACTIVE_CONFIG"
+exec /usr/local/bin/monitor "$ACTIVE_CONFIG"

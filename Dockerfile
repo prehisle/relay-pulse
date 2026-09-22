@@ -105,11 +105,16 @@ LABEL org.opencontainers.image.title="Relay Pulse Monitor" \
 
 WORKDIR /app
 
-# 安装必要的运行时依赖
-RUN apk add --no-cache ca-certificates tzdata bash wget
+# 安装必要的运行时依赖（su-exec 供入口脚本降权）
+RUN apk add --no-cache ca-certificates tzdata bash wget su-exec
 
-# 从后端 builder 复制二进制文件（前端已嵌入）
-COPY --from=backend-builder /build/monitor /app/monitor
+# 运行用户：入口脚本以 root 启动，修正挂载卷属主后降权到该用户再 exec 主程序
+RUN addgroup -S -g 10001 relaypulse && adduser -S -D -H -u 10001 -G relaypulse relaypulse
+
+# 从后端 builder 复制二进制文件（前端已嵌入）。
+# 二进制与入口脚本放在 root 所有的 /usr/local/bin：/app 对运行用户可写（见下），
+# 放在 /app 里的话运行用户能删掉重建它们，下次启动以 root 执行入口脚本即提权
+COPY --from=backend-builder /build/monitor /usr/local/bin/monitor
 
 # 复制默认配置文件作为模板
 COPY config.yaml.example /app/config.yaml.default
@@ -118,11 +123,13 @@ COPY config.yaml.example /app/config.yaml.default
 COPY templates/ /app/templates/
 
 # 复制入口脚本
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# 创建配置挂载目录
-RUN mkdir -p /config
+# 创建配置与数据挂载目录，并把 /app 交给运行用户：无外部配置时入口脚本要写 /app/config.yaml，
+# 相对路径的 SQLite（连同 -wal/-shm）、monitors.d、归档目录也都落在 /app 下。
+# /app 因此不能放任何以 root 身份执行的东西
+RUN mkdir -p /config /data && chown relaypulse:relaypulse /app /config /data
 
 # 暴露端口
 EXPOSE 8080
@@ -135,4 +142,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # 入口点
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
