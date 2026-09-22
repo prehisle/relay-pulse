@@ -248,13 +248,22 @@ func TestUpdateConfig(t *testing.T) {
 
 	s.UpdateConfig(cfgB)
 
-	s.mu.Lock()
-	taskCount := len(s.tasks)
-	semCap := 0
-	if s.sem != nil {
-		semCap = cap(s.sem)
+	// 新任务立即到期，调度循环会并发弹出/推回：只在弹出窗口外读到的计数才有意义，故等它稳定到期望值
+	var taskCount, semCap int
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		taskCount = len(s.tasks)
+		semCap = 0
+		if s.sem != nil {
+			semCap = cap(s.sem)
+		}
+		s.mu.Unlock()
+		if taskCount == len(cfgB.Monitors) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	s.mu.Unlock()
 
 	if taskCount != len(cfgB.Monitors) {
 		t.Errorf("task count: want %d, got %d", len(cfgB.Monitors), taskCount)
