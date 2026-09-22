@@ -123,14 +123,10 @@ func TestInit_WALMode(t *testing.T) {
 	if err := store.db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
 		t.Fatalf("PRAGMA journal_mode: %v", err)
 	}
-	// WAL mode is requested via DSN but the modernc.org/sqlite driver may
-	// report different mode depending on version; verify it is at least set.
-	mode = strings.ToLower(mode)
-	if mode != "wal" && mode != "delete" {
-		t.Errorf("unexpected journal mode %q", mode)
-	}
-	if mode != "wal" {
-		t.Logf("NOTE: journal_mode=%q (driver may not persist WAL via DSN param)", mode)
+	// WAL 经 DSN 的 _journal_mode 参数开启。modernc 是否认这个 mattn 风格参数取决于驱动版本，
+	// 不认时会静默回落到 delete 模式——升级驱动后这里必须变红，而不是只打一行日志。
+	if mode = strings.ToLower(mode); mode != "wal" {
+		t.Fatalf("journal_mode = %q, want wal (driver may have stopped honoring _journal_mode in the DSN)", mode)
 	}
 }
 

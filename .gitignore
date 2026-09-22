@@ -40,7 +40,6 @@ tmp/
 frontend/node_modules/
 frontend/dist/
 frontend/.env*
-!frontend/.env.production  # 允许提交生产环境配置模板
 
 # Embedded frontend (symlink for development)
 internal/api/frontend/
@@ -51,7 +50,8 @@ monitors.d/
 # Config files
 config.yaml
 config.local.yaml
-config.production.yaml  # 生产配置包含真实数据，不提交
+# 生产配置包含真实数据，不提交（git 不支持行内注释，注释须独占一行）
+config.production.yaml
 prd.config.yaml
 
 # Environment variables
@@ -60,6 +60,8 @@ prd.config.yaml
 .env.*
 !/.env.example
 !/.env.pg.example
+# 允许提交前端生产环境配置模板（须在 .env.* 之后才能反选生效）
+!frontend/.env.production
 # Monitor data directory (root level only, avoid matching internal/monitor/)
 /monitor/
 !/monitor/.gitkeep
