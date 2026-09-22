@@ -400,6 +400,8 @@ HTTP 响应
 1. **任务代次 `generation`**：`dispatchDue` 把到期任务弹出堆后会**解锁**执行探测、再加锁推回，这段「堆外窗口」内任务不在 `s.tasks` 里。若期间发生 `rebuildTasks`，堆里已有该监测项的新任务，旧任务无条件推回就会让**同一通道每周期被探测两次**（直到下次重建才自愈）。故 `rebuildTasks` 与 `Stop` 在持 `mu` 时递增 `s.generation`（**含空配置、全 disabled/cold 两条提前 return**——漏一条闸就失效），新建 task 写入当前代次，回填前比对 `next.generation == s.generation && s.running`。**反向失败更危险**：新建 task 若没带上当前代次，它第一次跑完就被判成旧代丢弃，**该通道从此永久消失、不再被探测**且无任何报错——守卫是 `TestDispatchDue_NewTaskIsRequeuedAfterItsFirstRun`。
 2. **热更新按「组」保留 `nextRun`**：组间错峰的总展开可能远大于最短巡检周期（现网 95 组展开 10m33s、最短 2m30s，基距被两个 4 模型通道的组内展开顶高），所以**绝不能每次热更新都重排全部任务**——那会让短周期通道每次热更新丢好几个周期，热力图缺块。现行规则：PSC 组的成员身份键集合与各自**有效** interval（含 `s.fallback` 回退）都没变就沿用旧 `nextRun`。**粒度必须是组不是单个任务**：组内模型按固定 2s 排布、多模型热力图靠时间戳对齐渲染，只重排组内一个成员会让那一行错位出空洞。身份键用 `ModelID`、为空回退 PSCM 四元组（`validateModelIDs` 允许空 `ModelID`，本包是库不能假设调用方跑过 `CheckRuntimeModelIDs`）。需要重排的组把首次延迟封顶到自己的 interval，**但 startup 路径刻意不封顶**（那时本就该铺开填满周期）。验证手法与残留问题见 memory `reference_rp_heatmap_blocks_and_probe_cadence`。
 
+3. **在途去重 `inflight`（v2.96.1 起）**：`runTask` 只登记并起协程、并发槽在协程里等，派发循环不再被占满的信号量卡住；代价是失去阻塞背压，所以同一身份（`taskIdentityKey`）上一轮还在排队或执行时本轮直接跳过并 Warn「跳过本轮」。登记、`running` 检查、`wg.Add` 必须同在 `s.mu` 内（`Stop` 持锁置 `running=false` 后才 `wg.Wait`）。**写测试**：堆外窗口现在只有几微秒，要确定性撑住它用仅测试用的 `afterPopHook`，别再靠占满信号量；调度循环在跑时直接读 `len(s.tasks)` 会撞上弹出窗口，要限时等计数稳定（`TestUpdateConfig` 在 CI `-race` 撞过一次）。
+
 ### Storage Factory 与驱动选择
 
 `storage.Factory` 根据 `storage.type` 选择 SQLite 或 PostgreSQL 实现。新增存储驱动时先实现 `storage.Storage` 接口，再在 Factory 中注册。
