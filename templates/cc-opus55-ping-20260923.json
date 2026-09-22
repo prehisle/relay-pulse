@@ -1,0 +1,40 @@
+{
+	"self_serve_label": "Claude Opus 5.5",
+	"_comment": "Claude Opus 5.5 ping 探针（2026-09-23 真抓包，claude-cli 2.1.280，mitmproxy 拦 api.anthropic.com 官方端点、代理层就地造 503 使请求不外发）。抓包配方、cch 重算、合成常量、cc_prompt_id 冻结依据等族内通用说明见 cc-fable51-ping-20260902 的 _comment，这里只记本文件特有的部分。**2.1.280 相对 2.1.258 的形态变化**：UA；新请求头 x-claude-code-request-class: main；anthropic-beta 多 per-turn-control-2026-07-01 / mid-conversation-tool-changes-2026-07-01 / mid-conversation-system-clear-at-2026-08-21 / thinking-binding-controls-2026-08-01；billing header 尾部多 cc_turn_origin=sdk；user 消息从「日期提醒块+prompt」的内容块数组变成纯字符串 \"ping\"（不再有 <system-reminder> 日期块）；日期、cwd、<total_tokens> 挪进紧随其后的一条 role=system 消息，且该消息自带逐轮 output_config。三次同参独立抓包只有 session_id / x-client-request-id / cch / cc_prompt_id 在变，cc_version 后缀恒为 .d7b；claudebilling 对三份原样抓包逐字复现 cch，2.1.280 档已校准。body 相对抓包的有意改动：① 删 role=system 那条环境消息（含冻结日期与抓包机器 cwd，冻结即永久漂移）；② **保持 adaptive thinking，max_tokens 128000→1024**——opus-5.5 与 fable 同样不接受关思考，thinking.type.disabled 实测被上游 400 拒，报文原话「\"thinking.type.disabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior.」，故 context_management 也照抓包保留（与 adaptive 不冲突）；effort=low 下实测只产出 4 个 output token；③ 删 fallbacks:[{model:claude-opus-4-8}]，理由同族：留着会在目标模型不可用时改服旧模型、探针照样绿；④ metadata 与 cc_prompt_id 换合成常量（device_id 沿用 fable51 那份，session_id / cc_prompt_id 为本文件独有的固定 UUID，X-Claude-Code-Session-Id 头与 metadata.session_id 同值）。改 body 任一字节都必须重算 cch。model 取 \"Opus 5.5\"，与仍在生产跑的 cc-opus-ping-20260806（model=\"Opus\"，请求 claude-opus-5）分成两条独立序列，同通道同挂不撞键。2026-09-23 verify-live 打 api.saiai.top：5/5 status=1，2.4–3.7s；curl 核回显 model=claude-opus-5-5、stop_reason=end_turn、正文 pong。",
+	"model": "Opus 5.5",
+	"request_model": "claude-opus-5-5",
+	"model_vendor": "anthropic",
+	"url": "{{BASE_URL}}/v1/messages?beta=true",
+	"method": "POST",
+	"headers": {
+		"Accept": "application/json",
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"User-Agent": "claude-cli/2.1.280 (external, sdk-cli)",
+		"X-Claude-Code-Session-Id": "6d2e8b41-7c3a-4f95-b812-0e4a9c7d53f1",
+		"X-Stainless-Arch": "x64",
+		"X-Stainless-Lang": "js",
+		"X-Stainless-OS": "Linux",
+		"X-Stainless-Package-Version": "0.112.1",
+		"X-Stainless-Retry-Count": "0",
+		"X-Stainless-Runtime": "node",
+		"X-Stainless-Runtime-Version": "v26.3.0",
+		"X-Stainless-Timeout": "600",
+		"anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,server-side-fallback-2026-06-01,fallback-credit-2026-06-01,thinking-binding-controls-2026-08-01,afk-mode-2026-01-31,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07",
+		"anthropic-dangerous-direct-browser-access": "true",
+		"anthropic-version": "2023-06-01",
+		"x-app": "cli",
+		"x-claude-code-request-class": "main",
+		"x-client-request-id": "{{RAND_UUID2}}",
+		"Accept-Encoding": "gzip, deflate, br, zstd"
+	},
+	"body": {"model":"claude-opus-5-5","messages":[{"role":"user","content":"ping"}],"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.280.d7b; cc_entrypoint=sdk-cli; cch=54fc8; cc_prompt_id=a41f0c7e-2d98-4b63-9e15-7c3b8a2f6d04; cc_turn_origin=sdk;"},{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK.","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"Only reply pong.","cache_control":{"type":"ephemeral","ttl":"1h"}}],"tools":[],"metadata":{"user_id":"{\"device_id\":\"73afe81a689ab2d103b251c6ae40fa53be4e3c786d88dbd71bbc241d64ae678a\",\"account_uuid\":\"\",\"session_id\":\"6d2e8b41-7c3a-4f95-b812-0e4a9c7d53f1\"}"},"max_tokens":1024,"thinking":{"type":"adaptive","display":"omitted"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"output_config":{"effort":"low"},"diagnostics":{"previous_message_id":null},"stream":true},
+	"response": {
+		"success_contains": "pong"
+	},
+	"probe": {
+		"slow_latency": "8s",
+		"timeout": "15s",
+		"retry": 0
+	}
+}
