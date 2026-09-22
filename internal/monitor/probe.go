@@ -47,17 +47,53 @@ type Prober struct {
 	clientPool *ClientPool
 	storage    storage.RecordStorage
 	userIDMgr  *identity.UserIDManager
+	// maxBodyBytes 响应体读取上限（含解压后体积），默认 MaxResponseBodyBytes。
+	// 启动期/测试期设置，不做并发保护。
+	maxBodyBytes int64
 }
 
 const httpFailureBodyCaptureLimit = 512
 
+// MaxResponseBodyBytes 是调度器探测路径读取上游响应体的上限（含解压后体积）；
+// 内联探测的 probe.DefaultMaxResponseBytes 引用本值，两条路径同源。
+//
+// 探针只需要正文里的一个关键字，10MB 已是极宽松的上界。超过即截断、不再读：
+// 否则任何一家被监测的第三方都能用超大响应或几 KB 的解压炸弹决定本进程分配多少内存。
+// 截断后照常做内容匹配（答案落在已读前段就仍判绿），判红时 error_detail 首行标注已截断。
+// 刻意不为此新增 response_too_large 细分状态：那个枚举散在存储计数结构、两套 SQL 聚合、
+// timeline 与前端类型/Tooltip/热力图共八处，为一个近乎不会发生的红态再铺一遍不值。
+const MaxResponseBodyBytes int64 = 10 << 20
+
 // NewProber 创建探测器
 func NewProber(storage storage.RecordStorage, userIDMgr *identity.UserIDManager) *Prober {
 	return &Prober{
-		clientPool: NewClientPool(),
-		storage:    storage,
-		userIDMgr:  userIDMgr,
+		clientPool:   NewClientPool(),
+		storage:      storage,
+		userIDMgr:    userIDMgr,
+		maxBodyBytes: MaxResponseBodyBytes,
 	}
+}
+
+// SetMaxResponseBodyBytes 覆盖响应体读取上限；n<=0 恢复默认。启动期/测试期调用。
+func (p *Prober) SetMaxResponseBodyBytes(n int64) {
+	if n <= 0 {
+		n = MaxResponseBodyBytes
+	}
+	p.maxBodyBytes = n
+}
+
+// readBodyLimited 最多读取 limit 字节；超过即停止读取并报告 truncated。
+// 剩余字节刻意不读（不 drain）：这条闸的目的就是不让上游决定我们花多少内存和时间，
+// 连接由调用方 Close 丢弃即可。
+func readBodyLimited(r io.Reader, limit int64) (data []byte, truncated bool, err error) {
+	if limit <= 0 {
+		limit = MaxResponseBodyBytes
+	}
+	data, err = io.ReadAll(io.LimitReader(r, limit+1))
+	if int64(len(data)) > limit {
+		return data[:limit], true, err
+	}
+	return data, false, err
 }
 
 // newUUIDv7 生成 UUIDv7（前 48 位为当前毫秒时间戳）。
@@ -248,6 +284,8 @@ func (p *Prober) Probe(ctx context.Context, cfg *config.ServiceConfig) *ProbeRes
 	var actualAttempts int
 	// 保存最后一次的响应体（用于最终诊断日志）
 	var lastBodyBytes []byte
+	// 最后一次响应体是否被读取上限截断（0 = 未截断，否则为生效的上限字节数）
+	var lastBodyTruncatedAt int64
 	// 保存最后一次的算术题信息（用于日志）
 	var lastPrompt, lastExpectedAnswer string
 	// 保存最后一次注入后的内容校验关键字：arith 模板每次探测都换一道随机题，
@@ -361,14 +399,22 @@ retryLoop:
 		// 记录 HTTP 状态码
 		result.HttpCode = resp.StatusCode
 
-		// 完整读取响应体（避免连接泄漏），在需要内容匹配时保留文本
+		// 读取响应体，在需要内容匹配时保留文本。读取有上限（见 MaxResponseBodyBytes）：
+		// 超限即截断并停止读取，不 drain——直接丢弃连接比替上游把剩余字节读完更便宜。
 		var bodyBytes []byte
 		bodyReadLatency := 0
+		var bodyTruncatedAt int64
 		switch {
 		case probeSuccessContains != "":
 			bodyReadStart := time.Now()
-			data, readErr := io.ReadAll(resp.Body)
+			data, truncated, readErr := readBodyLimited(resp.Body, p.maxBodyBytes)
 			bodyReadLatency = int(time.Since(bodyReadStart).Milliseconds())
+			if truncated {
+				bodyTruncatedAt = p.maxBodyBytes
+				logger.Warn("probe", "响应体超过读取上限，已截断",
+					"provider", cfg.Provider, "service", cfg.Service, "channel", cfg.Channel, "model", cfg.Model,
+					"http_code", resp.StatusCode, "limit_bytes", p.maxBodyBytes)
+			}
 			switch {
 			case readErr == nil:
 				totalLatency += bodyReadLatency
@@ -412,13 +458,21 @@ retryLoop:
 
 			// 内容解压：根据 Content-Encoding 处理 br/zstd/gzip/deflate
 			// Go 的 http.Transport 在用户显式设置 Accept-Encoding 请求头时不会自动解压
-			bodyBytes = decompressBodyIfNeeded(resp, bodyBytes, cfg.Provider, cfg.Service, cfg.Channel, cfg.Model)
+			// 解压输出同样受上限约束，否则几 KB 的解压炸弹就能绕过上面的读取上限。
+			var decompressTruncated bool
+			bodyBytes, decompressTruncated = decompressBodyLimited(resp, bodyBytes, p.maxBodyBytes, cfg.Provider, cfg.Service, cfg.Channel, cfg.Model)
+			if decompressTruncated {
+				bodyTruncatedAt = p.maxBodyBytes
+				logger.Warn("probe", "解压后响应体超过读取上限，已截断",
+					"provider", cfg.Provider, "service", cfg.Service, "channel", cfg.Channel, "model", cfg.Model,
+					"http_code", resp.StatusCode, "limit_bytes", p.maxBodyBytes)
+			}
 		case shouldCaptureHTTPFailureBody(resp.StatusCode):
 			bodyReadStart := time.Now()
 			data, readErr := readBodyPrefixAndDrain(resp.Body, httpFailureBodyCaptureLimit)
 			bodyReadLatency = int(time.Since(bodyReadStart).Milliseconds())
 			totalLatency += bodyReadLatency
-			bodyBytes = decompressBodyIfNeeded(resp, data, cfg.Provider, cfg.Service, cfg.Channel, cfg.Model)
+			bodyBytes, _ = decompressBodyLimited(resp, data, p.maxBodyBytes, cfg.Provider, cfg.Service, cfg.Channel, cfg.Model)
 			switch {
 			case readErr == nil:
 			case isTolerableReadError(readErr):
@@ -438,6 +492,7 @@ retryLoop:
 
 		// 保存响应体用于最终诊断
 		lastBodyBytes = bodyBytes
+		lastBodyTruncatedAt = bodyTruncatedAt
 
 		// 判定状态（先按 HTTP/延迟，再根据响应内容做二次判断）
 		attemptLatency := headerLatency + bodyReadLatency
@@ -508,7 +563,7 @@ retryLoop:
 
 	// 组装失败响应摘要：仅 status=0 时写入，用于持久化排障
 	if result.Status == 0 {
-		result.ResponseSnippet = buildFailureSnippet(result, lastBodyBytes, lastSuccessContains)
+		result.ResponseSnippet = buildFailureSnippet(result, lastBodyBytes, lastSuccessContains, lastBodyTruncatedAt)
 	}
 
 	return result
@@ -523,18 +578,25 @@ const maxErrorDetailLen = 512
 // content_mismatch 单独走结构化摘要：它是唯一「HTTP 层完全正常、判红理由只存在于
 // 响应内容里」的红态，原样截一段响应体说明不了任何事——SSE 流的开头恒为握手元数据。
 // 其余红态的响应体本身就是上游的错误信息，头部即有效信息，保持原样。
-func buildFailureSnippet(result *ProbeResult, body []byte, successContains string) string {
-	if result.SubStatus == storage.SubStatusContentMismatch {
-		return BuildContentMismatchSummary(body, successContains)
-	}
-
+//
+// truncatedAt 非 0 表示响应体被读取上限截断（值为生效的上限字节数），此时在摘要**首行**
+// 标注——放首行是为了不被后面的头部截断吃掉；判据本身照常按已读前段给出。
+func buildFailureSnippet(result *ProbeResult, body []byte, successContains string, truncatedAt int64) string {
 	var snippet string
-	if len(body) > 0 {
-		snippet = ResponseSnippetText(body)
-	} else if result.Error != nil {
-		snippet = result.Error.Error()
+	if result.SubStatus == storage.SubStatusContentMismatch {
+		snippet = BuildContentMismatchSummary(body, successContains)
+	} else {
+		if len(body) > 0 {
+			snippet = ResponseSnippetText(body)
+		} else if result.Error != nil {
+			snippet = result.Error.Error()
+		}
+		snippet = sanitizeForStorage(truncateHead(snippet, maxErrorDetailLen))
 	}
-	return sanitizeForStorage(truncateHead(snippet, maxErrorDetailLen))
+	if truncatedAt > 0 {
+		snippet = fmt.Sprintf("response_truncated: 响应体超过 %d 字节读取上限，仅按已读前段判定\n%s", truncatedAt, snippet)
+	}
+	return snippet
 }
 
 // logFailedProbe 输出探测失败的诊断信息
@@ -596,119 +658,128 @@ func evaluateStatus(baseStatus int, baseSubStatus storage.SubStatus, body []byte
 
 // decompressBodyIfNeeded 根据 Content-Encoding 解压响应体，失败则保留原始数据。
 // 支持 br/zstd/gzip/deflate，并保留 gzip/zstd 魔术头兜底处理。
+// decompressBodyIfNeeded 是 decompressBodyLimited 的默认上限版本，供只关心内容、
+// 不关心是否被截断的调用方使用。
 func decompressBodyIfNeeded(resp *http.Response, data []byte, provider, service, channel, model string) []byte {
+	out, _ := decompressBodyLimited(resp, data, MaxResponseBodyBytes, provider, service, channel, model)
+	return out
+}
+
+// decompressBodyLimited 按 Content-Encoding（或魔术头）解压，解压输出最多 limit 字节；
+// 第二个返回值表示输出被截断。解压失败沿用原行为：回退原始字节、不算截断。
+func decompressBodyLimited(resp *http.Response, data []byte, limit int64, provider, service, channel, model string) ([]byte, bool) {
 	if len(data) == 0 {
-		return data
+		return data, false
 	}
 
 	contentEncoding := strings.ToLower(resp.Header.Get("Content-Encoding"))
 
 	switch {
 	case strings.Contains(contentEncoding, "br"):
-		return decompressBrotli(data, provider, service, channel, model, true)
+		return decompressBrotli(data, limit, provider, service, channel, model, true)
 	case strings.Contains(contentEncoding, "zstd"):
-		return decompressZstd(data, provider, service, channel, model)
+		return decompressZstd(data, limit, provider, service, channel, model)
 	case strings.Contains(contentEncoding, "gzip"):
-		return decompressGzip(data, provider, service, channel, model)
+		return decompressGzip(data, limit, provider, service, channel, model)
 	case strings.Contains(contentEncoding, "deflate"):
-		return decompressDeflate(data, provider, service, channel, model)
+		return decompressDeflate(data, limit, provider, service, channel, model)
 	default:
 		// 兜底：服务端未声明 Content-Encoding 时，检查魔术头
 		if isGzipMagic(data) {
-			return decompressGzip(data, provider, service, channel, model)
+			return decompressGzip(data, limit, provider, service, channel, model)
 		}
 		if isZstdMagic(data) {
-			return decompressZstd(data, provider, service, channel, model)
+			return decompressZstd(data, limit, provider, service, channel, model)
 		}
 		if looksBinary(data) {
-			return decompressBrotli(data, provider, service, channel, model, false)
+			return decompressBrotli(data, limit, provider, service, channel, model, false)
 		}
 	}
 
-	return data
+	return data, false
 }
 
-func decompressBrotli(data []byte, provider, service, channel, model string, logError bool) []byte {
+func decompressBrotli(data []byte, limit int64, provider, service, channel, model string, logError bool) ([]byte, bool) {
 	reader := brotli.NewReader(bytes.NewReader(data))
-	decompressed, err := io.ReadAll(reader)
+	decompressed, truncated, err := readBodyLimited(reader, limit)
 	if err != nil {
 		if logError {
 			logger.Warn("probe", "br 解压失败，使用原始响应体",
 				"provider", provider, "service", service, "channel", channel, "model", model, "error", err)
 		}
-		return data
+		return data, false
 	}
 
 	logger.Debug("probe", "br 解压成功",
 		"provider", provider, "service", service, "channel", channel, "model", model,
-		"compressed_size", len(data), "decompressed_size", len(decompressed))
-	return decompressed
+		"compressed_size", len(data), "decompressed_size", len(decompressed), "truncated", truncated)
+	return decompressed, truncated
 }
 
-func decompressZstd(data []byte, provider, service, channel, model string) []byte {
+func decompressZstd(data []byte, limit int64, provider, service, channel, model string) ([]byte, bool) {
 	decoder, err := zstd.NewReader(bytes.NewReader(data))
 	if err != nil {
 		logger.Warn("probe", "zstd 解压初始化失败，使用原始响应体",
 			"provider", provider, "service", service, "channel", channel, "model", model, "error", err)
-		return data
+		return data, false
 	}
 	defer decoder.Close()
 
-	decompressed, err := io.ReadAll(decoder)
+	decompressed, truncated, err := readBodyLimited(decoder, limit)
 	if err != nil {
 		logger.Warn("probe", "zstd 解压读取失败，使用原始响应体",
 			"provider", provider, "service", service, "channel", channel, "model", model, "error", err)
-		return data
+		return data, false
 	}
 
 	logger.Debug("probe", "zstd 解压成功",
 		"provider", provider, "service", service, "channel", channel, "model", model,
-		"compressed_size", len(data), "decompressed_size", len(decompressed))
-	return decompressed
+		"compressed_size", len(data), "decompressed_size", len(decompressed), "truncated", truncated)
+	return decompressed, truncated
 }
 
-func decompressGzip(data []byte, provider, service, channel, model string) []byte {
+func decompressGzip(data []byte, limit int64, provider, service, channel, model string) ([]byte, bool) {
 	gr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		logger.Warn("probe", "gzip 解压初始化失败，使用原始响应体",
 			"provider", provider, "service", service, "channel", channel, "model", model, "error", err)
-		return data
+		return data, false
 	}
 	defer gr.Close()
 
-	decompressed, err := io.ReadAll(gr)
+	decompressed, truncated, err := readBodyLimited(gr, limit)
 	if err != nil {
 		logger.Warn("probe", "gzip 解压读取失败，使用原始响应体",
 			"provider", provider, "service", service, "channel", channel, "model", model, "error", err)
-		return data
+		return data, false
 	}
 
 	logger.Debug("probe", "gzip 解压成功",
 		"provider", provider, "service", service, "channel", channel, "model", model,
-		"compressed_size", len(data), "decompressed_size", len(decompressed))
-	return decompressed
+		"compressed_size", len(data), "decompressed_size", len(decompressed), "truncated", truncated)
+	return decompressed, truncated
 }
 
-func decompressDeflate(data []byte, provider, service, channel, model string) []byte {
+func decompressDeflate(data []byte, limit int64, provider, service, channel, model string) ([]byte, bool) {
 	reader, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {
 		logger.Warn("probe", "deflate 解压初始化失败，使用原始响应体",
 			"provider", provider, "service", service, "channel", channel, "model", model, "error", err)
-		return data
+		return data, false
 	}
 	defer reader.Close()
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, truncated, err := readBodyLimited(reader, limit)
 	if err != nil {
 		logger.Warn("probe", "deflate 解压读取失败，使用原始响应体",
 			"provider", provider, "service", service, "channel", channel, "model", model, "error", err)
-		return data
+		return data, false
 	}
 
 	logger.Debug("probe", "deflate 解压成功",
 		"provider", provider, "service", service, "channel", channel, "model", model,
-		"compressed_size", len(data), "decompressed_size", len(decompressed))
-	return decompressed
+		"compressed_size", len(data), "decompressed_size", len(decompressed), "truncated", truncated)
+	return decompressed, truncated
 }
 
 func isGzipMagic(data []byte) bool {

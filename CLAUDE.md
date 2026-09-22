@@ -139,6 +139,7 @@ HTTP 响应
 - **429 限流**：响应体是错误信息，不做内容校验
 - **红色状态**：已是最差状态，不需要再校验
 - 若 2xx 响应但内容不匹配 → 降级为 🔴 红色（语义失败）
+- **响应体读取有上限**：`monitor.MaxResponseBodyBytes`=10MB，**含解压后体积**；内联路径的 `probe.DefaultMaxResponseBytes` 引用同一值。调度器路径超限即**截断、不再读**，然后照常匹配——答案落在已读前段仍判绿，判红时 `error_detail` 首行 `response_truncated:` 标注。**刻意不新增 `response_too_large` 细分状态**（该枚举散在 storage 计数结构、两套 SQL 聚合、timeline、前端类型/Tooltip/热力图共八处，为一个近乎不会发生的红态再铺一遍不值）；内联路径既有的 `response_too_large` 保持原样。
 - **匹配对象只能是模型正文**（v2.89.1 起，动 `ExtractTextFromSSE` 前必读）。两条规矩：
   - **SSE 抽不到正文 = 匹配空文本，不回退整包响应体**。回退等于拿协议信封（事件名、
     request-id、usage、**思考摘要**）做 grep，「模型没输出」会被信封里恰好出现的关键字判绿。

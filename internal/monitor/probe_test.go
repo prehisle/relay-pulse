@@ -861,3 +861,118 @@ func TestProbe_SnippetIsAlwaysValidUTF8(t *testing.T) {
 			result.ResponseSnippet[max(0, len(result.ResponseSnippet)-16):])
 	}
 }
+
+// --- 响应体读取上限（MaxResponseBodyBytes）---
+
+func TestReadBodyLimited(t *testing.T) {
+	t.Parallel()
+
+	data, truncated, err := readBodyLimited(strings.NewReader("abcdef"), 6)
+	if err != nil || truncated || string(data) != "abcdef" {
+		t.Fatalf("exact-limit body must not be truncated: data=%q truncated=%v err=%v", data, truncated, err)
+	}
+	data, truncated, err = readBodyLimited(strings.NewReader("abcdefg"), 6)
+	if err != nil || !truncated || string(data) != "abcdef" {
+		t.Fatalf("over-limit body must be cut at limit: data=%q truncated=%v err=%v", data, truncated, err)
+	}
+}
+
+// 答案落在已读前段：截断不影响判绿。
+func TestProbe_OversizedBodyAnswerInPrefixStaysHealthy(t *testing.T) {
+	prober := NewProber(nil, nil)
+	defer prober.Close()
+	prober.SetMaxResponseBodyBytes(1024)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("pong"))
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 256<<10))
+	}))
+	defer srv.Close()
+
+	cfg := newTestCfg(srv.URL)
+	cfg.SuccessContains = "pong"
+
+	result := prober.Probe(context.Background(), &cfg)
+	if result.Status == 0 || result.SubStatus == storage.SubStatusContentMismatch {
+		t.Fatalf("answer inside the capped prefix must still pass, got (%d, %s)", result.Status, result.SubStatus)
+	}
+}
+
+// 响应体里没有答案：截断后按已读前段判 content_mismatch，摘要首行标注已截断且长度受控。
+func TestProbe_OversizedBodyWithoutAnswerIsMismatchWithTruncationNote(t *testing.T) {
+	prober := NewProber(nil, nil)
+	defer prober.Close()
+	prober.SetMaxResponseBodyBytes(1024)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 256<<10))
+	}))
+	defer srv.Close()
+
+	cfg := newTestCfg(srv.URL)
+	cfg.SuccessContains = "pong"
+
+	result := prober.Probe(context.Background(), &cfg)
+	if result.Status != 0 || result.SubStatus != storage.SubStatusContentMismatch {
+		t.Fatalf("want (0, content_mismatch), got (%d, %s)", result.Status, result.SubStatus)
+	}
+	if !strings.HasPrefix(result.ResponseSnippet, "response_truncated: ") {
+		t.Errorf("snippet must start with the truncation note, got %q", result.ResponseSnippet)
+	}
+	if len(result.ResponseSnippet) > 4096 {
+		t.Errorf("snippet must stay bounded after truncation, got %d bytes", len(result.ResponseSnippet))
+	}
+}
+
+// 解压炸弹：几 KB 的 gzip 体解压出几 MB，解压输出同样受上限约束。
+func TestProbe_DecompressionBombIsCapped(t *testing.T) {
+	prober := NewProber(nil, nil)
+	defer prober.Close()
+	prober.SetMaxResponseBodyBytes(64 << 10)
+
+	bomb := mustGzip(t, bytes.Repeat([]byte{0}, 8<<20))
+	if len(bomb) >= 64<<10 {
+		t.Fatalf("test premise broken: compressed bomb is %d bytes, must be far below the 64KiB cap", len(bomb))
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.WriteHeader(200)
+		_, _ = w.Write(bomb)
+	}))
+	defer srv.Close()
+
+	cfg := newTestCfg(srv.URL)
+	cfg.SuccessContains = "pong"
+	cfg.Headers["Accept-Encoding"] = "gzip" // 显式声明让 Transport 不自动解压，走探针自己的解压路径
+
+	result := prober.Probe(context.Background(), &cfg)
+	if result.Status != 0 || result.SubStatus != storage.SubStatusContentMismatch {
+		t.Fatalf("want (0, content_mismatch), got (%d, %s)", result.Status, result.SubStatus)
+	}
+	if !strings.HasPrefix(result.ResponseSnippet, "response_truncated: ") {
+		t.Errorf("decompression overflow must be reported as truncation, got %q", result.ResponseSnippet)
+	}
+}
+
+// 非 2xx 红态：截断不改变按 HTTP 状态码的分类。
+func TestProbe_OversizedNon2xxKeepsHTTPClassification(t *testing.T) {
+	prober := NewProber(nil, nil)
+	defer prober.Close()
+	prober.SetMaxResponseBodyBytes(1024)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write(bytes.Repeat([]byte("e"), 256<<10))
+	}))
+	defer srv.Close()
+
+	cfg := newTestCfg(srv.URL)
+	cfg.SuccessContains = "pong"
+
+	result := prober.Probe(context.Background(), &cfg)
+	if result.Status != 0 || result.SubStatus != storage.SubStatusServerError {
+		t.Fatalf("want (0, server_error), got (%d, %s)", result.Status, result.SubStatus)
+	}
+}

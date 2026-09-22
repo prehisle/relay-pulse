@@ -21,8 +21,8 @@ import (
 	"monitor/internal/monitor"
 )
 
-// DefaultMaxResponseBytes 响应体读取上限。
-const DefaultMaxResponseBytes int64 = 10 << 20 // 10MB
+// DefaultMaxResponseBytes 响应体读取上限，与调度器路径同源（单一真相源在 monitor 包）。
+const DefaultMaxResponseBytes int64 = monitor.MaxResponseBodyBytes
 
 // probeResult 内部探测结果。
 type probeResult struct {
