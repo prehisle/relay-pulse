@@ -322,10 +322,10 @@ HTTP 响应
 
 | 形态 | 成员 | 特征 |
 |---|---|---|
-| **订阅态**（现役主力） | `cx-gpt-arith` / `cx-gpt56-arith` / `cx-gpt56luna-arith` / `cx-gpt56terra-arith` / `cx-gpt6astra-arith` | 真 codex CLI 0.154.0 抓包的整套身份头（`originator`、`x-codex-turn-metadata`、UUIDv7 会话串——2026-09-21 起按行 + 1 小时窗口稳定，见上节…），**无** `openai-beta`，body 带 `prompt_cache_key` |
+| **订阅态**（现役主力） | `cx-gpt-arith` + `cxGPTWireDerivedTemplates` 登记的成员（`internal/config/template_cxgpt_wire_parity_test.go`） | 真 codex CLI 抓包的整套身份头（版本见 `cx-gpt-arith` 的 `_comment`；新模型可能被上游按客户端版本卡，报 `not supported when using Codex with a ChatGPT account`）（`originator`、`x-codex-turn-metadata`、UUIDv7 会话串——2026-09-21 起按行 + 1 小时窗口稳定，见上节…），**无** `openai-beta`，body 带 `prompt_cache_key` |
 | **平台态**（保留不动） | `cx-gpt54-arith`、`cx-native-*` 族 | 假 UA `Codex-CLI/1.0`、带 `openai-beta: responses=experimental`、极简 body |
 
-- **订阅态族五份的 `headers`/`body` 逐字节相同**，模型差异全部由 `{{MODEL}}` 承担；形态依据、5 处相对真抓包的有意改动、占位符选择理由、已知风险**全部只写在 `cx-gpt-arith` 的 `_comment` 里**（族内单一真相源），另四份只有指路短注。改动必须五份同步——它们是手工同步的，改一份忘四份**不产生任何运行时报错**，只会让五个模型悄悄跑在两套客户端指纹上。守卫是 `TestCxGPTSubscriptionFamilyShareWireShape` + `TestCxGPTFamilyMembersAreAllClassified`（后者要求每个 `cx-gpt*.json` 都显式归类，新建模板漏登记即红），变异清单 `scripts/mutations_cxgpt_wire_parity.py`。
+- **订阅态族全员的 `headers`/`body` 逐字节相同**，模型差异全部由 `{{MODEL}}` 承担；形态依据、5 处相对真抓包的有意改动、占位符选择理由、已知风险**全部只写在 `cx-gpt-arith` 的 `_comment` 里**（族内单一真相源），其余成员只有指路短注。改动必须全族同步——它们是手工同步的，改一份漏其余**不产生任何运行时报错**，只会让族内模型悄悄跑在两套客户端指纹上。守卫是 `TestCxGPTSubscriptionFamilyShareWireShape` + `TestCxGPTFamilyMembersAreAllClassified`（后者要求每个 `cx-gpt*.json` 都显式归类，新建模板漏登记即红），变异清单 `scripts/mutations_cxgpt_wire_parity.py`。
 - **`cx-gpt54-arith` 的豁免是决定，不是遗漏**：它没有 A/B 实测依据，故留在平台态并在 `cxGPTPlatformEraTemplates` 显式登记。`cx-native-*` 族同理不动（它们刻意与 `cx-gpt54-arith` 逐字一致，见「native 模板族」一节）。
 - **⚠️ 别再提「换个请求形态试试能不能把红通道救绿」**：转正依据是「不会变差」，**不是「有收益」**。2026-09-16 在 73 个生产端点跑老/新各 2 轮、顺序随机打散，两臂 `sub_status` 分布几乎逐项相同，配对置换检验通过率 **p=0.852**、延迟 **p=0.698**，订阅态无任何独有的失败类别或 HTTP 码；v2.90.0 那轮在 saiai 上的四格消去（订阅/极简 headers × 订阅/极简 body）也四格全 200、找不到任何可观测信号证明网关两条路径真的分叉。**噪音水平已被量化**：用同一个模板自己跟自己比，11 个端点里仍会翻转 1 个——单家方向的差异不可解读。
 

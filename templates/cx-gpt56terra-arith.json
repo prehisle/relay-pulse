@@ -1,6 +1,6 @@
 {
 	"self_serve_label": "GPT-5.6 Terra",
-	"_comment": "订阅态形态（2026-09-16 转正），headers 与 body 与 `cx-gpt-arith` **逐字节相同**、模型靠 {{MODEL}} 占位符适配。**形态依据、5 处有意改动、占位符选择理由、已知风险一律见 `cx-gpt-arith` 的 _comment，别在本文件复述**；改动必须族内五份同步。",
+	"_comment": "订阅态形态（2026-09-16 转正），headers 与 body 与 `cx-gpt-arith` **逐字节相同**、模型靠 {{MODEL}} 占位符适配。**形态依据、5 处有意改动、占位符选择理由、已知风险一律见 `cx-gpt-arith` 的 _comment，别在本文件复述**；改动必须族内全员同步。",
 	"model": "GPT-5.6-Terra",
 	"request_model": "gpt-5.6-terra",
 	"model_vendor": "openai",
@@ -14,8 +14,8 @@
 		"originator": "codex_exec",
 		"session-id": "{{SESSION_UUID_V7}}",
 		"thread-id": "{{SESSION_UUID_V7}}",
-		"user-agent": "codex_exec/0.154.0 (Ubuntu 22.4.0; x86_64) VTE/6800 (codex_exec; 0.154.0)",
-		"version": "0.154.0",
+		"user-agent": "codex_exec/0.155.1 (Ubuntu 22.4.0; x86_64) VTE/6800 (codex_exec; 0.155.1)",
+		"version": "0.155.1",
 		"x-client-request-id": "{{RAND_UUID_V7}}",
 		"x-codex-beta-features": "remote_compaction_v2",
 		"x-codex-routing-hint": "model={{MODEL}}",

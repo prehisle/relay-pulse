@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// cx-gpt 订阅态族：五份模板共享**同一套 wire 形态**（`headers` 与 `body` 两块逐字节相同），
+// cx-gpt 订阅态族：族内所有模板共享**同一套 wire 形态**（`headers` 与 `body` 两块逐字节相同），
 // 模型差异全部由 `{{MODEL}}` 占位符承担，故只有元数据字段（model / request_model /
 // self_serve_* / _comment）允许各不相同。
 //
@@ -15,8 +15,8 @@ import (
 // （loader 存 json.RawMessage、probe 只做 TrimSpace + 占位符替换），缩进空白也是 wire 的
 // 一部分；headers 同理，多一个头少一个头都会改变网关看到的客户端指纹。
 //
-// 为什么值得守：这套形态取自一次真 codex CLI 0.154.0 抓包，五份是**手工同步**的。升 CLI
-// 版本、改一个身份头、调一处缩进——只改其中一份不会有任何运行时报错，只会让五个模型悄悄
+// 为什么值得守：这套形态取自真 codex CLI 抓包（版本与升级记录见 cx-gpt-arith 的 `_comment`），族内各份是**手工同步**的。升 CLI
+// 版本、改一个身份头、调一处缩进——只改其中一份不会有任何运行时报错，只会让族内模型悄悄
 // 跑在两套形态上，而那时任何跨模型的可用率比较都不再可比。本测试就是那个报错。
 //
 // 形态依据与改动纪律写在 cx-gpt-arith 的 `_comment` 里（族内单一真相源）。
@@ -36,6 +36,8 @@ var cxGPTWireDerivedTemplates = []string{
 	"cx-gpt56luna-arith.json",
 	"cx-gpt56terra-arith.json",
 	"cx-gpt6astra-arith.json",
+	"cx-gpt6luna-arith.json",
+	"cx-gpt6sol-arith.json",
 }
 
 // cxGPTPlatformEraTemplates 是**刻意留在旧平台态形态**的 cx-gpt 模板：假 UA
@@ -51,7 +53,7 @@ var cxGPTPlatformEraTemplates = []string{
 
 // cxGPTWireRequiredHeaderMarkers 是订阅态身份头的存在性断言。
 //
-// 这几条是**非真空保障的核心**：没有它们，把五份的 headers 全部替换成 `{}` 也能让
+// 这几条是**非真空保障的核心**：没有它们，把全族的 headers 全部替换成 `{}` 也能让
 // 「逐字节相同」通过。它们同时钉住了「订阅态」这件事本身的语义——真 codex CLI 发的是
 // originator + 整包 turn metadata，缺了就不再是我们 A/B 验证过的那个形态。
 var cxGPTWireRequiredHeaderMarkers = []string{
