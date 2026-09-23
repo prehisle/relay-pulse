@@ -6,6 +6,18 @@
 
 ## 检查点（最新在最上）
 
+- **最后同步**: 2026-09-23（HEAD=`eef601c`，已发版 **v2.97.0**（`6dbb431` 模板 + `eef601c` 前端）+ **监测服务器已部署**[10:33:40 CST 重建；prod git_commit=`eef601c`、go1.27.1、health=200、`/ready` `{"status":"ok"}`、`配置加载完成 monitors=323`、`探测模板已刷新 variants=44`（42→44）；回滚锚 `rollback-20260923-gpt6solluna-pre`=`59bc56f`/v2.96.2；无 schema、无迁移]）。
+
+  **① gpt-6-sol / gpt-6-luna 探针**（`cx-gpt6sol-arith` / `cx-gpt6luna-arith`，订阅态族成员，只换模型串）。**上游按客户端版本放行新模型**：saiai 上 UA/`version`=0.154.0 时两模型 3/3 回 400 `not supported when using Codex with a ChatGPT account`，只改版本串到 0.155.1 → 3/3 绿（随机交错）。族内逐字节同形，故 **7 份一起升到 0.155.1**；升前用 codex-cli 0.155.1 + 官方模型目录离线重抓比对，除 lite 头（行为参数，按族规不跟）外身份字段无变化。依据与抓包配方写在 `cx-gpt-arith` 的 `_comment`。
+
+  **② 多模型热力图随层数增高**：每层下限 3.5px，≤4 层外观不变，6 层 31px、7 层 36.5px（`frontend/src/utils/layeredHeatmapHeight.ts`）。
+
+  **挂载**：admin `PUT saiai--cx--o-web`（rev 51→52）追加两行子行、显式写 `model`；`热更新成功 monitors=325`、`replanned_groups=1`、两个新 `model_id`。admin probe 绿（1244/1434ms），调度器 10:43:25 各落库一条 status=1。随后站长在后台停用了该通道的 GPT-5.6 / GPT-5.6-Terra 两行（rev 54，非本次改动）。
+
+  **全族升版本的 prod 实证**：部署后 49 个 gpt-5.6/6 层已按新版本探测，6 个绿/黄→红**全是 15s 超时**（这几家部署前就在 10~14s 慢区间、部分部署前已超时过）；库里 cx 线部署前后同长窗口 `http_code=400` 0 vs 0、`invalid_request` 0 vs 0、401/403 2 vs 2——**没有任何网关因新版本号开始拒绝**。
+
+  **验证**：gofmt/vet/全量 `go test`、前端 tsc + vitest 474 全绿；族守卫 bite-test 10/10；codex review（SESSION `01a0cc03-c7b2-7d41-b7b8-12655a8c532f`）抓出变异②锚点仍是 0.154.0（已修）与两处文案，其余 5 条前提独立核实成立。
+
 - **最后同步**: 2026-09-23（HEAD=`59bc56f`，已发版 **v2.96.1**（`da0de4c`）+ **v2.96.2**（`59bc56f`），**监测服务器已部署 v2.96.2**[02:12:29 CST 重建；prod git_commit=`59bc56f`、health=200、`/ready` `{"status":"ok"}`、`配置加载完成 monitors=323`、`探测模板已刷新 variants=42`（未变）、无 panic/ERROR；回滚锚 `rollback-20260923-batchA-pre`=`b82e2e4`/v2.96.0；无 schema、无迁移]）。审计清单批次 A，真相源 meta 仓 `docs/audit-2026-09-22.md`。
 
   **内容**：① 管理后台 token 比对失败按客户端 IP 限速（`authFailureLimiter`，比对前扣令牌、成功退回，并发猜测越不过额度）；② `/api/status` 缓存满时淘汰最早到期条目，不再跳过写入；③ 调度器取并发槽挪进探测协程，同一监测项在途则跳过本轮（日志「跳过本轮」），CI 对 scheduler/api 加 `-race`；④ 监测容器非 root：入口脚本 root 段修 `/config` `/data` `/app/archive` 属主后 su-exec 到 uid 10001，入口脚本与二进制挪到 `/usr/local/bin`（codex 抓出留在可写 `/app` 会被替换后以 root 执行）；⑤ `.gitignore` 行内注释修正、WAL 守卫测试收紧。
