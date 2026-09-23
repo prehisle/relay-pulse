@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { StatusDot } from '../StatusDot';
 import { HeatmapBlock } from '../HeatmapBlock';
 import { LayeredHeatmapBlock } from '../LayeredHeatmapBlock';
+import { layeredHeatmapHeightPx } from '../../utils/layeredHeatmapHeight';
 import { ExternalLink } from '../ExternalLink';
 import { FavoriteButton } from '../FavoriteButton';
 import { AnnotationCell } from '../annotations';
@@ -249,7 +250,11 @@ export function StatusTableRow({
         </td>
       )}
       <td className="pl-1.5 pr-2 py-1.5 align-middle">
-        <div className="flex items-center gap-[2px] h-5 w-full overflow-hidden rounded-sm">
+        <div
+          className="flex items-center gap-[2px] h-5 w-full overflow-hidden rounded-sm"
+          // 多模型行随层数撑高，与 LayeredHeatmapBlock 内部算出的高度一致
+          style={item.isMultiModel && item.layers ? { height: `${layeredHeatmapHeightPx(item.layers.length, 20)}px` } : undefined}
+        >
           {/* 热力图：多层 vs 单层 */}
           {item.isMultiModel && item.layers ? (
             // Phase B: 多层垂直堆叠热力图

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { MonitorLayer, ProcessedMonitorData } from '../types';
 import { STATUS_MAP } from '../types';
 import { heatmapBlockToStyle } from '../utils/color';
+import { LAYER_GAP_PX, layeredHeatmapHeightPx } from '../utils/layeredHeatmapHeight';
 
 type HeatmapPoint = ProcessedMonitorData['history'][number];
 type LayerTimelinePoint = NonNullable<MonitorLayer['timeline']>[number];
@@ -69,7 +70,7 @@ interface LayeredHeatmapBlockProps {
   timeIndex: number;
   /** 宽度（CSS 字符串） */
   width: string;
-  /** 总高度（CSS 类名，如 'h-5'），将平均分配给所有层 */
+  /** 基准总高度（CSS 类名，如 'h-5'），平均分配给所有层；层数多到每层过薄时自动撑高 */
   height?: string;
   /** 悬停回调 */
   onHover: (e: React.MouseEvent<HTMLDivElement>, point: HeatmapPoint) => void;
@@ -105,7 +106,7 @@ const defaultStatusCounts: HeatmapPoint['statusCounts'] = {
  *
  * 垂直堆叠显示多个 layer 的同一时间点数据
  * - 每层占一个子块，父层在上，子层在下
- * - 总高度固定，N 层时每层高度 = 总高度 / N
+ * - 总高度取基准高度，N 层时每层均分；层数多到每层低于最小层高时整体撑高（见 layeredHeatmapHeightPx）
  * - 悬停某层时，Tooltip 显示该层的数据
  * - 当某层缺少该时间点数据时，显示灰色（无数据）
  */
@@ -166,8 +167,8 @@ export const LayeredHeatmapBlock = memo(function LayeredHeatmapBlock({
     'h-8': 32,
     'h-10': 40,
   };
-  const totalHeightPx = heightMap[height] || 20;
-  const gapPx = 2; // 层间间隙 2px
+  const totalHeightPx = layeredHeatmapHeightPx(sortedLayers.length, heightMap[height] || 20);
+  const gapPx = LAYER_GAP_PX;
   const totalGapPx = (sortedLayers.length - 1) * gapPx;
   const layerHeightPx = (totalHeightPx - totalGapPx) / sortedLayers.length;
 
