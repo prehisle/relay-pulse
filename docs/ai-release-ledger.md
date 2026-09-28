@@ -24,7 +24,13 @@
 
   **两次返工**：v2.96.1 部署前只读核 prod compose，发现 `./archive:/app/archive` 绑定挂载（root 755、归档 `enabled: true`），入口脚本原只修两个目录 → 补 `58efd1a`；该提交 CI 的 `-race` 撞出既有 `TestUpdateConfig` 读堆计数的竞态（派发不再阻塞后更易撞上）→ `59bc56f` 改为等计数稳定，-race 连跑 30 次绿。
 
-  **prod 实证**：主进程用户 `relaypulse`；运行用户写 `/config`、`monitors.d`、`/app/archive` 均成功，删 `/usr/local/bin/monitor` 被拒；宿主 `config/`、`archive/` 属主变为 uid 10001（宿主 root 照常读写）。admin 正确 token 连打 3 次全 200、错误 token 403；公开 `/api/status` 200。部署后 12 分钟内 107 个活跃序列全部落库（部署前 1 小时同为 107），「跳过本轮」0 次、无保存失败。**残**：v2.96.0+批次 A 合并做同时段绿率/延迟对比（部署前取 09-23 01:39 CST 之前，排除 saiai/cc/o-max 的 Opus 行），至少等满一天。
+  **prod 实证**：主进程用户 `relaypulse`；运行用户写 `/config`、`monitors.d`、`/app/archive` 均成功，删 `/usr/local/bin/monitor` 被拒；宿主 `config/`、`archive/` 属主变为 uid 10001（宿主 root 照常读写）。admin 正确 token 连打 3 次全 200、错误 token 403；公开 `/api/status` 200。部署后 12 分钟内 107 个活跃序列全部落库（部署前 1 小时同为 107），「跳过本轮」0 次、无保存失败。
+
+  **✅ 同时段验收（2026-09-28 做，v2.96.0 与批次 A 合并比，判据「不变差」满足，收口）**：全走公开 `/api/status?period=30d&board=all&time_filter=…`，两条 UTC 带 A `07:00-23:30` / B `00:00-06:30`。30d 日桶按 **UTC 零点**切（`query.go` 按天对齐），两次部署（UTC 09-22 17:39 / 18:12）都落在 09-22 的 A 带，该格整格剔除；pre＝A 09-15..21、B 09-16..22，post＝09-23..27；只比两窗逐日都有探测的同一批层，排除 saiai/cc/o-max 的 `Opus` 行。
+  - cc（38 层）绿率 A 77.66→79.28%、B 78.35→80.80%，红率略降，逐层日均延迟的中位数 2371→2271 / 2293→2255ms；cx 其余模板（5 层）与 gm（4 层）的 A 带同样不变差。
+  - **探测次数没掉**：每层每日 216.7→218.1（cc，A 带），在途去重的「跳过本轮」没有吃掉周期。窗口内停测的只有 2 条冷板层（claudezz/cx/o-web、suguangapi/cx/m-mix-main），最后一次探测在 UTC 09-22 00:03、早于部署 17 小时，`cold_reason` 是自动移冷板，与调度器无关。
+  - 只拿部署前最后两天比，cc 有 6 层大跌，逐层钉了起点：FastCode、shi-guang 的 `auth_error` 始于部署前；codexauv（`content_mismatch`）、ClaudeCN（`server_error`）部署后还正常跑了 12 小时以上；LingxiCode 的 `auth_error` 始于 09-24。全是中转商侧，没有一条与部署时刻重合。gm 的 B 带 09-23 红率 29.6% 是 ICodeEasy / LinkAPI 两家 `network_error`，09-21 起、09-24 自愈。
+  - ⚠️ cx-gpt 订阅态族（45 层）同日还吃了 v2.97.0 的客户端版本改动，**不计入本判据**；仅供参考，该族前后绿率 64.5→69.4% / 61.1→68.4%，延迟持平。
 
 - **最后同步**: 2026-09-23（HEAD=`b82e2e4`，已发版 **v2.96.0** + **监测服务器已部署**[prod git_commit=`b82e2e4`、go1.27.1、health=200、`/ready` 逐字 `{"status":"ok"}`、`配置加载完成 monitors=323`、`探测模板已刷新 variants=41→42`、`defaults` 未变、无 panic/ERROR；回滚锚 `rollback-20260923-opus55-pre`=`f760adf`/v2.95.0；无 schema、无迁移]）。**新增 Claude Opus 5.5 ping 探针，并把 saiai/cc/o-max 的 Opus 行就地换成 opus-5.5；同批带上审计 #6（`bb7e248`，响应体/解压 10MB 上限）。**
 
@@ -32,7 +38,7 @@
 
   **就地替换、零迁移**：先按新子行 `Opus 5.5` 上线（调度器真探测绿 3788ms），站长随即要求替换 opus-5 并保历史——父行改 `template: cc-opus55-ping-20260923` + **显式 `model: Opus`**（父行原本没写 `model`、展示名来自旧模板，不写就会跟新模板变成 `Opus 5.5` 断键），删掉试点子行。结果 `model_id`（`md_a2057dfe…`）不变、`probe_history` 的 `Opus` 序列 13178→13179 续写、`/api/status` 该层 `request_model=claude-opus-5-5`，热更新 `replanned_groups=1`。试点子行在库里留 1 条孤儿记录（`model=Opus 5.5`），随 retention 自然清掉。⚠️ `Opus` 序列自 2026-09-23 01:44 CST 起是 opus-5.5 的数据，前面是 opus-5，面板上看不出分界。
 
-  **验证**：推前在只含 HEAD 的干净 worktree 跑 gofmt/vet/全量 `go test`（工作区当时有另一会话的批次 A 改动，不能直接在工作区测）；前端无改动未跑。**残**：审计 #6 的同时段绿率/延迟前后对比待做（2026-09-24 同时段对照 09-22），结果写进 meta 仓 `docs/audit-2026-09-22.md` 的「六、状态」。
+  **验证**：推前在只含 HEAD 的干净 worktree 跑 gofmt/vet/全量 `go test`（工作区当时有另一会话的批次 A 改动，不能直接在工作区测）；前端无改动未跑。审计 #6 的同时段对比已并入上一条 v2.96.2 的合并验收（2026-09-28，不变差）。
 
 - **最后同步**: 2026-09-21（HEAD=`f760adf`，已发版 **v2.95.0** + **监测服务器已部署**[prod git_commit=`f760adf`、go1.27.1、health=200、`/ready` 逐字 `{"status":"ok"}`（无 `config_reload`）、`配置加载完成 monitors=322`、`调度器已启动 monitors=322`、`探测模板已刷新 variants=41`（未变）、`defaults` 未变、无 panic/ERROR；回滚锚 `rollback-20260921-session-pre`=`ff33b16`/v2.94.0（**同日第二次部署，故带简称后缀**）；无 schema、无迁移]）。**cx-gpt 会话级标识改为按监测行 + 1 小时窗口派生。**
 
