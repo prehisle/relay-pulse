@@ -401,10 +401,11 @@ type rankingRow struct {
 	DetailURL           string     `json:"detail_url"`
 	FinalQualityScore   *float64   `json:"final_quality_score"`
 	ScoreTrend          ScoreTrend `json:"score_trend"`
-	// HardFailActive is rpdiag's current-availability gate: the newest ≥3
-	// consecutive terminal attempts were hard-fails (FAILED with no
-	// fingerprint score) and the latest fail is within rpdiag's 7-day stale
-	// window. rpdiag forces its own `final_quality_score` to 0 under the same
+	// HardFailActive is rpdiag's current-availability gate (export v5.13): the
+	// newest two conclusive outcomes were hard-fails (FAILED with no
+	// fingerprint score; a scored outcome ends the run, an unscored DONE step
+	// is skipped) and the latest fail is within rpdiag's 7-day stale window.
+	// rpdiag forces its own `final_quality_score` to 0 under the same
 	// condition; we mirror that as a representative score of 0.
 	HardFailActive      bool   `json:"hard_fail_active"`
 	AvailabilityWarning string `json:"availability_warning"`
