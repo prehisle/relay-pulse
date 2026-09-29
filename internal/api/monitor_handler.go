@@ -172,24 +172,63 @@ func (h *Handler) AdminListMonitors(c *gin.Context) {
 	})
 }
 
-// normalizeMonitorSearchText 统一大小写并去掉常见分隔符，让 "omax"、"O-Max"、"o_max"
-// 彼此命中——通道名/模型名里的连字符、斜杠、点号写法各家不一，管理员记不住原样。
-func normalizeMonitorSearchText(s string) string {
+// isMonitorSearchSeparator 列出通道名/模型名/域名里常见的分隔符。各家写法不一
+// （O-Max / o_max / gpt-5.6 / O-Team/Plus），搜索时把它们视为同一种。
+func isMonitorSearchSeparator(r rune) bool {
+	switch r {
+	case '-', '_', '/', '.', ':':
+		return true
+	}
+	return unicode.IsSpace(r)
+}
+
+// canonicalMonitorSearchText 小写化，并把每段连续分隔符折叠成一个 '-'。
+func canonicalMonitorSearchText(s string) string {
+	var b strings.Builder
+	inSep := false
+	for _, r := range s {
+		if isMonitorSearchSeparator(r) {
+			if !inSep {
+				b.WriteByte('-')
+			}
+			inSep = true
+			continue
+		}
+		inSep = false
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
+}
+
+// compactMonitorSearchText 小写化并去掉全部分隔符。
+func compactMonitorSearchText(s string) string {
 	return strings.Map(func(r rune) rune {
-		switch r {
-		case '-', '_', '/', '.', ':', ' ', '\t':
+		if isMonitorSearchSeparator(r) {
 			return -1
 		}
 		return unicode.ToLower(r)
 	}, s)
 }
 
-// monitorQueryTokens 把搜索框输入按空白拆成若干词并归一化；全是分隔符的词丢弃。
-func monitorQueryTokens(q string) []string {
-	var tokens []string
+// monitorSearchToken 是搜索框里的一个词。输入里带分隔符的词按分隔符位置比对
+// （"0-0" 不该命中 "100x"）；不带的词忽略字段里的分隔符（"omax" 命中 "O-Max"）。
+type monitorSearchToken struct {
+	text   string
+	hasSep bool
+}
+
+// monitorQueryTokens 把搜索框输入按空白拆词；全是分隔符的词丢弃。
+func monitorQueryTokens(q string) []monitorSearchToken {
+	var tokens []monitorSearchToken
 	for _, word := range strings.Fields(q) {
-		if tok := normalizeMonitorSearchText(word); tok != "" {
-			tokens = append(tokens, tok)
+		if compactMonitorSearchText(word) == "" {
+			continue
+		}
+		canonical := canonicalMonitorSearchText(word)
+		if strings.Contains(canonical, "-") {
+			tokens = append(tokens, monitorSearchToken{text: canonical, hasSep: true})
+		} else {
+			tokens = append(tokens, monitorSearchToken{text: canonical})
 		}
 	}
 	return tokens
@@ -197,20 +236,24 @@ func monitorQueryTokens(q string) []string {
 
 // monitorMatchesQuery 要求每个词都在某个字段里出现（词序不限）。按字段逐个比对而不是
 // 拼成一整串，避免一个词跨两个字段的边界凑出假命中。
-func monitorMatchesQuery(fields []string, tokens []string) bool {
+func monitorMatchesQuery(fields []string, tokens []monitorSearchToken) bool {
 	if len(tokens) == 0 {
 		return true
 	}
-	normalized := make([]string, 0, len(fields))
-	for _, f := range fields {
-		if n := normalizeMonitorSearchText(f); n != "" {
-			normalized = append(normalized, n)
-		}
+	canonical := make([]string, len(fields))
+	compact := make([]string, len(fields))
+	for i, f := range fields {
+		canonical[i] = canonicalMonitorSearchText(f)
+		compact[i] = compactMonitorSearchText(f)
 	}
 	for _, tok := range tokens {
+		haystacks := compact
+		if tok.hasSep {
+			haystacks = canonical
+		}
 		found := false
-		for _, f := range normalized {
-			if strings.Contains(f, tok) {
+		for _, h := range haystacks {
+			if strings.Contains(h, tok.text) {
 				found = true
 				break
 			}

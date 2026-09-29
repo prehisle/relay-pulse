@@ -186,6 +186,7 @@ func TestAdminListMonitorsSearch(t *testing.T) {
 		{"provider":"0-0","service":"cx","channel":"o-api","parent":"0-0/cx/o-api","model":"gpt-5.6-sol"}]}`)
 	create(`{"monitors":[{"provider":"0-0","service":"cc","channel":"o-max-main","channel_name":"O-Max","model":"Opus","template":"cc-tiny","base_url":"https://cc.zero.example"}]}`)
 	create(`{"monitors":[{"provider":"acme","service":"cc","channel":"vip","model":"Opus","template":"cc-tiny","base_url":"https://acme.example"}]}`)
+	create(`{"monitors":[{"provider":"100x","service":"cx","channel":"o-pro","channel_name":"O-Puls/Pro","model":"GPT","template":"cx-tiny","base_url":"https://api.100x.example"}]}`)
 
 	list := func(q string) []string {
 		t.Helper()
@@ -214,25 +215,31 @@ func TestAdminListMonitorsSearch(t *testing.T) {
 		zeroCX = "0-0--cx--o-api"
 		zeroCC = "0-0--cc--o-max-main"
 		acme   = "acme--cc--vip"
+		x100   = "100x--cx--o-pro"
 	)
 	cases := []struct {
 		q    string
 		want []string
 	}{
-		{"", []string{zeroCC, zeroCX, acme}},
-		{"team", []string{zeroCX}},        // 只在 channel_name 里
-		{"o-max 0-0", []string{zeroCC}},   // 多词、顺序与存储相反
-		{"omax", []string{zeroCC}},        // 忽略分隔符
-		{"O_TEAM/plus", []string{zeroCX}}, // 大小写 + 分隔符混写
-		{"gpt5.6", []string{zeroCX}},      // 子通道模型名
-		{"acme.example", []string{acme}},  // base_url
+		{"", []string{zeroCX, x100, zeroCC, acme}},
+		{"team", []string{zeroCX}},             // 只在 channel_name 里
+		{"o-max 0-0", []string{zeroCC}},        // 多词、顺序与存储相反
+		{"omax", []string{zeroCC}},             // 词里没分隔符：忽略字段里的分隔符
+		{"O_TEAM/plus", []string{zeroCX}},      // 大小写不敏感，分隔符种类互通
+		{"0-0", []string{zeroCX, zeroCC}},      // 词里有分隔符：按位置比对，不命中 100x
+		{"00", []string{zeroCX, x100, zeroCC}}, // 没分隔符的 00 照旧宽匹配
+		{"5.6", []string{zeroCX}},              // 子通道模型名 gpt-5.6-sol
+		{"gpt56", []string{zeroCX}},
+		{"gpt5.6", []string{}},           // 分隔符位置对不上（取舍：宁可少配也不串）
+		{"acme.example", []string{acme}}, // base_url
 		{"opus", []string{zeroCC, acme}},
-		{"0-0 acme", []string{}},                  // 多词须全部命中
-		{"0cx", []string{}},                       // 不得跨字段边界拼出命中
-		{" - / ", []string{zeroCC, zeroCX, acme}}, // 全分隔符的输入等于没输
+		{"0-0 acme", []string{}},                        // 多词须全部命中
+		{"0cx", []string{}},                             // 不得跨字段边界拼出命中
+		{" - / ", []string{zeroCX, x100, zeroCC, acme}}, // 全分隔符的输入等于没输
 	}
 	for _, tc := range cases {
 		got := list(tc.q)
+		sort.Strings(tc.want)
 		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
 			t.Errorf("q=%q: got %v, want %v", tc.q, got, tc.want)
 		}
