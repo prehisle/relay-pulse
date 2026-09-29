@@ -134,6 +134,10 @@ func (h *Handler) AdminListMonitors(c *gin.Context) {
 	board := strings.TrimSpace(c.Query("board"))
 	status := strings.TrimSpace(c.Query("status"))
 	queryTokens := monitorQueryTokens(c.Query("q"))
+	var resolvedModels map[string][]string
+	if len(queryTokens) > 0 {
+		resolvedModels = h.resolvedModelNamesByPSC()
+	}
 
 	var filtered []config.MonitorSummary
 	for _, s := range summaries {
@@ -155,7 +159,11 @@ func (h *Handler) AdminListMonitors(c *gin.Context) {
 		if status == "active" && (s.Disabled || s.Hidden) {
 			continue
 		}
-		if !monitorMatchesQuery(s.SearchFields, queryTokens) {
+		fields := s.SearchFields
+		if extra := resolvedModels[monitorPSCKey(s.Provider, s.Service, s.Channel)]; len(extra) > 0 {
+			fields = append(append([]string(nil), fields...), extra...)
+		}
+		if !monitorMatchesQuery(fields, queryTokens) {
 			continue
 		}
 		filtered = append(filtered, s)
@@ -170,6 +178,27 @@ func (h *Handler) AdminListMonitors(c *gin.Context) {
 		"monitors": filtered,
 		"total":    len(filtered),
 	})
+}
+
+// monitorPSCKey 拼出 provider/service/channel 的查找键。
+func monitorPSCKey(provider, service, channel string) string {
+	return provider + "\x00" + service + "\x00" + channel
+}
+
+// resolvedModelNamesByPSC 从运行时配置（已套用模板）收集每个通道各层的模型名。
+// 模板驱动的行在 monitors.d 里 model 留空、名字写在模板里，只读文件会搜不到。
+// 运行时配置不可用时返回 nil，搜索退化为只匹配文件里的字段。
+func (h *Handler) resolvedModelNamesByPSC() map[string][]string {
+	appCfg := h.snapshotAppConfig()
+	if appCfg == nil {
+		return nil
+	}
+	models := make(map[string][]string)
+	for _, m := range appCfg.Monitors {
+		key := monitorPSCKey(m.Provider, m.Service, m.Channel)
+		models[key] = append(models[key], m.Model, m.RequestModel)
+	}
+	return models
 }
 
 // isMonitorSearchSeparator 列出通道名/模型名/域名里常见的分隔符。各家写法不一

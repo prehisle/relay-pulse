@@ -254,3 +254,49 @@ func TestAdminListMonitorsSearch(t *testing.T) {
 		t.Errorf("list response leaks search fields: %s", w.Body.String())
 	}
 }
+
+// TestAdminListMonitorsSearchTemplateModel 锁定：模型名由模板提供、monitors.d 里 model 留空的
+// 通道（生产上的大多数），也要能按模型名搜到——名字取自运行时配置（已套用模板）。
+func TestAdminListMonitorsSearchTemplateModel(t *testing.T) {
+	configDir := t.TempDir()
+	monitorsDir := filepath.Join(configDir, config.MonitorsDirName)
+	if err := os.MkdirAll(monitorsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{
+		config:       &config.AppConfig{Onboarding: config.OnboardingConfig{AdminToken: "test-token"}},
+		monitorStore: config.NewMonitorStore(monitorsDir),
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/admin/monitors", h.AdminListMonitors)
+	r.POST("/api/admin/monitors", h.AdminCreateMonitor)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/api/admin/monitors", strings.NewReader(
+		`{"monitors":[{"provider":"acme","service":"cx","channel":"vip","template":"cx-tiny","base_url":"https://acme.example"}]}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", w.Code, w.Body.String())
+	}
+	// 模拟热更新后的运行时配置：模板已套用，行上有模型名（创建前放进去会被判 PSC 已存在）。
+	h.config.Monitors = []config.ServiceConfig{{Provider: "acme", Service: "cx", Channel: "vip", Model: "GPT-5.6"}}
+
+	for q, want := range map[string]int{"gpt-5.6": 1, "5.6": 1, "gpt56": 1, "gpt-5.5": 0} {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodGet, "/api/admin/monitors?q="+url.QueryEscape(q), nil)
+		req.Header.Set("Authorization", "Bearer test-token")
+		r.ServeHTTP(w, req)
+		var resp struct {
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("q=%q: unmarshal list resp: %v (body %s)", q, err, w.Body.String())
+		}
+		if resp.Total != want {
+			t.Errorf("q=%q: total = %d, want %d", q, resp.Total, want)
+		}
+	}
+}

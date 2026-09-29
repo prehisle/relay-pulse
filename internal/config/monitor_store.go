@@ -98,7 +98,8 @@ type MonitorSummary struct {
 	LatestProbe *LatestProbeSnapshot `json:"latest_probe,omitempty"`
 
 	// SearchFields 是管理后台列表搜索的匹配语料：标识与显示名、模板、base_url，
-	// 以及文件内所有层的 model / request_model。只供服务端过滤，不下发。
+	// 以及文件内所有层的 model / request_model（模板提供的模型名由 api 层从运行时配置补）。
+	// 只供服务端过滤，不下发。
 	SearchFields []string `json:"-"`
 }
 
