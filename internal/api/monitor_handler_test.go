@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -29,6 +31,7 @@ func newAdminMonitorTestHandler(t *testing.T) *gin.Engine {
 	}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.GET("/api/admin/monitors", h.AdminListMonitors)
 	r.POST("/api/admin/monitors", h.AdminCreateMonitor)
 	r.GET("/api/admin/monitors/:key", h.AdminGetMonitor)
 	r.PUT("/api/admin/monitors/:key", h.AdminUpdateMonitor)
@@ -158,5 +161,89 @@ func TestAdminMonitorDuplicateModelIDMapsTo400(t *testing.T) {
 				t.Errorf("响应应含重复的 model_id 以便定位，got %s", w.Body.String())
 			}
 		})
+	}
+}
+
+// TestAdminListMonitorsSearch 锁定列表搜索口径：表格「通道」列展示的是 channel_name，
+// 搜索必须能按它命中；多词不限顺序且须全部命中；分隔符/大小写不敏感；子通道的模型名
+// 与 base_url 也可搜。
+func TestAdminListMonitorsSearch(t *testing.T) {
+	r := newAdminMonitorTestHandler(t)
+
+	create := func(body string) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/api/admin/monitors", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer test-token")
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create status = %d, body = %s", w.Code, w.Body.String())
+		}
+	}
+	create(`{"monitors":[
+		{"provider":"0-0","service":"cx","channel":"o-api","channel_name":"O-Team/Plus","model":"GPT","template":"cx-tiny","base_url":"https://api.zero.example"},
+		{"provider":"0-0","service":"cx","channel":"o-api","parent":"0-0/cx/o-api","model":"gpt-5.6-sol"}]}`)
+	create(`{"monitors":[{"provider":"0-0","service":"cc","channel":"o-max-main","channel_name":"O-Max","model":"Opus","template":"cc-tiny","base_url":"https://cc.zero.example"}]}`)
+	create(`{"monitors":[{"provider":"acme","service":"cc","channel":"vip","model":"Opus","template":"cc-tiny","base_url":"https://acme.example"}]}`)
+
+	list := func(q string) []string {
+		t.Helper()
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodGet, "/api/admin/monitors?q="+url.QueryEscape(q), nil)
+		req.Header.Set("Authorization", "Bearer test-token")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("list status = %d, body = %s", w.Code, w.Body.String())
+		}
+		var resp struct {
+			Monitors []config.MonitorSummary `json:"monitors"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal list resp: %v", err)
+		}
+		keys := make([]string, 0, len(resp.Monitors))
+		for _, m := range resp.Monitors {
+			keys = append(keys, m.Key)
+		}
+		sort.Strings(keys)
+		return keys
+	}
+
+	const (
+		zeroCX = "0-0--cx--o-api"
+		zeroCC = "0-0--cc--o-max-main"
+		acme   = "acme--cc--vip"
+	)
+	cases := []struct {
+		q    string
+		want []string
+	}{
+		{"", []string{zeroCC, zeroCX, acme}},
+		{"team", []string{zeroCX}},        // 只在 channel_name 里
+		{"o-max 0-0", []string{zeroCC}},   // 多词、顺序与存储相反
+		{"omax", []string{zeroCC}},        // 忽略分隔符
+		{"O_TEAM/plus", []string{zeroCX}}, // 大小写 + 分隔符混写
+		{"gpt5.6", []string{zeroCX}},      // 子通道模型名
+		{"acme.example", []string{acme}},  // base_url
+		{"opus", []string{zeroCC, acme}},
+		{"0-0 acme", []string{}},                  // 多词须全部命中
+		{"0cx", []string{}},                       // 不得跨字段边界拼出命中
+		{" - / ", []string{zeroCC, zeroCX, acme}}, // 全分隔符的输入等于没输
+	}
+	for _, tc := range cases {
+		got := list(tc.q)
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf("q=%q: got %v, want %v", tc.q, got, tc.want)
+		}
+	}
+
+	// 搜索语料只在服务端用，不得下发
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/api/admin/monitors", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	r.ServeHTTP(w, req)
+	if strings.Contains(strings.ToLower(w.Body.String()), "search") {
+		t.Errorf("list response leaks search fields: %s", w.Body.String())
 	}
 }

@@ -700,7 +700,7 @@
       "confirmArchive": "确认归档？",
       "confirmYes": "确认",
       "create": "新建通道",
-      "searchPlaceholder": "搜索 provider / service / channel...",
+      "searchPlaceholder": "搜索服务商 / 通道 / 模型 / 域名，空格分隔多个词...",
       "allBoards": "全部板块",
       "allStatus": "全部状态",
       "statusActive": "活跃",

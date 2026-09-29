@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 
@@ -132,7 +133,7 @@ func (h *Handler) AdminListMonitors(c *gin.Context) {
 	// 过滤
 	board := strings.TrimSpace(c.Query("board"))
 	status := strings.TrimSpace(c.Query("status"))
-	query := strings.ToLower(strings.TrimSpace(c.Query("q")))
+	queryTokens := monitorQueryTokens(c.Query("q"))
 
 	var filtered []config.MonitorSummary
 	for _, s := range summaries {
@@ -154,11 +155,8 @@ func (h *Handler) AdminListMonitors(c *gin.Context) {
 		if status == "active" && (s.Disabled || s.Hidden) {
 			continue
 		}
-		if query != "" {
-			haystack := strings.ToLower(s.Provider + " " + s.Service + " " + s.Channel + " " + s.Template)
-			if !strings.Contains(haystack, query) {
-				continue
-			}
+		if !monitorMatchesQuery(s.SearchFields, queryTokens) {
+			continue
 		}
 		filtered = append(filtered, s)
 	}
@@ -172,6 +170,56 @@ func (h *Handler) AdminListMonitors(c *gin.Context) {
 		"monitors": filtered,
 		"total":    len(filtered),
 	})
+}
+
+// normalizeMonitorSearchText 统一大小写并去掉常见分隔符，让 "omax"、"O-Max"、"o_max"
+// 彼此命中——通道名/模型名里的连字符、斜杠、点号写法各家不一，管理员记不住原样。
+func normalizeMonitorSearchText(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '-', '_', '/', '.', ':', ' ', '\t':
+			return -1
+		}
+		return unicode.ToLower(r)
+	}, s)
+}
+
+// monitorQueryTokens 把搜索框输入按空白拆成若干词并归一化；全是分隔符的词丢弃。
+func monitorQueryTokens(q string) []string {
+	var tokens []string
+	for _, word := range strings.Fields(q) {
+		if tok := normalizeMonitorSearchText(word); tok != "" {
+			tokens = append(tokens, tok)
+		}
+	}
+	return tokens
+}
+
+// monitorMatchesQuery 要求每个词都在某个字段里出现（词序不限）。按字段逐个比对而不是
+// 拼成一整串，避免一个词跨两个字段的边界凑出假命中。
+func monitorMatchesQuery(fields []string, tokens []string) bool {
+	if len(tokens) == 0 {
+		return true
+	}
+	normalized := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if n := normalizeMonitorSearchText(f); n != "" {
+			normalized = append(normalized, n)
+		}
+	}
+	for _, tok := range tokens {
+		found := false
+		for _, f := range normalized {
+			if strings.Contains(f, tok) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // injectLatestProbe 给一批 summary 填充 LatestProbe 字段。

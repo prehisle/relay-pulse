@@ -700,7 +700,7 @@
       "confirmArchive": "Confirm archive?",
       "confirmYes": "Confirm",
       "create": "New Monitor",
-      "searchPlaceholder": "Search provider / service / channel...",
+      "searchPlaceholder": "Search provider / channel / model / domain; separate words with spaces...",
       "allBoards": "All Boards",
       "allStatus": "All Status",
       "statusActive": "Active",

@@ -700,7 +700,7 @@
       "confirmArchive": "アーカイブしますか？",
       "confirmYes": "確認",
       "create": "新規モニター",
-      "searchPlaceholder": "プロバイダー / サービス / チャネルを検索...",
+      "searchPlaceholder": "プロバイダー / チャネル / モデル / ドメインで検索（スペース区切りで複数語）...",
       "allBoards": "すべてのボード",
       "allStatus": "すべてのステータス",
       "statusActive": "アクティブ",

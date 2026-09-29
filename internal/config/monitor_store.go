@@ -96,6 +96,10 @@ type MonitorSummary struct {
 	// 由 api 层在 List 之后注入；store.List 本身不填充（store 层不依赖 storage / runtime config）。
 	// nil 表示没有任何探测记录（新创建或刚归档的通道）。
 	LatestProbe *LatestProbeSnapshot `json:"latest_probe,omitempty"`
+
+	// SearchFields 是管理后台列表搜索的匹配语料：标识与显示名、模板、base_url，
+	// 以及文件内所有层的 model / request_model。只供服务端过滤，不下发。
+	SearchFields []string `json:"-"`
 }
 
 // LatestProbeSnapshot 列表页"列表活化"用的最新探测快照。
@@ -157,9 +161,28 @@ func (s *MonitorStore) List() ([]MonitorSummary, error) {
 			Source:      f.Metadata.Source,
 			Revision:    f.Metadata.Revision,
 			UpdatedAt:   f.Metadata.UpdatedAt,
+
+			SearchFields: monitorSearchFields(f, root),
 		})
 	}
 	return summaries, nil
+}
+
+// monitorSearchFields 收集一个监测文件可被搜索命中的字段。列表只展示父通道，
+// 但管理员常按子通道的模型名或 base_url 找通道，所以各层都要收进来。
+func monitorSearchFields(f MonitorFile, root ServiceConfig) []string {
+	// 不收 key（provider--service--channel 拼接，归一化后会跨字段凑出假命中）和
+	// channel_id（随机 uuid，短词会随机撞上）。
+	fields := []string{
+		root.Provider, root.ProviderName,
+		root.Service, root.ServiceName,
+		root.Channel, root.ChannelName,
+		root.Template,
+	}
+	for _, m := range f.Monitors {
+		fields = append(fields, m.Model, m.RequestModel, m.BaseURL)
+	}
+	return fields
 }
 
 // Get 读取指定 key 的监测文件。key 格式: provider--service--channel
