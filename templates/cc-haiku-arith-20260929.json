@@ -1,0 +1,38 @@
+{
+	"self_serve_visible": false,
+	"_comment": "Claude Haiku 4.5 算术探针，给按题面拒绝 relay-pulse 探针的中转商专用（首个是 ClaudeCN/cc/O-Web-Max）。**为什么有这个文件**：ClaudeCN 自 2026-09-24 起对本站探针恒回 503 no_available_providers，同一把 key 的真 claude -p 照常 200。2026-09-29 拿真 CLI 请求逐项 bisect：只换用户消息文字就能在 200/503 间翻转——恰为 ping（不分大小写）、cc-haiku-titlegen 的标题生成组合（规则段 + <session> 同时出现）、prompt.go 变体池的完整句式（换数字/数词仍拒）都被拒，措辞稍改（删 \", no spaces\"、去反引号、RP_ANSWER 改 ANSWER）即放行。表现为对本站已公开探针题面的模式拒绝，现有 cc-haiku-* 模板在该站全红。**所以本模板用 {{ARITH_A}}/{{ARITH_B}} 自带题面、不用 {{PROMPT}}**：仍是每次随机两位数加法、仍按 {{EXPECTED_ANSWER}}（RP_ANSWER=<和>）判定；题面里 RP_ANSWER= 后紧跟反引号，预期答案不是题面子串（8100 对操作数穷举过），纯回显 mock 骗不过；代价是只有一种句式，失去变体池的反正则作用。本仓公开，对方可照这句再拒，届时只换这里的措辞；别为此改 prompt.go，那会动所有使用 {{PROMPT}} 的 arith 模板。⚠️ 排障：调度器「探测完成」日志里的 prompt 字段记的是 GenerateArithmeticPrompt 生成的内置题面，不是本模板实际发出的文字。**形态**＝claude-cli 2.1.280 打第三方端点的真抓包（ANTHROPIC_BASE_URL 指本地 echo server；与 mitm 拦官方端点的形态不同：没有 x-client-request-id / x-claude-code-request-class，beta 更短，billing 行不带 cch）。**两处看着可删、在 ClaudeCN 实测承重**（2026-09-29，随机顺序每格 3-4 次）：① system[0] 的 billing 行——删掉后延迟升到 9-30s 或返回 503；② user 消息里的 <system-reminder> 块——一块都不留则恒 400「Upstream request error」，任留一块即 200、2-3s。billing 行的 cc_version 后缀 .0b6 按抓包 prompt 算出，没有随动态题面重算，不保证匹配；本轮在 ClaudeCN 测过的后缀/entrypoint 变体都没被拒，但它要求 UA 版本与 cc_version 一致（错开即 503），升 CLI 版本两处一起改。saiai 这类校验 billing/cch 的网关实测 400 拒本模板，别挂到那类通道。body 相对抓包的有意改动：① 只留环境块与模型声明块两块 reminder，删 <total_tokens> 与日期块（冻结即永久漂移）；环境块里的 cwd/OS/shell 是合成常量，不反映探测宿主机；② 删 thinking 与 context_management，max_tokens 32000→64：haiku 4.5 默认不思考，答案只需几个 token；ClaudeCN 按 max_tokens 预扣费，32000 在低余额 key 上会 403「预扣费额度失败」；③ system 末段换成中性指令。**只适用 haiku 4.5，别在监测行覆盖 request_model**：模型声明块照抄真 CLI 的「Haiku 4.5 … knowledge cutoff」文字，只有模型 ID 走 {{MODEL}}；换成别的模型会自相矛盾，另做模板。**session_id 用 {{RAND_UUID}}（v4）而非 {{SESSION_UUID_V7}} 是有意的**：仓库 v7 约定来自 codex CLI，而 claude-cli 2.1.280 四份独立 claude -p 抓包的 session_id 版本位全是 4、每次调用新开会话。X-Claude-Code-Session-Id 头与 metadata.session_id 同值（同次注入同名占位符取同一值）。第三方形态不发 x-client-request-id，故不补。model 取 \"Haiku\"：与 cc-haiku-titlegen 同名，通道换模板后序列不断（model_id 不变）。self_serve_visible=false 只是不进自助收录下拉，管理员仍能选；使用约定是只挂到已实测需要它的通道。",
+	"model": "Haiku",
+	"request_model": "claude-haiku-4-5-20251001",
+	"model_vendor": "anthropic",
+	"url": "{{BASE_URL}}/v1/messages?beta=true",
+	"method": "POST",
+	"headers": {
+		"Authorization": "Bearer {{API_KEY}}",
+		"Accept": "application/json",
+		"Content-Type": "application/json",
+		"User-Agent": "claude-cli/2.1.280 (external, sdk-cli)",
+		"X-Claude-Code-Session-Id": "{{RAND_UUID}}",
+		"X-Stainless-Arch": "x64",
+		"X-Stainless-Lang": "js",
+		"X-Stainless-OS": "Linux",
+		"X-Stainless-Package-Version": "0.112.1",
+		"X-Stainless-Retry-Count": "0",
+		"X-Stainless-Runtime": "node",
+		"X-Stainless-Runtime-Version": "v26.3.0",
+		"X-Stainless-Timeout": "600",
+		"anthropic-beta": "interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,claude-code-20250219,extended-cache-ttl-2025-04-11",
+		"anthropic-dangerous-direct-browser-access": "true",
+		"anthropic-version": "2023-06-01",
+		"x-app": "cli",
+		"Accept-Encoding": "gzip, deflate, br, zstd"
+	},
+	"body": {"model":"{{MODEL}}","messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\n# Environment\nYou have been invoked in the following environment: \n - Primary working directory: /home/dev/project\n - Is a git repository: false\n - Platform: linux\n - Shell: bash\n - OS Version: Linux 7.0.0-31-generic\n</system-reminder>"},{"type":"text","text":"<system-reminder>\nYou are powered by the model named Haiku 4.5. The exact model ID is {{MODEL}}. Assistant knowledge cutoff is February 2025.\n</system-reminder>"},{"type":"text","text":"What is {{ARITH_A}} plus {{ARITH_B}}? Answer with `RP_ANSWER=` directly followed by the sum as digits.","cache_control":{"type":"ephemeral","ttl":"1h"}}]}],"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.280.0b6; cc_entrypoint=sdk-cli;"},{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK.","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"Answer the question exactly as instructed.","cache_control":{"type":"ephemeral","ttl":"1h"}}],"tools":[],"metadata":{"user_id":"{\"device_id\":\"{{USER_ID_HASH}}\",\"account_uuid\":\"\",\"session_id\":\"{{RAND_UUID}}\"}"},"max_tokens":64,"stream":true},
+	"response": {
+		"success_contains": "{{EXPECTED_ANSWER}}"
+	},
+	"probe": {
+		"slow_latency": "5s",
+		"timeout": "10s",
+		"retry": 0
+	}
+}
