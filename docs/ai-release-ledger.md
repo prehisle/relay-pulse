@@ -6,6 +6,10 @@
 
 ## 检查点（最新在最上）
 
+- **2026-09-29 v2.99.0**（`ba77004`，监测服务器 18:01 CST 重建；prod git_commit=`ba77004`、health=200、`配置加载完成 monitors=325`、`variants=45`；回滚锚点 `rollback-20260929-search-pre`→`275bd60`）。只含管理后台通道管理搜索改动，无 schema、无模板变更。
+
+  **搜索口径**：按空白拆词、每词须在某一字段内命中（不限顺序），大小写与 `- _ / . :` 不敏感；字段加入 provider_name / service_name / channel_name、各层 model / request_model、base_url。不收 key（拼接后跨字段假命中）与 channel_id（随机 uuid 被短词撞上）。**prod 实证**（287 条）：`team` 14、`plus` 31、`omax` 39、`o-max 0-0` 1、`cx 0-0` 与 `0-0 cx` 同为 2，响应不含搜索语料字段。**已知残留**：去分隔符让 `0-0` 变 `00`，会连带命中 `100x`（多出的行、不漏行）。
+
 - **2026-09-29 v2.98.0**（`275bd60`，监测服务器 16:41 CST 重建；prod git_commit=`275bd60`、health=200、`配置加载完成 monitors=325`、`variants=45`、cc 默认模板仍是 `cc-haiku-arith`；回滚锚点 `rollback-20260929-haikuarith-pre`→`eef601c`）。随车带上 prod 落后的 3 个 commit（两个纯文档 + `internal/rpdiag/client.go` 纯注释）。
 
   **新增 `cc-haiku-arith-20260929`，只挂 ClaudeCN/cc/O-Web-Max**。该通道 09-24 起恒 `503 no_available_providers`，同 key 真 `claude -p` 照常 200。拿真 CLI 请求逐项 bisect：**只换用户消息文字就翻转**——恰为 `ping`、titlegen 标题生成组合、`prompt.go` 变体池完整句式都拒，措辞稍改即放行；即中转商按本站公开探针题面拒绝，**不是客户端指纹不全**，现有 cc-haiku-* 全红。新模板用 `{{ARITH_A}}/{{ARITH_B}}` 自带题面（仍是随机加法 + `RP_ANSWER` 判定），形态取 claude-cli 2.1.280 打第三方端点的真抓包；billing 行（不含 cch）与至少一块 `<system-reminder>` 在该站实测承重（随机顺序每格 3-4 次），理由写在模板 `_comment`。saiai 实测 400 拒它，别挂到校验 cch 的通道。文档同步：arith 族禁令收窄为「不能带含 cch 的 billing 行」；session 占位符规则注明来自 codex CLI（claude-cli 独立调用实测 v4）。
