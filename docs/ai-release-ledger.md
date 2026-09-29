@@ -6,9 +6,13 @@
 
 ## 检查点（最新在最上）
 
+- **2026-09-29 v2.99.1 + v2.99.2**（`2f9cc9b` / `4e9d9a7`，监测服务器 21:04 CST 重建到 v2.99.2；prod git_commit=`4e9d9a7`、health=200、`monitors=325`；回滚锚点 `rollback-20260929-searchsep-pre`→`ba77004`、`rollback-20260929-searchmodel-pre`→`2f9cc9b`）。修正 v2.99.0 后台搜索的两处问题。
+
+  **v2.99.1 分隔符**：词里带分隔符时各类分隔符视为同一种、按位置比对（`0-0` 不再命中 `100x`，`0-0 cx` 2→1）；不带分隔符的词仍忽略字段里的分隔符（`omax` 39 不变）。取舍：`gpt5.6` 这类位置对不上的写法不命中。**v2.99.2 模板模型名**：prod 多数通道 monitors.d 行不写 `model`、名字来自模板，v2.99.0 实际搜不到（`gpt56` 的 36 条是撞上模板名 `cx-gpt56-arith`，`gpt-5.6` 只有 1 条）；现从运行时配置（已套模板）补各层 model / request_model。**prod 实证**：`gpt-5.6` / `5.6` / `gpt56` 均 73、`opus` 40、`haiku` 105、`gpt5.6` 0；单测只写显式 `model` 看不出此漏洞，新测试 bite-test 过（关掉补名即红）。
+
 - **2026-09-29 v2.99.0**（`ba77004`，监测服务器 18:01 CST 重建；prod git_commit=`ba77004`、health=200、`配置加载完成 monitors=325`、`variants=45`；回滚锚点 `rollback-20260929-search-pre`→`275bd60`）。只含管理后台通道管理搜索改动，无 schema、无模板变更。
 
-  **搜索口径**：按空白拆词、每词须在某一字段内命中（不限顺序），大小写与 `- _ / . :` 不敏感；字段加入 provider_name / service_name / channel_name、各层 model / request_model、base_url。不收 key（拼接后跨字段假命中）与 channel_id（随机 uuid 被短词撞上）。**prod 实证**（287 条）：`team` 14、`plus` 31、`omax` 39、`o-max 0-0` 1、`cx 0-0` 与 `0-0 cx` 同为 2，响应不含搜索语料字段。**已知残留**：去分隔符让 `0-0` 变 `00`，会连带命中 `100x`（多出的行、不漏行）。
+  **搜索口径**：按空白拆词、每词须在某一字段内命中（不限顺序），大小写与 `- _ / . :` 不敏感；字段加入 provider_name / service_name / channel_name、各层 model / request_model、base_url。不收 key（拼接后跨字段假命中）与 channel_id（随机 uuid 被短词撞上）。**prod 实证**（287 条）：`team` 14、`plus` 31、`omax` 39、`o-max 0-0` 1、`cx 0-0` 与 `0-0 cx` 同为 2，响应不含搜索语料字段。分隔符与模板模型名两处问题见 v2.99.1 + v2.99.2。
 
 - **2026-09-29 v2.98.0**（`275bd60`，监测服务器 16:41 CST 重建；prod git_commit=`275bd60`、health=200、`配置加载完成 monitors=325`、`variants=45`、cc 默认模板仍是 `cc-haiku-arith`；回滚锚点 `rollback-20260929-haikuarith-pre`→`eef601c`）。随车带上 prod 落后的 3 个 commit（两个纯文档 + `internal/rpdiag/client.go` 纯注释）。
 
