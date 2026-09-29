@@ -6,6 +6,12 @@
 
 ## 检查点（最新在最上）
 
+- **2026-09-29 v2.98.0**（`275bd60`，监测服务器 16:41 CST 重建；prod git_commit=`275bd60`、health=200、`配置加载完成 monitors=325`、`variants=45`、cc 默认模板仍是 `cc-haiku-arith`；回滚锚点 `rollback-20260929-haikuarith-pre`→`eef601c`）。随车带上 prod 落后的 3 个 commit（两个纯文档 + `internal/rpdiag/client.go` 纯注释）。
+
+  **新增 `cc-haiku-arith-20260929`，只挂 ClaudeCN/cc/O-Web-Max**。该通道 09-24 起恒 `503 no_available_providers`，同 key 真 `claude -p` 照常 200。拿真 CLI 请求逐项 bisect：**只换用户消息文字就翻转**——恰为 `ping`、titlegen 标题生成组合、`prompt.go` 变体池完整句式都拒，措辞稍改即放行；即中转商按本站公开探针题面拒绝，**不是客户端指纹不全**，现有 cc-haiku-* 全红。新模板用 `{{ARITH_A}}/{{ARITH_B}}` 自带题面（仍是随机加法 + `RP_ANSWER` 判定），形态取 claude-cli 2.1.280 打第三方端点的真抓包；billing 行（不含 cch）与至少一块 `<system-reminder>` 在该站实测承重（随机顺序每格 3-4 次），理由写在模板 `_comment`。saiai 实测 400 拒它，别挂到校验 cch 的通道。文档同步：arith 族禁令收窄为「不能带含 cch 的 billing 行」；session 占位符规则注明来自 codex CLI（claude-cli 独立调用实测 v4）。
+
+  **切换**：monitors.d 只改 `template` 一行（`model` 留空跟随模板，新旧模板展示名都是 Haiku）+ revision 35→36。**踩坑**：按 rpmigrate 旧文档 `chown root:root` 复原，热更新当场 `permission denied`（保旧配置、不报警）；原属主是 `10001`，改回后 chown/touch 不触发 watcher，需原地重写文件一次才热更新成功（rpmigrate 文档已订正）。**prod 实证**：admin 探测 2/2 绿（2.1/2.3s，`RP_ANSWER` 正确）；调度器 16:44、16:49 两条 `probe_history` 均 status=1（2.3/2.8s），`model=Haiku`、`model_id` 与旧序列相同＝历史不断。**残**：该监测 key 余额约 $0.17（09-17/19/27 的 403「预扣费额度失败」即此），需站长充值；对方可按公开 repo 再拒这句题面，届时只改模板里那一句。
+
 - **最后同步**: 2026-09-23（HEAD=`eef601c`，已发版 **v2.97.0**（`6dbb431` 模板 + `eef601c` 前端）+ **监测服务器已部署**[10:33:40 CST 重建；prod git_commit=`eef601c`、go1.27.1、health=200、`/ready` `{"status":"ok"}`、`配置加载完成 monitors=323`、`探测模板已刷新 variants=44`（42→44）；回滚锚 `rollback-20260923-gpt6solluna-pre`=`59bc56f`/v2.96.2；无 schema、无迁移]）。
 
   **① gpt-6-sol / gpt-6-luna 探针**（`cx-gpt6sol-arith` / `cx-gpt6luna-arith`，订阅态族成员，只换模型串）。**上游按客户端版本放行新模型**：saiai 上 UA/`version`=0.154.0 时两模型 3/3 回 400 `not supported when using Codex with a ChatGPT account`，只改版本串到 0.155.1 → 3/3 绿（随机交错）。族内逐字节同形，故 **7 份一起升到 0.155.1**；升前用 codex-cli 0.155.1 + 官方模型目录离线重抓比对，除 lite 头（行为参数，按族规不跟）外身份字段无变化。依据与抓包配方写在 `cx-gpt-arith` 的 `_comment`。
