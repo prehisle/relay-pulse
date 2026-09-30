@@ -6,6 +6,16 @@
 
 ## 检查点（最新在最上）
 
+- **2026-09-30 v2.101.0**（`194ad2d`，监测服务器 10:10 CST 重建；prod git_commit=`194ad2d`、health=200、`配置加载完成 monitors=325`、`variants=47`；回滚锚点 `rollback-20260930-gpt61sol-pre`→`9fba1ad`；无 schema、无迁移）。只含模板与模板守卫。
+
+  **新模板 `cx-gpt61sol-arith`**（`gpt-6.1-sol`，展示名 `GPT-6.1-Sol`，订阅态族成员）。又撞客户端版本闸：同一把 saiai key，UA/`version` 报 0.155.1 或 0.157.1 时回 400 `not supported when using Codex with a ChatGPT account`，报 0.159.2 时 3/3 绿。**全族 8 份升到 0.159.2**。这次不只是改版本串：用 0.159.2 与 0.155.1 在同一抓包桩下对照重抓，`x-codex-turn-metadata` 多了 `turn_trigger`/`analytics_enabled`/`model`/`reasoning_effort` 四个字段，一并补上（`model` 用 `{{MODEL}}`，`reasoning_effort` 与 body 一致为 `low`）；请求头集合与 body 顶层不变。守卫补了四个新字段与头/body effort 一致性的标记（codex review 实测指出全族一起删新字段时原守卫仍绿）。
+
+  **上线前验证**：saiai 上全族 8 模型 16 次探测 15 绿（一次 gpt-6-sol 流中途卡住超时，补跑 3/3 绿）；本地副本 15 家 cx 中转新旧形态各 2 轮随机顺序对照，失败类别逐家一致。生产 78 个引用该族的文件零 body/headers 覆盖。
+
+  **挂载**：admin `PUT saiai--cx--o-web`（rev 56→57）追加一行子行、显式写 `model`；`热更新成功 monitors=326`、`replanned_groups=1`、新 `model_id`。admin probe 3/3 绿，从返回的 curl 抽出实发头确认版本 0.159.2、四个新字段在、`model=gpt-6.1-sol`。调度器 10:14:04 落库 status=1。
+
+  **部署后对照**（10:24–10:48 与昨天同时段，60 条 cx 序列配对）：绿率 68.8% vs 66.2%，变差 17 / 变好 20；`400` 0 vs 3、`403` 8 vs 8。今天新出现的 17 次 5xx 全部来自部署前（09:00 起）就恒红的 oukapi/m-plus、saiai/o-pro-bad，与 wanmoapi 的两次偶发 500，与新形态无关。
+
 - **2026-09-30 v2.100.0**（`9fba1ad`，监测服务器 08:54 CST 重建；prod git_commit=`9fba1ad`、health=200、`/ready` `{"status":"ok"}`、`配置加载完成 monitors=325`、`variants=46`；回滚锚点 `rollback-20260930-sonnet55-pre`→`4e9d9a7`；无 schema、无迁移）。只含一份新模板。
 
   **模板 `cc-sonnet55-ping-20260930`**：claude-cli 2.1.284 真抓包（2.1.280 二进制里没有 `claude-sonnet-5-5`，不能从 opus55 模板改名复制）。抓包用 rpexec 的干净 HOME，本机 `~/.claude` 是 auto 权限模式、会在 body 里附带本机权限规则的 `safeguards` 段。`claudebilling` 对 3 份原样抓包逐字复现 cch，2.1.284 档已校准。sonnet-5.5 不接受 `thinking.disabled`；上游建议的 `between_tools` 还要删 `context_management`，故保留 adaptive、`max_tokens` 1024（effort=low 实测 thinking_tokens=0）。2.1.284 形态变化逐项写在模板 `_comment`。verify-live 打 saiai 9 次 8 绿（1 次等响应头超时）。
