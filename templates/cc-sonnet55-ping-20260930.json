@@ -1,0 +1,41 @@
+{
+	"self_serve_label": "Claude Sonnet 5.5",
+	"_comment": "Claude Sonnet 5.5 ping 探针（2026-09-30 真抓包，claude-cli 2.1.284，mitmproxy 拦 api.anthropic.com 官方端点、代理层就地造 503 使请求不外发）。族内通用说明（抓包配方、cch 重算、合成常量、cc_prompt_id 冻结依据）见 cc-fable51-ping-20260902 的 _comment，这里只记本文件特有的部分。**为什么不能从 cc-opus55-ping-20260923 复制改模型名**：2.1.280 的二进制里没有 claude-sonnet-5-5（grep 零命中），2.1.284 才有；旧版 CLI 发它不认识的 5.5 模型会被上游版本闸 400 拒（2.1.263 发 opus-5-5 在 saiai 实测过）。**抓包环境**：HOME 指向 rpexec/app-configs/claude/default 的拷贝（bypassPermissions、无代理设置），不用本机 ~/.claude——后者是 auto 权限模式，CLI 会多发 dangerous-tool-use-2026-09-03 与 afk-mode 两个 beta，并在 body 里附一整段 safeguards（含本机权限规则与目录），既不是 rpexec 的形态，也不能进公开仓库。**2.1.284 相对 2.1.280 的形态变化**：UA；新请求头 x-claude-code-prompt-id，值与 billing header 里的 cc_prompt_id 相同；billing header 尾部多 cc_prompt_index=0; cc_turn_index=1;；anthropic-beta 少了 server-side-fallback / fallback-credit / afk-mode / mid-conversation-tool-changes 四项；body 不再带 fallbacks。三次同参独立抓包只有 session_id / x-client-request-id / cch / cc_prompt_id（及同值的 x-claude-code-prompt-id 头）在变，cc_version 后缀恒为 .12a；claudebilling 对三份原样抓包逐字复现 cch，2.1.284 档已校准。body 相对抓包的有意改动：① 删 role=system 那条环境消息（含冻结日期与抓包机器 cwd）；② **保持 adaptive thinking，max_tokens 128000→1024**——sonnet-5.5 不接受 thinking.type.disabled，上游 400 原话「To turn thinking off on this model, send \"thinking\": {\"type\": \"between_tools\"} instead of {\"type\": \"disabled\"}」；between_tools 实测可用，但还必须同时删 context_management（否则 400「clear_thinking_20251015 strategy requires thinking to be enabled or adaptive」），等于对真实客户端形态改两处，真 CLI 不会发这个组合，故不用；adaptive 在 effort=low 下实测 thinking_tokens=0、output_tokens=4，本来就不思考；③ metadata 与 cc_prompt_id 换合成常量（device_id 沿用 fable51 那份；session_id、cc_prompt_id 是本文件独有的固定 UUID；X-Claude-Code-Session-Id 头与 metadata.user_id 内的 session_id 同值，x-claude-code-prompt-id 头与 cc_prompt_id 同值）。改 body 任一字节都必须重算 cch。model 取 \"Sonnet 5.5\"，与仍在生产跑的 cc-sonnet-ping-20260806（model=\"Sonnet\"，请求 claude-sonnet-5）分成两条独立序列；要续写旧序列就在监测行上显式写 model: Sonnet。2026-09-30 verify-live 打 api.saiai.top：9 次里 8 次 status=1（1.7–5.0s），1 次 network_error（等响应头超时，同时段其余请求正常）；另用 curl 核对回显：model=claude-sonnet-5-5、stop_reason=end_turn、正文 pong。",
+	"model": "Sonnet 5.5",
+	"request_model": "claude-sonnet-5-5",
+	"model_vendor": "anthropic",
+	"url": "{{BASE_URL}}/v1/messages?beta=true",
+	"method": "POST",
+	"headers": {
+		"Accept": "application/json",
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"User-Agent": "claude-cli/2.1.284 (external, sdk-cli)",
+		"X-Claude-Code-Session-Id": "0bdb438b-b9d1-486c-9906-fce219b121ec",
+		"X-Stainless-Arch": "x64",
+		"X-Stainless-Lang": "js",
+		"X-Stainless-OS": "Linux",
+		"X-Stainless-Package-Version": "0.112.1",
+		"X-Stainless-Retry-Count": "0",
+		"X-Stainless-Runtime": "node",
+		"X-Stainless-Runtime-Version": "v26.3.0",
+		"X-Stainless-Timeout": "600",
+		"anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07",
+		"anthropic-dangerous-direct-browser-access": "true",
+		"anthropic-version": "2023-06-01",
+		"x-app": "cli",
+		"x-claude-code-prompt-id": "325cee24-e46f-4cae-aeab-f69107d48934",
+		"x-claude-code-request-class": "main",
+		"x-client-request-id": "{{RAND_UUID2}}",
+		"Accept-Encoding": "gzip, deflate, br, zstd"
+	},
+	"body": {"model":"claude-sonnet-5-5","messages":[{"role":"user","content":"ping"}],"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.284.12a; cc_entrypoint=sdk-cli; cch=22739; cc_prompt_id=325cee24-e46f-4cae-aeab-f69107d48934; cc_turn_origin=sdk; cc_prompt_index=0; cc_turn_index=1;"},{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK.","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"Only reply pong.","cache_control":{"type":"ephemeral","ttl":"1h"}}],"tools":[],"metadata":{"user_id":"{\"device_id\":\"73afe81a689ab2d103b251c6ae40fa53be4e3c786d88dbd71bbc241d64ae678a\",\"account_uuid\":\"\",\"session_id\":\"0bdb438b-b9d1-486c-9906-fce219b121ec\"}"},"max_tokens":1024,"thinking":{"type":"adaptive","display":"omitted"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"output_config":{"effort":"low"},"diagnostics":{"previous_message_id":null},"stream":true},
+	"response": {
+		"success_contains": "pong"
+	},
+	"probe": {
+		"slow_latency": "8s",
+		"timeout": "15s",
+		"retry": 0
+	}
+}
