@@ -6,6 +6,14 @@
 
 ## 检查点（最新在最上）
 
+- **2026-09-30 v2.100.0**（`9fba1ad`，监测服务器 08:54 CST 重建；prod git_commit=`9fba1ad`、health=200、`/ready` `{"status":"ok"}`、`配置加载完成 monitors=325`、`variants=46`；回滚锚点 `rollback-20260930-sonnet55-pre`→`4e9d9a7`；无 schema、无迁移）。只含一份新模板。
+
+  **模板 `cc-sonnet55-ping-20260930`**：claude-cli 2.1.284 真抓包（2.1.280 二进制里没有 `claude-sonnet-5-5`，不能从 opus55 模板改名复制）。抓包用 rpexec 的干净 HOME，本机 `~/.claude` 是 auto 权限模式、会在 body 里附带本机权限规则的 `safeguards` 段。`claudebilling` 对 3 份原样抓包逐字复现 cch，2.1.284 档已校准。sonnet-5.5 不接受 `thinking.disabled`；上游建议的 `between_tools` 还要删 `context_management`，故保留 adaptive、`max_tokens` 1024（effort=low 实测 thinking_tokens=0）。2.1.284 形态变化逐项写在模板 `_comment`。verify-live 打 saiai 9 次 8 绿（1 次等响应头超时）。
+
+  **就地替换**：admin `PUT saiai--cc--o-max`（rev 30→31），Sonnet 子行只改 `template` + 显式 `model: Sonnet`，`model_id`（`md_5657b645…`）不变，`热更新成功 monitors=325`、`replanned_groups=0`（换模板不在重排条件内）。调度器 09:00:23 落库 status=1（1712ms），公开 `/api/status` 该层 `request_model=claude-sonnet-5-5`。⚠️ `Sonnet` 序列自 2026-09-30 08:55 CST 起是 sonnet-5.5 的数据，之前是 sonnet-5，面板上看不出分界。其他通道仍跑 `cc-sonnet-ping-20260806`（rpdiag 抽测 13 家有结论的只 8 家支持 5.5，铺开待定）。
+
+  **验证**：`go test ./internal/...` 全绿；前端无改动未跑；codex review（SESSION `01a0efb8-a770-79a1-99e8-bccd4b7caed3`）无阻断，指出注释一处字段路径写错（已修）；模板默认自助可见，与 opus55 一致。
+
 - **2026-09-29 v2.99.1 + v2.99.2**（`2f9cc9b` / `4e9d9a7`，监测服务器 21:04 CST 重建到 v2.99.2；prod git_commit=`4e9d9a7`、health=200、`monitors=325`；回滚锚点 `rollback-20260929-searchsep-pre`→`ba77004`、`rollback-20260929-searchmodel-pre`→`2f9cc9b`）。修正 v2.99.0 后台搜索的两处问题。
 
   **v2.99.1 分隔符**：词里带分隔符时各类分隔符视为同一种、按位置比对（`0-0` 不再命中 `100x`，`0-0 cx` 2→1）；不带分隔符的词仍忽略字段里的分隔符（`omax` 39 不变）。取舍：`gpt5.6` 这类位置对不上的写法不命中。**v2.99.2 模板模型名**：prod 多数通道 monitors.d 行不写 `model`、名字来自模板，v2.99.0 实际搜不到（`gpt56` 的 36 条是撞上模板名 `cx-gpt56-arith`，`gpt-5.6` 只有 1 条）；现从运行时配置（已套模板）补各层 model / request_model。**prod 实证**：`gpt-5.6` / `5.6` / `gpt56` 均 73、`opus` 40、`haiku` 105、`gpt5.6` 0；单测只写显式 `model` 看不出此漏洞，新测试 bite-test 过（关掉补名即红）。
