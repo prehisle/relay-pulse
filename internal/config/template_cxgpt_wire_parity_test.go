@@ -35,6 +35,7 @@ var cxGPTWireDerivedTemplates = []string{
 	"cx-gpt56-arith.json",
 	"cx-gpt56luna-arith.json",
 	"cx-gpt56terra-arith.json",
+	"cx-gpt61sol-arith.json",
 	"cx-gpt6astra-arith.json",
 	"cx-gpt6luna-arith.json",
 	"cx-gpt6sol-arith.json",
@@ -74,6 +75,13 @@ var cxGPTWireRequiredHeaderMarkers = []string{
 	// 轮次级独立成组：turn 与 root-turn 同值、但与会话/请求两组都不同（真抓包的关系）。
 	`\"turn_id\":\"{{RAND_UUID_V7_2}}\"`,
 	`\"root_turn_id\":\"{{RAND_UUID_V7_2}}\"`,
+	// codex-cli 0.159.2 起 turn metadata 必带的四个字段（2026-09-30 对照 0.155.1 重抓得出）。
+	// 版本串报 0.159.2 却缺它们＝自相矛盾的形态；全族一起删掉时「逐字节相同」照样通过，
+	// 只能靠这里钉。reasoning_effort 必须与 body 的 reasoning.effort 同值，见下方 body 标记。
+	`\"turn_trigger\":\"exec\"`,
+	`\"analytics_enabled\":true`,
+	`\"model\":\"{{MODEL}}\"`,
+	`\"reasoning_effort\":\"low\"`,
 }
 
 // cxGPTWireForbiddenHeaderMarkers 钉死「订阅态抓包里没有的东西不许回来」。
@@ -94,6 +102,8 @@ var cxGPTWireRequiredBodyMarkers = []string{
 	`"prompt_cache_key": "{{SESSION_UUID_V7}}"`,
 	`"model": "{{MODEL}}"`,
 	`"{{PROMPT}}"`,
+	// 与 turn metadata 里的 reasoning_effort 成对：两处声明的档位不一致，不是真客户端会发的形态。
+	`"effort": "low"`,
 }
 
 // extractJSONObjectBlock 按**原始文本**取出顶层 `"<key>": { … }` 的大括号块。

@@ -33,8 +33,8 @@ MUTATIONS = [
     # ② 升 CLI 版本只改了一份——UA 与 version 必须同族同步，这是最可能发生的一次漂移。
     ("只把 terra 的 version 抬到新版（族内客户端版本分裂）",
      TERRA,
-     '"version": "0.155.1"',
-     '"version": "0.156.0"',
+     '"version": "0.159.2"',
+     '"version": "0.160.0"',
      SELECTORS),
 
     # ③ body 的空白也上 wire——最隐蔽的一类漂移，unmarshal 后比结构完全看不见。
