@@ -6,6 +6,12 @@
 
 ## 检查点（最新在最上）
 
+- **2026-10-02 v2.101.1**（`e73e402`，监测服务器 19:50 CST 重建；prod git_commit=`e73e402`、health=200、`配置加载完成 monitors=326`；回滚锚点 `rollback-20261002-pre`→`194ad2d`；无 schema、无迁移）。只改一份模板的措辞。
+
+  **`cc-haiku-arith-20260929` 换题面**：ClaudeCN（cc/O-Web-Max）09-30 起对原题面回 HTTP 200 + 固定话术「You have already connected to our service. Please just use it.」，判 content_mismatch；同一把 key 的真 `claude -p` 2.1.284 正常作答。bisect（随机顺序、每格 2 次）结果：只有原文逐字才被拦，数字随机也拦；题面或 system 末段任改一处即放行。题面与 system 末段两处一起换了，判定仍是 `RP_ANSWER=<和>`，模板名与展示名不变、序列连续。新题面与 `prompt.go` 变体池一句相近，若对方按近似匹配可能更快再被拦。
+
+  **验证**：上线前本地探测内核打 ClaudeCN 4/4 绿；部署后调度器 19:53、19:58、20:03 落库 status=1（约 2.3s），19:47 及之前仍是 content_mismatch。
+
 - **2026-09-30 v2.101.0**（`194ad2d`，监测服务器 10:10 CST 重建；prod git_commit=`194ad2d`、health=200、`配置加载完成 monitors=325`、`variants=47`；回滚锚点 `rollback-20260930-gpt61sol-pre`→`9fba1ad`；无 schema、无迁移）。只含模板与模板守卫。
 
   **新模板 `cx-gpt61sol-arith`**（`gpt-6.1-sol`，展示名 `GPT-6.1-Sol`，订阅态族成员）。又撞客户端版本闸：同一把 saiai key，UA/`version` 报 0.155.1 或 0.157.1 时回 400 `not supported when using Codex with a ChatGPT account`，报 0.159.2 时 3/3 绿。**全族 8 份升到 0.159.2**。这次不只是改版本串：用 0.159.2 与 0.155.1 在同一抓包桩下对照重抓，`x-codex-turn-metadata` 多了 `turn_trigger`/`analytics_enabled`/`model`/`reasoning_effort` 四个字段，一并补上（`model` 用 `{{MODEL}}`，`reasoning_effort` 与 body 一致为 `low`）；请求头集合与 body 顶层不变。守卫补了四个新字段与头/body effort 一致性的标记（codex review 实测指出全族一起删新字段时原守卫仍绿）。
