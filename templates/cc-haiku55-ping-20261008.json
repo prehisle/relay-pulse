@@ -1,0 +1,41 @@
+{
+	"self_serve_label": "Claude Haiku 5.5",
+	"_comment": "Claude Haiku 5.5 ping 探针（2026-10-08 真抓包，claude-cli 2.1.293，mitmproxy 拦 api.anthropic.com 官方端点、代理层就地造 503 使请求不外发）。族内通用说明（抓包配方、cch 重算、合成常量、cc_prompt_id 冻结依据）见 cc-fable51-ping-20260902 的 _comment，这里只记本文件特有的部分。**为什么要 2.1.293**：claude-haiku-5-5 于 2026-10-07 发布，2.1.284 的二进制里 grep 零命中，2.1.293 起才认识它（官方 changelog：该版起它也是 CLI 的默认 Haiku）。**抓包环境**同 cc-sonnet55-ping-20260930：HOME 指向 rpdiag/rpexec/app-configs/claude/default 的拷贝，假 CLAUDE_CODE_OAUTH_TOKEN，空工作目录。**2.1.293 相对 2.1.284 的形态变化**：UA；X-Stainless-Package-Version 0.112.1→0.128.0；anthropic-beta 顺序改为 oauth-2025-04-20 打头、claude-code-20250219 挪到第 7 位，并重新带上 mid-conversation-tool-changes-2026-07-01（本文件照抓包原序）；环境那条 role=system 消息里多了 output_config 字段（整条按惯例删掉，不影响）。三次同参独立抓包只有 session_id / x-client-request-id / cch / cc_prompt_id（及同值的 x-claude-code-prompt-id 头）在变，cc_version 后缀恒为 .9b8；claudebilling 对三份原样抓包逐字复现 cch，2.1.293 档已校准。body 相对抓包的有意改动：① 删 role=system 那条环境消息（含冻结日期与抓包机器 cwd）；② 保持 adaptive thinking，max_tokens 128000→1024；③ metadata 与 cc_prompt_id 换合成常量（device_id 沿用 fable51 那份；session_id、cc_prompt_id 是本文件独有的固定 UUID，X-Claude-Code-Session-Id 头与 metadata 内 session_id 同值，x-claude-code-prompt-id 头与 cc_prompt_id 同值）。改 body 任一字节都必须重算 cch。**haiku-5.5 认关思考（与 opus/sonnet 5.5 不同）**，2026-10-08 在 saiai 实测：thinking.type=disabled 且删掉 context_management → 200 pong；只关思考不删 context_management → 400「clear_thinking_20251015 strategy requires thinking to be enabled or adaptive」。本文件仍取 adaptive 是为了贴住真 CLI 形态（effort=low 下实测零思考块、output_tokens=4，max_tokens 压到 20 也照样回 pong）。这条事实留给日后把 cc-haiku-arith 系换代用：那批模板不发 effort（默认 medium），换到 5.5 时加 thinking.disabled 即可保住随机题面，不必退成 ping。model 取 \"Haiku 5.5\"，与 Haiku 4.5 的序列（model=\"Haiku\"）分开；要续写旧序列就在监测行上显式写 model: Haiku。2026-10-08 verify-live 打 api.saiai.top 3/3 status=1（1.06–1.35s，同时段 sonnet55 对照也绿）；curl 回显 model=claude-haiku-5-5、stop_reason=end_turn、正文 pong。",
+	"model": "Haiku 5.5",
+	"request_model": "claude-haiku-5-5",
+	"model_vendor": "anthropic",
+	"url": "{{BASE_URL}}/v1/messages?beta=true",
+	"method": "POST",
+	"headers": {
+		"Accept": "application/json",
+		"Authorization": "Bearer {{API_KEY}}",
+		"Content-Type": "application/json",
+		"User-Agent": "claude-cli/2.1.293 (external, sdk-cli)",
+		"X-Claude-Code-Session-Id": "b03b3375-9ef6-4a0e-8932-9db273c728d4",
+		"X-Stainless-Arch": "x64",
+		"X-Stainless-Lang": "js",
+		"X-Stainless-OS": "Linux",
+		"X-Stainless-Package-Version": "0.128.0",
+		"X-Stainless-Retry-Count": "0",
+		"X-Stainless-Runtime": "node",
+		"X-Stainless-Runtime-Version": "v26.3.0",
+		"X-Stainless-Timeout": "600",
+		"anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,claude-code-20250219,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07",
+		"anthropic-dangerous-direct-browser-access": "true",
+		"anthropic-version": "2023-06-01",
+		"x-app": "cli",
+		"x-claude-code-prompt-id": "8079b39b-8950-4fb1-bfe5-f07b02e825fa",
+		"x-claude-code-request-class": "main",
+		"x-client-request-id": "{{RAND_UUID2}}",
+		"Accept-Encoding": "gzip, deflate, br, zstd"
+	},
+	"body": {"model":"claude-haiku-5-5","messages":[{"role":"user","content":"ping"}],"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.293.9b8; cc_entrypoint=sdk-cli; cch=ecfde; cc_prompt_id=8079b39b-8950-4fb1-bfe5-f07b02e825fa; cc_turn_origin=sdk; cc_prompt_index=0; cc_turn_index=1;"},{"type":"text","text":"You are a Claude agent, built on Anthropic's Claude Agent SDK.","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"Only reply pong.","cache_control":{"type":"ephemeral","ttl":"1h"}}],"tools":[],"metadata":{"user_id":"{\"device_id\":\"73afe81a689ab2d103b251c6ae40fa53be4e3c786d88dbd71bbc241d64ae678a\",\"account_uuid\":\"\",\"session_id\":\"b03b3375-9ef6-4a0e-8932-9db273c728d4\"}"},"max_tokens":1024,"thinking":{"type":"adaptive","display":"omitted"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"output_config":{"effort":"low"},"diagnostics":{"previous_message_id":null},"stream":true},
+	"response": {
+		"success_contains": "pong"
+	},
+	"probe": {
+		"slow_latency": "8s",
+		"timeout": "15s",
+		"retry": 0
+	}
+}
