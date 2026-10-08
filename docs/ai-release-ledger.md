@@ -5,6 +5,14 @@
 > 只读用途：查「某个版本当时改了什么 / 回滚锚点叫什么 / 当时 prod 实测结论」。当前生产状态请直接 `gh release list -L 5` + `git log --oneline -10`。
 
 ## 检查点（最新在最上）
+- **2026-10-08 v2.102.0**（`84f598e`，监测服务器 15:15 CST 重建；prod git_commit=`84f598e`、health=200、`配置加载完成 monitors=327`、`variants=48`；回滚锚点 `rollback-20261008-haiku55-pre`→`e73e402`；无 schema、无迁移）。只加一份模板。
+
+  **新模板 `cc-haiku55-ping-20261008`**（`claude-haiku-5-5`，10-07 发布）。claude-cli 2.1.284 的二进制里没有这个模型名，用 2.1.293 真抓包（mitm 拦官方端点、零外发），cch 在 2.1.293 档对三份原样抓包逐字复现。相对 2.1.284 的形态变化写在模板 `_comment`。与 opus/sonnet 5.5 不同，haiku-5.5 **认 `thinking.disabled`**（须同删 `context_management`，否则 400）；ping 模板仍取 adaptive 贴住真 CLI 形态，这条事实留给日后 `cc-haiku-arith` 系换代：加关思考即可保住随机题面。
+
+  **挂载**：admin API 给 saiai/cc/o-max 新增子行（该通道此前没有 Haiku 层），显式 `model: Haiku`，与同通道 `Opus`/`Sonnet` 同口径、日后换代续写同一序列。热更新 `monitors=328`、`replanned_groups=1`，新 `model_id` 已生成。
+
+  **验证**：上线前本地探测内核打 saiai 3/3 绿（同时段 sonnet55 对照也绿），curl 回显 `model=claude-haiku-5-5`、`end_turn`、output 4 token、无思考块；部署后 admin 探测绿（1219ms），调度器 15:19 首次落库 status=1（1125ms）。其余通道的 Haiku 层仍跑 haiku-4-5，铺不铺并入「5.5 是否全队铺开」那项待定。
+
 
 - **2026-10-02 v2.101.1**（`e73e402`，监测服务器 19:50 CST 重建；prod git_commit=`e73e402`、health=200、`配置加载完成 monitors=326`；回滚锚点 `rollback-20261002-pre`→`194ad2d`；无 schema、无迁移）。只改一份模板的措辞。
 
