@@ -5,6 +5,13 @@
 > 只读用途：查「某个版本当时改了什么 / 回滚锚点叫什么 / 当时 prod 实测结论」。当前生产状态请直接 `gh release list -L 5` + `git log --oneline -10`。
 
 ## 检查点（最新在最上）
+- **2026-10-12 v2.103.0**（`168f000`，监测服务器 21:26 CST 重建；prod git_commit=`168f000`、go1.27.2、health=200、`配置加载完成 monitors=330`、`variants=48`；回滚锚点 `rollback-20261012-v2103-pre`→`84f598e`；无 schema、无迁移）。两个前端小改动加一次安全依赖升级。
+
+  **前端**：新建通道表单选冷板时可直接填冷板原因（与详情页同规则，80 字软上限）；状态表模型名列从原生 `title` 换成共享 `HoverTooltip`，逐行列出完整模型 ID。本地接生产只读接口实测，改前改后表格行数、列宽、总行高逐项相同；上线后在 relaypulse.top 悬停验过。
+
+  **`golang.org/x/net` v0.58.0→v0.60.0**：首次推送时 govulncheck 报五条 http2 漏洞（GO-2026-6603/6610/6611 等，10-08 之后才公布），CI 红、未出镜像。v0.60.0 要求 `go 1.26`，构建工具链本就是 1.27 无需改；但 go 指令决定 GODEBUG 默认值，1.25→1.26 会让 TLS 多带两种后量子密钥交换、改变探针的 ClientHello，故 `go.mod` 用 `godebug tlssecpmlkem=0` 钉回（二进制 `DefaultGODEBUG` 已核）。随之变成新默认的 `cryptocustomrand` 与 `urlstrictcolons` 已核无影响。dependabot 的 gomod-root 合并 PR（pgx/sqlite 等）未一起上，留待按配方另批。
+
+  **部署后对照**（21:38 起约 4 分钟 vs 昨日同时段，各 74 条序列）：绿率 71.6% vs 73.7%，`network_error` 3 vs 3、`content_mismatch` 2 vs 2；部署前半小时 73.0%。差一两次探测，无退化迹象。
 - **2026-10-08 v2.102.0**（`84f598e`，监测服务器 15:15 CST 重建；prod git_commit=`84f598e`、health=200、`配置加载完成 monitors=327`、`variants=48`；回滚锚点 `rollback-20261008-haiku55-pre`→`e73e402`；无 schema、无迁移）。只加一份模板。
 
   **新模板 `cc-haiku55-ping-20261008`**（`claude-haiku-5-5`，10-07 发布）。claude-cli 2.1.284 的二进制里没有这个模型名，用 2.1.293 真抓包（mitm 拦官方端点、零外发），cch 在 2.1.293 档对三份原样抓包逐字复现。相对 2.1.284 的形态变化写在模板 `_comment`。与 opus/sonnet 5.5 不同，haiku-5.5 **认 `thinking.disabled`**（须同删 `context_management`，否则 400）；ping 模板仍取 adaptive 贴住真 CLI 形态，这条事实留给日后 `cc-haiku-arith` 系换代：加关思考即可保住随机题面。
