@@ -1,6 +1,11 @@
 module monitor
 
-go 1.25.0
+go 1.26.0
+
+// x/net v0.60.0 起要求 go 1.26，而 GODEBUG 默认值跟随这一行。1.26 唯一触及探针的
+// 默认变化是 TLS 多带两种后量子密钥交换，会改变发往中转商的 ClientHello；探针是测量面，
+// 握手形态的改变要单独立项，故钉回 1.25 的取值。
+godebug tlssecpmlkem=0
 
 require (
 	github.com/andybalholm/brotli v1.2.3
@@ -12,8 +17,8 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/compress v1.19.2
-	golang.org/x/net v0.58.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/net v0.60.0
+	golang.org/x/sync v0.23.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.57.0
@@ -50,9 +55,9 @@ require (
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
 	golang.org/x/arch v0.23.0 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
