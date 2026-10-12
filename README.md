@@ -7,7 +7,7 @@
 **中文** | [English](README.en.md)
 
 [![在线演示](https://img.shields.io/badge/🌐_在线演示-relaypulse.top-00d8ff?style=for-the-badge)](https://relaypulse.top)
-[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=for-the-badge&logo=go)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go)](https://go.dev/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)](https://react.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
@@ -246,7 +246,7 @@ curl -X POST http://localhost:8080/api/status/batch \
 ## 🛠️ 技术栈
 
 **后端**
-- Go 1.25+
+- Go 1.26+
 - Gin (HTTP framework)
 - SQLite / PostgreSQL
 - fsnotify (配置热更新)
