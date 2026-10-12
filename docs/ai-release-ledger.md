@@ -5,6 +5,13 @@
 > 只读用途：查「某个版本当时改了什么 / 回滚锚点叫什么 / 当时 prod 实测结论」。当前生产状态请直接 `gh release list -L 5` + `git log --oneline -10`。
 
 ## 检查点（最新在最上）
+- **2026-10-13 v2.103.1**（`79048e0`，监测服务器 00:02 CST 重建；prod git_commit=`79048e0`、health/ready=200、`配置加载完成 monitors=330`、`variants=48`；回滚锚点 `rollback-20261013-deps-pre`→`168f000`；notifier 同日 00:03 重建到 `79048e0`，锚点同名→`a5014e7`；无 schema、无迁移）。纯依赖批，dependabot 开放 PR 7→0。
+
+  **Go**：主仓 pgx 5.11.0、sqlite 1.60.1、klauspost/compress 1.20.3、brotli 1.2.6、gin-contrib cors/gzip、x/sync、x/time（go 指令与 `godebug tlssecpmlkem=0` 不变）；notifier sqlite 1.60.1，它要求 go 1.26，notifier 的 go 指令随之 1.25→1.26。README/CONTRIBUTING 最低 Go 版本同步为 1.26。
+
+  **前端**：minor/patch 16 项（react 19.3、vite 8.3、eslint 10.12 等）；大版本三项——typescript 6.0.3（typescript-eslint 8.71 的 peer 上限 `<6.1.0`，故不追已发布的 7.x，dependabot 之后会再开 7 的 PR，届时先查 typescript-eslint 是否放开）、vitest 5、lucide-react 1.55（1.0 移除全部品牌图标，页脚 Github 图标改用新增的 `icons/GithubIcon`，路径照搬 0.577）。#204 notifier ubuntu 25.10 关闭不升（非 LTS，2026-07 已到期）。
+
+  **部署后对照**：00:08–00:22 黄（慢响应）14.9%，部署前一小时 5.5%，乍看像退化；但过去两周同一时段在 4.4%–17.9% 间波动，5.5% 是两周最低。按通道拆，变慢的是十几家中转商各自慢 3–9 秒（解压库升级造不成秒级延迟），每通道首次探测与后续探测黄比例相同（排除重启后连接冷启动）。红比例部署后更低（14.6% vs 前一小时 16.3%）。判无退化。
 - **2026-10-12 v2.103.0**（`168f000`，监测服务器 21:26 CST 重建；prod git_commit=`168f000`、go1.27.2、health=200、`配置加载完成 monitors=330`、`variants=48`；回滚锚点 `rollback-20261012-v2103-pre`→`84f598e`；无 schema、无迁移）。两个前端小改动加一次安全依赖升级。
 
   **前端**：新建通道表单选冷板时可直接填冷板原因（与详情页同规则，80 字软上限）；状态表模型名列从原生 `title` 换成共享 `HoverTooltip`，逐行列出完整模型 ID。本地接生产只读接口实测，改前改后表格行数、列宽、总行高逐项相同；上线后在 relaypulse.top 悬停验过。
