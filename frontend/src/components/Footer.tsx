@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Github, Tag, ChevronDown, ChevronUp, Bug, Zap, Handshake, ShieldCheck, AlertTriangle, ScanSearch } from 'lucide-react';
+import { Tag, ChevronDown, ChevronUp, Bug, Zap, Handshake, ShieldCheck, AlertTriangle, ScanSearch } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { GithubIcon } from './icons/GithubIcon';
 import { useVersionInfo } from '../hooks/useVersionInfo';
 import { FEEDBACK_URLS } from '../constants';
 
@@ -94,7 +95,7 @@ export function Footer({ rpdiagEnabled = true }: FooterProps) {
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-elevated/50 text-secondary hover:text-accent hover:bg-muted/50 transition min-h-[36px]"
           >
-            <Github size={14} />
+            <GithubIcon size={14} />
             <span>GitHub</span>
           </a>
           <span className="hidden sm:inline text-muted">·</span>

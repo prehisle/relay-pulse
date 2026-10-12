@@ -25,7 +25,7 @@
     "country-flag-icons": "^1.6.20",
     "i18next": "^26.4.4",
     "i18next-browser-languagedetector": "^8.2.1",
-    "lucide-react": "^0.577.0",
+    "lucide-react": "^1.55.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-helmet-async": "^3.0.0",
@@ -48,9 +48,9 @@
     "jsdom": "^30.1.2",
     "postcss": "^8.5.29",
     "tailwindcss": "^4.1.17",
-    "typescript": "~5.9.3",
+    "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.1",
     "vite": "^8.3.4",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.4"
   }
 }
