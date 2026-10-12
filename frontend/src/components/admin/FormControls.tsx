@@ -12,6 +12,7 @@ export function FormField({
   multiline = false,
   inputMode,
   error,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -21,6 +22,7 @@ export function FormField({
   multiline?: boolean;
   inputMode?: React.InputHTMLAttributes<HTMLInputElement>['inputMode'];
   error?: string;
+  maxLength?: number;
 }) {
   return (
     <div>
@@ -31,6 +33,7 @@ export function FormField({
           onChange={(e) => onChange(e.target.value)}
           onBlur={() => { const trimmed = value.trim(); if (trimmed !== value) onChange(trimmed); }}
           placeholder={placeholder}
+          maxLength={maxLength}
           rows={3}
           className={`${fieldInputClass()} resize-y`}
         />
@@ -42,6 +45,7 @@ export function FormField({
           onChange={(e) => onChange(e.target.value)}
           onBlur={() => { const trimmed = value.trim(); if (trimmed !== value) onChange(trimmed); }}
           placeholder={placeholder}
+          maxLength={maxLength}
           className={fieldInputClass({ error: !!error })}
         />
       )}

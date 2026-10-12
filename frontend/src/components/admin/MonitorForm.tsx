@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import type { MonitorConfig, MonitorFile } from '../../types/monitor';
 import { FormField, SelectField, CheckboxField } from './FormControls';
 import { buildVendorOptions, useModelVendors } from '../../hooks/useModelVendors';
+import { COLD_REASON_MAX_LENGTH } from './coldReason';
 
 interface MonitorFormProps {
   fetchTemplates: () => Promise<string[]>;
@@ -33,6 +34,7 @@ const EMPTY_CONFIG: MonitorConfig = {
   category: 'commercial',
   sponsor_level: '',
   board: 'hot',
+  cold_reason: '',
   interval: '',
   listed_since: '',
   expires_at: '',
@@ -255,6 +257,16 @@ export function MonitorForm({ fetchTemplates, onSave, onCancel }: MonitorFormPro
               { value: 'cold', label: t('admin.monitors.boardCold') },
             ]}
           />
+          {/* 与详情页同规则：冷板原因只在冷板下有意义，非冷板值写盘时会被规范化清空 */}
+          {config.board === 'cold' && (
+            <FormField
+              label={t('admin.monitors.field.coldReason')}
+              value={config.cold_reason || ''}
+              onChange={v => updateField('cold_reason', v)}
+              placeholder={t('admin.monitors.field.coldReasonPlaceholder')}
+              maxLength={COLD_REASON_MAX_LENGTH}
+            />
+          )}
           <FormField
             label={t('admin.monitors.field.listedSince')}
             value={config.listed_since || ''}
