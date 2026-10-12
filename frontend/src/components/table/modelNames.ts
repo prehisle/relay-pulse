@@ -12,9 +12,14 @@ export function getModelDisplayList(modelEntries?: ProcessedMonitorData['modelEn
     .filter(Boolean);
 }
 
+/** 完整模型 ID（展示名是缩写，悬浮提示里给出实际请求的那个串）。 */
+export function getModelFullNames(modelEntries?: ProcessedMonitorData['modelEntries']): string[] {
+  if (!modelEntries) return [];
+  return modelEntries.map((entry) => entry.requestModel || entry.model || '-');
+}
+
+/** 移动端仍用原生 title（触屏没有悬停），多个 ID 按行拼接。 */
 export function getModelTooltip(modelEntries?: ProcessedMonitorData['modelEntries']): string | undefined {
-  if (!modelEntries || modelEntries.length === 0) return undefined;
-  return modelEntries
-    .map((entry) => entry.requestModel || entry.model || '-')
-    .join('\n');
+  const names = getModelFullNames(modelEntries);
+  return names.length > 0 ? names.join('\n') : undefined;
 }

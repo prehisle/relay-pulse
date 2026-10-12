@@ -10,7 +10,8 @@ import { AnnotationCell } from '../annotations';
 import { VendorBadge } from '../VendorBadge';
 import { ColdReasonNote } from '../ColdReasonNote';
 import { ChannelCell } from './ChannelCell';
-import { getModelDisplayList, getModelTooltip } from './modelNames';
+import { HoverTooltip } from '../HoverTooltip';
+import { getModelDisplayList, getModelFullNames } from './modelNames';
 import { QualityScoreCell, shouldShowQualityPending } from '../quality';
 import { getCachedServiceIcon } from '../serviceIconCache';
 import { availabilityToColor, latencyToColor, sponsorLevelToBorderClass, sponsorLevelToPinnedBgClass } from '../../utils/color';
@@ -171,19 +172,24 @@ export function StatusTableRow({
         {(() => {
           const models = getModelDisplayList(item.modelEntries);
           if (models.length === 0) return <span className="text-muted">-</span>;
-          if (models.length === 1) {
-            return (
-              <span className="block truncate" title={getModelTooltip(item.modelEntries)}>
-                {models[0]}
-              </span>
-            );
-          }
           return (
-            <div className="flex flex-col gap-0.5" title={getModelTooltip(item.modelEntries)}>
-              {models.map((m, i) => (
-                <span key={i} className="block truncate">{m}</span>
-              ))}
-            </div>
+            <HoverTooltip
+              triggerClassName="max-w-full cursor-help"
+              widthClass="max-w-[90vw]"
+              content={
+                <span className="flex flex-col gap-0.5 font-mono whitespace-nowrap">
+                  {getModelFullNames(item.modelEntries).map((name, i) => (
+                    <span key={i}>{name}</span>
+                  ))}
+                </span>
+              }
+            >
+              <span className="flex flex-col gap-0.5 min-w-0">
+                {models.map((m, i) => (
+                  <span key={i} className="block truncate">{m}</span>
+                ))}
+              </span>
+            </HoverTooltip>
           );
         })()}
       </td>
