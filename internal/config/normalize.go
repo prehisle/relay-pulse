@@ -53,6 +53,11 @@ func (c *AppConfig) normalize() error {
 		return err
 	}
 
+	// 9. 展示名唯一性：必须在 trim 与父子继承之后，才与 /api/status 下发的口径一致
+	if err := c.validateMonitorDisplayKeyUniqueness(); err != nil {
+		return err
+	}
+
 	return nil
 }
 

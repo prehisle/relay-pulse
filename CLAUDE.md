@@ -216,6 +216,7 @@ HTTP 响应
 - 每个 YAML 文件包含 `metadata`（source/revision/timestamps）+ `monitors`（ServiceConfig 数组）
 - 文件名格式：`{provider}--{service}--{channel}.yaml`（parent-child 在同一文件）
 - config.yaml 和 monitors.d/ 不能有同 PSC，否则启动报冲突
+- ⚠️ **展示名必须唯一（rpdiag 身份键，2026-10-19 起由 `validateMonitorDisplayKeyUniqueness` 守，冲突则加载失败）**：rpdiag 按 `(provider 展示名, service, channel_name 展示名)` 加它自己选的 model 给通道建身份，不认 slug、也不看监测行的 model。两条 slug 不同、展示名相同的通道（例如 `o-max` 与 `o-max-main` 都叫 `O-Max`）会在 rpdiag 撞成同一行，后来那条永远采不到。新增通道取名时要避开同 provider 下已有的展示名。
 - 管理后台（`/api/admin/monitors/*`）可通过 API 进行 CRUD 操作
 - 删除为软删除（归档到 `monitors.d/.archive/`）
 - 热更新同时监听 config.yaml 和 monitors.d/ 目录变化
