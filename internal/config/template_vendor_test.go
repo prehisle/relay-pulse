@@ -149,10 +149,13 @@ func TestValidateFinal_NativeTemplateMissingVendorWarns(t *testing.T) {
 	}
 }
 
-// TestValidateFinal_NativeTemplateInheritedVendorNoWarn 挡住本告警最可能的误报：
-// vendor 只写在父行、子行靠 inheritCoreBehavior 继承。父子继承发生在 normalize 第 7 步，
-// 晚于 resolveTemplates 里的 validateModelVendors、早于 validateFinal——告警必须挂在后者才不误伤。
-func TestValidateFinal_NativeTemplateInheritedVendorNoWarn(t *testing.T) {
+// TestValidateFinal_NativeChildMustDeclareOwnVendor native 子行**不**继承父行 vendor，
+// 只写在父行时子行保持空、并被告警点名。
+//
+// 同一通道的各层可属于不同厂商，native 模板又不声明厂商，子行漏填时若继承父值，
+// 混厂商通道就会把 GLM 子行显示成父行的厂商——宁可空着告警，也不能给错的。
+// 代价是单厂商的 native 多模型通道每个子行都要自己写一遍 vendor。
+func TestValidateFinal_NativeChildMustDeclareOwnVendor(t *testing.T) {
 	cfgPath := writeNativeTemplateConfig(t, `monitors:
   - provider: zhipu
     service: cc
@@ -178,12 +181,17 @@ func TestValidateFinal_NativeTemplateInheritedVendorNoWarn(t *testing.T) {
 	if len(cfg.Monitors) != 2 {
 		t.Fatalf("期望 2 行监测项，实得 %d", len(cfg.Monitors))
 	}
-	for i, m := range cfg.Monitors {
-		if m.ModelVendor != "zhipu" {
-			t.Errorf("monitor[%d] %s: vendor 应为 zhipu（子行靠继承），实得 %q", i, m.Model, m.ModelVendor)
-		}
+	byModel := map[string]string{}
+	for _, m := range cfg.Monitors {
+		byModel[m.Model] = m.ModelVendor
 	}
-	if got := nativeVendorWarnings(cfg.validateFinal()); len(got) != 0 {
-		t.Fatalf("父行已声明 vendor、子行继承，不该有告警，实得: %v", got)
+	if byModel["GLM-4.7"] != "zhipu" {
+		t.Fatalf("父行自己声明的 vendor 应保留，实得 %q", byModel["GLM-4.7"])
+	}
+	if byModel["GLM-4.7-Air"] != "" {
+		t.Fatalf("native 子行不应继承父行 vendor，实得 %q", byModel["GLM-4.7-Air"])
+	}
+	if got := nativeVendorWarnings(cfg.validateFinal()); len(got) != 1 {
+		t.Fatalf("期望恰好 1 条告警（漏填的子行），实得 %d 条: %v", len(got), got)
 	}
 }

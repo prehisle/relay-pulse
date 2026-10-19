@@ -7,7 +7,7 @@
 // 钉死三条性质：
 //   ① 断点命中时渲染的是卡片列表、不是 <table>（"表格视图"在窄屏实际是卡片）；
 //   ② 每张卡片带齐服务商 / 通道 / 模型 / 可用率这几项主信息；
-//   ③ 质量与厂商两个开关同时门控**卡片内容与排序条选项**——开关关掉时两处都不出，
+//   ③ 质量开关同时门控**卡片内容与排序条选项**——开关关掉时两处都不出，
 //      这是 [[feature_flag_gate_all_surfaces]] 类 bug 最容易漏的一侧。
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -43,7 +43,7 @@ function monitor(overrides: Partial<ProcessedMonitorData>): ProcessedMonitorData
 
 function renderMobile(
   data: ProcessedMonitorData[],
-  opts: { rpdiagEnabled?: boolean; showVendorColumn?: boolean; rpdiagScores?: RpdiagScoresResponse } = {},
+  opts: { rpdiagEnabled?: boolean; rpdiagScores?: RpdiagScoresResponse } = {},
 ): HTMLElement {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -64,7 +64,6 @@ function renderMobile(
           rpdiagEnabled={opts.rpdiagEnabled ?? false}
           rpdiagScores={opts.rpdiagScores}
           rpdiagScoresLoaded={!!opts.rpdiagScores}
-          showVendorColumn={opts.showVendorColumn ?? false}
         />
       </I18nextProvider>,
     );
@@ -139,13 +138,15 @@ describe('移动端卡片视图', () => {
     expect(container.textContent).not.toContain('待测');
   });
 
-  it('厂商开关同时门控卡片徽章与排序条选项', () => {
-    const off = renderMobile([monitor({ modelVendor: 'zhipu' })], { showVendorColumn: false });
-    expect(off.textContent).not.toContain('智谱');
-    expect(Array.from(off.querySelectorAll('button')).some((b) => (b.textContent ?? '').includes('厂商'))).toBe(false);
-
-    const on = renderMobile([monitor({ modelVendor: 'zhipu' })], { showVendorColumn: true });
-    expect(on.querySelector('[aria-label*="智谱"], [title*="智谱"]')).not.toBeNull();
-    expect(Array.from(on.querySelectorAll('button')).some((b) => (b.textContent ?? '').includes('厂商'))).toBe(true);
+  it('首模型使用自己的图标，tooltip 列出所有模型厂商，没有厂商排序', () => {
+    const container = renderMobile([monitor({ modelVendors: ['zhipu', 'deepseek'], modelEntries: [
+      { model: 'GLM', requestModel: 'glm-5.3', vendor: 'zhipu' },
+      { model: 'DeepSeek', requestModel: 'deepseek-v4-pro', vendor: 'deepseek' },
+    ] })]);
+    expect(container.querySelector('[aria-label="智谱"]')).not.toBeNull();
+    const tooltip = container.querySelector('[title*="glm-5.3"][title*="deepseek-v4-pro"]');
+    expect(tooltip?.getAttribute('title')).toContain('智谱');
+    expect(tooltip?.getAttribute('title')).toContain(i18n.t('vendors.deepseek'));
+    expect(Array.from(container.querySelectorAll('button')).some(b => (b.textContent ?? '').includes('厂商'))).toBe(false);
   });
 });

@@ -59,7 +59,7 @@ export function useFilterOptions({
       if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
       if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
       if (categorySet && !categorySet.has(item.category)) return false;
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
+      if (vendorSet && !item.modelVendors?.some(v => vendorSet.has(v))) return false;
       if (modelSet && !matchesModelKeys(item.modelEntries, modelSet)) return false;
       return true;
     });
@@ -108,7 +108,7 @@ export function useFilterOptions({
       if (providerSet && !providerSet.has(item.providerId)) return false;
       if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
       if (categorySet && !categorySet.has(item.category)) return false;
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
+      if (vendorSet && !item.modelVendors?.some(v => vendorSet.has(v))) return false;
       if (modelSet && !matchesModelKeys(item.modelEntries, modelSet)) return false;
       return true;
     });
@@ -150,7 +150,7 @@ export function useFilterOptions({
       if (providerSet && !providerSet.has(item.providerId)) return false;
       if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
       if (categorySet && !categorySet.has(item.category)) return false;
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
+      if (vendorSet && !item.modelVendors?.some(v => vendorSet.has(v))) return false;
       if (modelSet && !matchesModelKeys(item.modelEntries, modelSet)) return false;
       return true;
     });
@@ -207,7 +207,7 @@ export function useFilterOptions({
       if (providerSet && !providerSet.has(item.providerId)) return false;
       if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
       if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
+      if (vendorSet && !item.modelVendors?.some(v => vendorSet.has(v))) return false;
       if (modelSet && !matchesModelKeys(item.modelEntries, modelSet)) return false;
       return true;
     });
@@ -235,7 +235,7 @@ export function useFilterOptions({
 
   // 动态模型厂商选项：联动筛选 + 保留已选项。
   // 与 provider 选项同款是 {value,label} 结构（value=受控 code，label=本地化厂商名），
-  // 按 label 排序——下拉里用户读的是名字；表格排序那侧按 code（见 sortMonitors）。
+  // 按 label 排序；同一通道的同一厂商只计一次。
   const effectiveVendors = useMemo<MultiSelectOption[]>(() => {
     const providerSet = filterProvider.length > 0 ? new Set(filterProvider) : null;
     const serviceSet = filterService.length > 0 ? new Set(filterService) : null;
@@ -257,8 +257,8 @@ export function useFilterOptions({
     // 2. 收集当前可用的 vendor（带计数）
     const availableMap = new Map<string, number>();
     filtered.forEach(item => {
-      if (item.modelVendor) {
-        availableMap.set(item.modelVendor, (availableMap.get(item.modelVendor) || 0) + 1);
+      for (const vendor of new Set(item.modelVendors ?? [])) {
+        availableMap.set(vendor, (availableMap.get(vendor) || 0) + 1);
       }
     });
 
@@ -298,7 +298,7 @@ export function useFilterOptions({
       if (serviceSet && !serviceSet.has(item.serviceType.toLowerCase())) return false;
       if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
       if (categorySet && !categorySet.has(item.category)) return false;
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
+      if (vendorSet && !item.modelVendors?.some(v => vendorSet.has(v))) return false;
       return true;
     });
 

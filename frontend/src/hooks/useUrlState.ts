@@ -52,7 +52,7 @@ interface UrlStateActions {
   clearPriceRatioSort: () => void;
   /** 同 clearPriceRatioSort，但针对 qualityScore_* —— rpdiag 关闭（私有部署）后清理质量列旧排序链接。 */
   clearQualityScoreSort: () => void;
-  /** 同上，针对 modelVendor_* —— 数据里没有任何厂商声明时厂商列消失，清掉旧排序链接。 */
+  /** 清掉旧分享链接里已下线的 modelVendor_* 排序参数（见 RETIRED_SORT_KEYS）。 */
   clearModelVendorSort: () => void;
   enterFavoritesMode: () => void;  // 进入收藏模式（保存快照并清空筛选）
   exitFavoritesMode: () => void;   // 退出收藏模式（恢复快照）
@@ -148,16 +148,21 @@ function parseListStateSnapshot(raw: string | null): ListStateSnapshot | null {
   };
 }
 
+/** 已下线的排序键。旧分享链接里可能还带着，按「没排序」处理，URL 由 useUrlStateReconcile 清掉。
+ *  modelVendor：厂商列已并入模型列（逐模型图标），没有通道级厂商可排了。 */
+const RETIRED_SORT_KEYS = new Set(['modelVendor']);
+
 /**
- * 判断 URL sort 原始参数是否应被忽略
- * 当前仅用于：价格列被 HIDE_PRICE_COLUMN 隐藏时，旧链接的 priceRatio_* 视为无效
+ * 判断 URL sort 原始参数是否应被忽略（视同没有 sort 参数，也不算用户手动排过序）：
+ * - 已下线的排序键（RETIRED_SORT_KEYS）；
+ * - 价格列被 HIDE_PRICE_COLUMN 隐藏时，旧链接的 priceRatio_*。
  */
 function isIgnorableSortParam(param: string | null): boolean {
   if (!param) return false;
-  if (!HIDE_PRICE_COLUMN) return false;
   const lastUnderscore = param.lastIndexOf('_');
   const key = lastUnderscore === -1 ? param : param.substring(0, lastUnderscore);
-  return key === 'priceRatio';
+  if (RETIRED_SORT_KEYS.has(key)) return true;
+  return HIDE_PRICE_COLUMN && key === 'priceRatio';
 }
 
 /**
@@ -446,7 +451,7 @@ export function useUrlState(): [UrlState, UrlStateActions] {
   const clearPriceRatioSort = useCallback(() => clearSortForKey('priceRatio'), [clearSortForKey]);
   // rpdiag 关闭（私有部署）后清理质量列旧 URL 排序。
   const clearQualityScoreSort = useCallback(() => clearSortForKey('qualityScore'), [clearSortForKey]);
-  // 厂商列不可见（全站尚未回填 model_vendor）后清理厂商列旧 URL 排序。
+  // 厂商排序已下线：旧链接里的 modelVendor_* 一律清掉（解析侧已按无排序处理）。
   const clearModelVendorSort = useCallback(() => clearSortForKey('modelVendor'), [clearSortForKey]);
 
   // 进入收藏模式：保存当前筛选状态快照，清空筛选器，启用收藏模式

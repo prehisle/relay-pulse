@@ -86,15 +86,28 @@ func inheritCoreBehavior(child, parent *ServiceConfig) {
 		child.Body = parent.Body
 		inheritedBody = true
 	}
-	if child.RequestModel == "" {
-		child.RequestModel = parent.RequestModel
-	}
-	// ModelVendor 跟随 RequestModel 一起继承：同一通道的各 model 层必属同一厂商。
-	// 与 Model 相反（Model 是父子的区分字段故刻意不继承，见本文件末尾说明）。
-	// 判空用 TrimSpace 与模板注入侧（resolveTemplateForMonitor）对齐：两处口径若一严一松，
+	// RequestModel / ModelVendor 是「这一层跑的是哪个模型、谁家的」，同一通道的各层可以
+	// 属于不同厂商（聚合平台一个入口卖多家模型）。
+	//
+	// native 模板族（IsNativeProbeTemplate）厂商无关、不声明模型，子行的模型身份只能来自
+	// 子行自己——此时继承父值就是错值：漏填 vendor 的 GLM 子行会显示成父行的 DeepSeek，
+	// 继承父行 request_model 则会真的去请求父行的模型。所以 native 子行一律不继承：
+	//   - request_model 留空是正常形态，{{MODEL}} 回退到子行自己的 model（native 行的 model
+	//     本来就写完整模型 ID）；
+	//   - vendor 留空则由 validateFinal 的 native 判空告警点名（显示「无厂商」是缺信息，
+	//     显示错厂商是错信息）。
+	// 判定用 child.Template：上方已完成模板继承，未写模板的子行此刻拿到的是父行模板。
+	//
+	// 非 native 模板在 resolveTemplates 阶段已把模板声明注入子行，走到这里仍为空的才继承父值。
+	// vendor 判空用 TrimSpace 与模板注入侧（resolveTemplateForMonitor）对齐：两处口径若一严一松，
 	// 只写空白的子行会既不被模板填、也不被父行填，留下一个既非空又非合法 code 的幽灵值。
-	if strings.TrimSpace(child.ModelVendor) == "" {
-		child.ModelVendor = parent.ModelVendor
+	if !IsNativeProbeTemplate(child.Template) {
+		if child.RequestModel == "" {
+			child.RequestModel = parent.RequestModel
+		}
+		if strings.TrimSpace(child.ModelVendor) == "" {
+			child.ModelVendor = parent.ModelVendor
+		}
 	}
 	// SuccessContains 是「当前 Body 应如何判成功」的语义条件，必须与 Body 同源
 	// （同一份请求定义「发什么」与「期望什么」）。仅当 Body 也继承自父项时，才继承

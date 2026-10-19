@@ -30,10 +30,8 @@ interface StatusTableProps {
   rpdiagEnabled?: boolean;
   /** runtime 价格列隐藏开关（meta.hide_price_column 派生）。默认 false（显示）。 */
   hidePriceColumn?: boolean;
-  /** 是否显示「模型厂商」列。由调用方基于**未筛选**的全量数据判定（见 App/ProviderPage），
-   *  刻意不在本组件内按已筛数据算——否则筛选一下列就会凭空出现/消失，表格布局抖动。
-   *  厂商全站未回填（Phase 3 之前）时恒 false，对用户完全无感。 */
-  showVendorColumn?: boolean;
+  /** 未筛选数据含厂商声明时显示服务列说明。 */
+  hasVendorData?: boolean;
 }
 
 function StatusTableComponent({
@@ -55,7 +53,7 @@ function StatusTableComponent({
   rpdiagScoresLoaded = false,
   rpdiagEnabled = true,
   hidePriceColumn = false,
-  showVendorColumn = false,
+  hasVendorData = false,
 }: StatusTableProps) {
   // 平板/移动端走卡片分支（tablet 断点 = max-width:1023px，见 utils/mediaQuery.ts BREAKPOINTS）
   const isMobile = useBreakpointMatch('tablet');
@@ -83,19 +81,17 @@ function StatusTableComponent({
         rpdiagScoresLoaded={rpdiagScoresLoaded}
         rpdiagEnabled={rpdiagEnabled}
         hidePriceColumn={hidePriceColumn}
-        showVendorColumn={showVendorColumn}
       />
     );
   }
 
   // 列可见性单一真相源：表头（colgroup + thead）与每一行共吃这一个对象，三处不再
-  // 各算各的。标注列是数据驱动（本屏无任何标注就不出列），其余四列来自 props /
+  // 各算各的。标注列是数据驱动（本屏无任何标注就不出列），其余三列来自 props /
   // runtime 开关。刻意放在移动分支之后：annotation 那一项要扫一遍 data，而卡片
   // 视图根本不需要它——移动端每 30 秒一轮的渲染不该白扫。
   const columns: StatusTableColumns = {
     annotation: hasAnyAnnotationInList(data, { enableAnnotations }),
     provider: showProvider,
-    vendor: showVendorColumn,
     price: !hidePriceColumn,
     // rpdiag 未启用（私有部署）时质量列整列消失：表头 + 格子 + colgroup
     quality: rpdiagEnabled,
@@ -107,6 +103,7 @@ function StatusTableComponent({
       <table className="w-full text-left border-collapse bg-transparent">
         <StatusTableHead
           columns={columns}
+          hasVendorData={hasVendorData}
           sortConfig={sortConfig}
           isInitialSort={isInitialSort}
           onSort={onSort}

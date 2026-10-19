@@ -234,7 +234,7 @@ HTTP 响应
 - `max_concurrency` 的 `-1` = 无限，不是禁用。
 - `degraded_weight`（默认 0.7）是黄色状态计入可用率的权重，不是阈值。
 - `cache_ttl` 按 period 分档：90m/24h=10s，7d/30d=60s。
-- `hide_price_column` / `hide_category_filter` / `hide_vendor_filter` 是**运行时**开关，改 yaml 热更新即生效、经 `/api/status` meta 下发前端。**后两个只隐藏筛选入口**：`category`/`model_vendor` 字段照常下发（`hide_vendor_filter` 下**厂商列也照常渲染**——列是观察维度、筛选器是操作轴，刻意解耦），URL 里残留的 `?category=`/`?vendor=` 视为未选中（参数保留不删，关掉开关即恢复原选择）。三者都走 `useMonitorData` 内的 **effective 派生**而非 effect 抹 URL——后者已被证伪（`setSearchParams` 的 prev 是上一次渲染的，会被紧随其后的 sort 清理覆盖回去）。
+- `hide_price_column` / `hide_category_filter` / `hide_vendor_filter` 是**运行时**开关，改 yaml 热更新即生效、经 `/api/status` meta 下发前端。**后两个只隐藏筛选入口**：`category`/`model_vendor` 字段照常下发（`hide_vendor_filter` 下**模型名前的厂商图标也照常渲染**——图标是观察维度、筛选器是操作轴，刻意解耦），URL 里残留的 `?category=`/`?vendor=` 视为未选中（参数保留不删，关掉开关即恢复原选择）。三者都走 `useMonitorData` 内的 **effective 派生**而非 effect 抹 URL——后者已被证伪（`setSearchParams` 的 prev 是上一次渲染的，会被紧随其后的 sort 清理覆盖回去）。
 - Onboarding 的 `enabled` **改了要重启容器**（不是热更新）；启用 onboarding 时允许**零 monitors 启动**。
 - `storage.archive.keep_days` 的 `0` = 永久保留，不是「不保留」。
 
@@ -251,16 +251,17 @@ HTTP 响应
 **⚠️ `model_vendor`「模型厂商」正交轴（机制层 + 前端 + 收录全线已落地）**：第一方厂商（智谱/月之暗面/MiniMax/DeepSeek/Qwen 等）开放 Anthropic `/v1/messages` 与 OpenAI 兼容端点后，「用 Claude 的协议跑别家的模型」使 `service`（协议族）与 `channel_type`（线路性质）都回答不了「这条通道跑的是谁家的模型」，故抽成独立第三根轴。
 
 - **受控词表单一真相源** = `internal/modelvendor`（stdlib-only 叶子包，`config` 反向 import 它，别在包内 import 仓库其它包）。code 一经发布**不可复用于另一厂商**——它进 `/api/status` wire，并作为跨产品契约被 rpdiag 消费。
-- **取值链与 `Model`/`RequestModel` 完全同款**：`config 行级 > template`（`lifecycle.go` 注入），且**与 `RequestModel` 一样参与父子继承**（`inheritCoreBehavior`）——注意与 `Model` 相反，`Model` 是父子的区分字段故刻意不继承，vendor 是通道内共享字段。
+- **vendor 是逐模型（行级）属性，同一通道的各层可属于不同厂商**：火山方舟这类聚合平台一个入口卖多家模型，放进同一条通道、前端逐模型出图标，而不是按厂商拆成十几行。
+- **取值链与 `Model`/`RequestModel` 完全同款**：`config 行级 > template`（`lifecycle.go` 注入）；父子继承（`inheritCoreBehavior`）**只对非 native 模板生效**——native 子行不继承父行的 `ModelVendor` 与 `RequestModel`：`request_model` 留空是正常形态（`{{MODEL}}` 回退到本行 `model`，native 行的 `model` 本就写完整模型 ID）；`model_vendor` 留空则保持空、由 `validateFinal` 告警。理由：混厂商通道里父行 DeepSeek、子行 GLM 是常态，子行漏填时继承＝图标显示错厂商、请求真的打到父行模型（显示「无厂商」是缺信息，显示错厂商是错信息）。判定看子行**继承模板之后**的 `Template`。代价：单厂商的 native 多模型通道每个子行都要写 vendor（守卫 `TestValidateFinal_NativeChildMustDeclareOwnVendor`、`TestInheritCoreBehavior_*`）。
 - **只有一个校验函数，且刻意没有 fail-closed 运行时闸**（与 `model_id` 的双函数分工**不同**，别照搬）：
-  - `validateModelVendors`（宽松，**一直生效**）：挂在 `validateResolvedModelConstraints` 里——**不是** `validate()`。因为 vendor 可能来自 template，挂在模板解析之前则模板声明的 vendor 永不过校验、同通道跨模板的厂商冲突也看不见。它顺带把合法值写回规范形式（小写 trim）。
+  - `validateModelVendors`（宽松，**一直生效**）：只做逐行词表校验，**不做同通道一致性**（曾有的「一个通道一个厂商」规则已随混厂商通道取消）。挂在 `validateResolvedModelConstraints` 里——**不是** `validate()`，因为 vendor 可能来自 template，挂在模板解析之前则模板声明的 vendor 永不过校验。它顺带把合法值写回规范形式（小写 trim）。
   - ⚠️ **别加 fail-closed 运行时闸**。Phase 1 曾写过 `CheckRuntimeModelVendors`，Phase 3 已连同其测试一起删除。理由：vendor 无法像 `model_id` 那样由 loader 自动派生（`loader.go` 给内联行补 `md_<uuidv5>`；而从 `request_model` 前缀反推厂商是被明令禁止的），接闸会让任何自己手写内联监测行、不套内置模板的自托管用户升级即 crash-loop——正是 v2.69.2 修过的伤害类别。
   - **我方生产的覆盖改由「内置模板全覆盖」保证**：`templates/` 下所有非 native 模板全部声明 vendor（`cc-*`→`anthropic`、`cx-*`→`openai`、`gm-*`→`google`；kiro 逆向线路跑的仍是 Claude 模型故同为 anthropic），而生产 `monitors.d/` 每一行都引用模板。**唯一例外是 native 族**（厂商无关、由监测行填 vendor），故套 native 模板的行必须行级写 `model_vendor`。守卫是 `TestBundledTemplatesDeclareModelVendor`（双向锁死，已 bite-test 验非真空）。
 - **native 模板族**（`<service>-native-*`：`cc-native-arith` / `cx-native-arith`）承接第一方厂商的 Anthropic Messages / OpenAI Responses 兼容端点，是**厂商无关**的：刻意不声明 `model`/`request_model`/`model_vendor`，三者必须由监测行按厂商填写。
 
   ⚠️ **自 2026-08-21 起本族全部标了 `self_serve_visible: false`，是 admin-only 的**——公开表单已不给提交方任何填模型的入口（见下方「Onboarding 通道标识派生」），一个要求行级填模型的模板留在表单里只会让人选中后卡在「模板未声明模型」。生产上那批火山方舟通道（2026-09-16 起 14 条）继续跑在本族模板上，**变更流程完全不受影响**：`internal/change/index.go` 构建候选与 `defaultTestVariant` 都不看可见性，`buildChangeTestConfig` 走的是 `ResolveVariant` 而非 onboarding 的 `resolveSelfServeTemplate`（守卫 `TestAuthIndex_Rebuild_SelfServeHiddenVariantsStillUsable`，已 bite-test 验非真空）。**要给自助表单加第一方厂商模型，是复制本族模板做一个专属模板，不是把本族标回可见。**
 
-  **别给它补 vendor**——行级漏填时会经 `config > template` 回退链静默继承成错误厂商（`config.IsNativeProbeTemplate` 与守卫测试锁死这条）。请求形态与 `cc-haiku-arith`/`cx-gpt54-arith` 逐字一致（含 Claude Code / Codex CLI 私有 header 与身份串）：厂商开放兼容端点正是为承接这两个客户端，且保持严格形态使 native 模板**不构成** mock 回显作弊的宽松入口（spec 决策 D7 那条「宽松模板绝不回流给中转商通道」的硬规则因此无从触发；若某厂商确实不认某个头，另拆该厂商专用模板，别放宽通用模板）。行级漏填 vendor 时由 `validateFinal` 出一条**告警**（不阻断——挂 `validateFinal` 而非 `validateModelVendors` 是时序决定的：后者早于父子继承，在那里判空会误伤「vendor 只写父行、子行继承」）。判定函数是 `SplitN(name,"-",3)`，故**四段名同样算 native**（`cc-native-arith-nothink` → `["cc","native","arith-nothink"]`）。
+  **别给它补 vendor**——行级漏填时会经 `config > template` 回退链静默继承成错误厂商（`config.IsNativeProbeTemplate` 与守卫测试锁死这条）。请求形态与 `cc-haiku-arith`/`cx-gpt54-arith` 逐字一致（含 Claude Code / Codex CLI 私有 header 与身份串）：厂商开放兼容端点正是为承接这两个客户端，且保持严格形态使 native 模板**不构成** mock 回显作弊的宽松入口（spec 决策 D7 那条「宽松模板绝不回流给中转商通道」的硬规则因此无从触发；若某厂商确实不认某个头，另拆该厂商专用模板，别放宽通用模板）。行级漏填 vendor 时由 `validateFinal` 出一条**告警**（不阻断——挂 `validateFinal` 而非 `validateModelVendors` 是时序决定的：后者早于父子继承，没写 template 的子行那时还没拿到父行的 native 模板名，判不出它是 native 行）。判定函数是 `SplitN(name,"-",3)`，故**四段名同样算 native**（`cc-native-arith-nothink` → `["cc","native","arith-nothink"]`）。
 
   **族内现有 5 个，按厂商模型的思考行为选型（全部经真端点实测得出，别凭猜换）**：
 
@@ -276,20 +277,20 @@ HTTP 响应
   ⚠️ **接第一方厂商最容易踩的坑**：给默认开思考的模型套 `max_tokens:20`，thinking 会吃光预算 → `stop_reason=max_tokens`、正文一个字都没有 → 内容校验判红。症状是「HTTP 200 却恒红 content_mismatch」。
   ⚠️ **选型会过期——厂商可能中途撤回对某个字段的支持**。2026-08-31 火山方舟 GLM 系开始对 `thinking.disabled` 返 400（`thinking.type 'disabled' is not supported by this model`），`ark/cc/o-nat-glm` 自此恒红 16 天；同期 `ark/cx` 的 GLM 一直是绿的（那个模板不发 thinking），两边分裂正是这类「模板字段被撤回」的典型形状。**给 native 通道排障时，先用 `-512` 打一发对照再下「模型下架」的结论**：同一个错误既可能来自模型名失效，也可能来自请求字段失效，只有换模板对照能把两者分开。另注意 ark 这批都设了 `auto_move_exempt: true`，恒红**不会**掉板，也就没有任何被动提醒。
 - **收录来源**：`ChannelSourceCatalog` 的 `cc`/`cx` 各有一条 `nat`「厂商官方 API（自有模型）」（`Category=official` → 自动落 `O`）。`gm` 不加，Gemini 的 `api`（AI Studio）本身就是第一方入口。
-- **「一个通道一个厂商」不变量**：同一 PSC 三元组下**均非空**的 vendor 必须一致。只比非空值是刻意的——回填期必然出现同通道半填状态。聚合平台请按厂商拆成不同通道（复用 `channel_group`）。
 - **禁止从 `request_model` 前缀反推 vendor**（无论 relay-pulse 还是 rpdiag）：模型 ID 命名不稳、中转商可改写、同模型多别名，必然产生 join 漂移。vendor 是**声明**的，不是猜的。
-- **前端（Phase 2 已落）**：「模型厂商」列紧挨在「模型」列**左侧**（v2.93.1 起由右侧改来——厂商是模型的上位概念、一个通道恒定一家，而多模型通道的模型格是三四行；整张表因此与顶部筛选器同为「从粗到细」＝服务商→服务→通道→厂商→模型）。桌面表出「图标 + 厂商名」，**移动卡片与 grid `StatusCard` 仍 icon-only**（那两处一行要同时塞通道名与模型名）。可排序（sort key `modelVendor`，按 **code** 字典序、未声明厂商恒沉底）、可筛选（URL 参数 `vendor`，**受 `hide_vendor_filter` 运行时开关门控**，生产 2026-09-16 起为显示）。列序由 `columns.ts` 顶部的 canonical 注释 + `statusTableColumns.test.tsx` 的 32 种全组合守卫钉死，改序必须同步 colgroup/thead/td 三处。三个渲染出口（桌面表 / 移动卡片 / grid `StatusCard`）共用同一个 `showVendorColumn` 开关——`StatusCard` 那个 prop **刻意是必填**：它原本可选带 `false` 默认值，两个 grid 调用点都漏传，卡片视图便永远不显示厂商（Phase 3 修复），现在漏传直接编译不过。
-  - **列显隐是数据驱动的，且基于「未筛选」数据判定**（App 用 `rawData`、ProviderPage 用按本 provider 过滤的 `rawData`）：全站没有任何通道声明厂商时（回填前的现状）整列 + 筛选器 + 服务列 ⓘ 全部不渲染，对用户零变化；用已筛数据算会让「筛一下列就冒出来/消失」。
-  - **通道级厂商由 `deriveChannelVendor` 从各 layer 推导，规则严于后端校验**：后端只要求同通道**非空**值一致（回填期半填合法），前端要求**所有** layer 非空且同值，否则视为未知显示 `-`。半填状态显示成某厂商 = 用一半证据给出十成确定性，而厂商列的全部价值就是「别把 GLM 当成 Claude」。
-  - 厂商展示名 `vendors.<code>` 四语言在前端，**词表本身仍只有后端一份**；未收录的 code 原样显示 code、不出图标，绝不猜名字。
-  - 「服务」列表头加了 ⓘ 说明「服务=接入协议族，模型是谁家的看厂商列」——**与厂商列同生共死**（厂商列不在时该文案会指向一个看不见的列）。站长 2026-08-05 拍板：筛选下拉**保留客户端名**（`Claude Code (CC)`），不按 spec 字面改成协议名（用户是按「我用哪个客户端」找的）。
+- **前端：厂商不是一列，是模型格里每个模型名前的图标**（2026-10 起；此前是模型列左侧的独立「厂商」列，通道级单值）。数据上 `modelEntries[i].vendor` 与模型名同一个 entry 产出，渲染组件 `components/table/ModelName.tsx`——**别按下标回查 `item.layers`**，`modelEntries` 会滤掉空模型层，下标错位图标就挂到别家模型上。图标槽恒占位（无厂商/词表外 code 留同宽空白），多模型通道的名字才对得齐；全名在 title/aria-label。移动卡片只放首个模型（带它自己的图标）+「+N」，完整「厂商 · 模型 ID」列表走 title；grid `StatusCard` 不列模型名，在服务徽章旁按通道涉及的厂商（`modelVendors`）各出一个图标。
+  - **通道级只剩 `modelVendors: string[]`**（各层非空 vendor 规范化去重，`collectLayerVendors`），用于筛选和 grid 卡片的厂商图标。厂商筛选是 **any 语义**（任一模型命中即保留整行，行内其余模型照常显示），与「模型」筛选器同口径；下拉计数＝含该厂商的通道数。四处平行过滤链（`useFilteredData` / `useMonitorData` / `useFilterOptions` / `ProviderPage`）必须同步改。
+  - 厂商排序已下线：旧链接 `?sort=modelVendor_*` 在 `useUrlState` 的 `RETIRED_SORT_KEYS` 里视同无排序（也不算「手动排过序」，不影响赞助置顶），URL 由 `useUrlStateReconcile` 清掉。
+  - 筛选器显隐仍是 `Controls` 内「有选项才出」+ `hide_vendor_filter` 运行时开关；服务列 ⓘ 由 `hasVendorData`（基于**未筛选**数据）门控。
+  - 厂商展示名 `vendors.<code>` 四语言在前端，**词表本身仍只有后端一份**；未收录的 code 在模型格里不出图标也不出 title（不给虚假的可访问名称），移动端 title 与 grid 卡片（`VendorBadge` 无图标时退回文字）原样显示 code，绝不猜名字。
+  - 「服务」列表头 ⓘ 说明「服务=接入协议族，模型是谁家的看模型名前的厂商图标」。站长 2026-08-05 拍板：筛选下拉**保留客户端名**（`Claude Code (CC)`），不按 spec 字面改成协议名（用户是按「我用哪个客户端」找的）。
   - `channel_type=O` 文案已按 spec 改为「官方直连 / 官方转售」，措辞保持既有的不背书口径（「服务商声称/标记」）。
 - **第一家第一方厂商已接（2026-08-05，v2.73.0）**：火山方舟 `ark`，`channel_type=O` + `channel_source=nat` + `key_type=user`，当日即升 **board=hot**，且全批 `auto_move_exempt`/`auto_cold_exempt` 双真（恒红也不掉板，见下条 ⚠️）。收录时 5 厂商 × cc/cx 共 10 条，**2026-09-16 起 14 条**（GLM/DeepSeek 各补了一条 Flash 低档位）。故生产厂商值现有 8 种（原厂三家 + bytedance/zhipu/moonshot/minimax/deepseek）。
   - ⚠️ **收录 native 模板通道必须走 admin API，不能手写 monitors.d**：手写文件缺 `model_id` 会被 fail-closed 闸拒绝整份加载，admin 写路径（`MonitorStore.Create/Update` → `BackfillFileIDs`）才会自动补 `model_id`/`channel_id`。
   - ⚠️ **admin JSON API 传不了 `request_model`**（`ServiceConfig.RequestModel` 标了 `json:"-"`，admin UI 也没这个字段——历史上它一律来自模板，native 族是第一个要求行级填的）。解法是 `model` 直接写完整模型 ID，靠 `{{MODEL}}` 的 `request_model → model` 回退链；副作用正面：`model` 作 DB 业务键更稳、不会因改展示名断历史。若将来要「短展示名 + 长请求 ID」，得先给 `RequestModel` 开 json tag。
 **⚠️ 「模型」筛选器（v2.82+，前端独有，不进 wire）**：按**版本级模型名**筛（`opus-4.8` / `gpt-5.6-terra`），下拉按**家族**分组、组标题一键全选该家族全部版本。四条踩过的坑：
 
-- **命中是 any（通道级）语义，绝不能照搬 vendor 的 all-agree**。`deriveChannelVendor` 要求一个通道所有 layer 同厂商才认，这在 vendor 上零成本（生产 0 个通道跨厂商）；但生产 18 个多 layer 通道**全部是多模型**（saiai 的 `[Opus, Sonnet, Fable 5.1]`、modelflare 的四个 GPT 变体…），要求「所有 layer 同模型」会让它们一条都筛不出来。
+- **命中是 any（通道级）语义**（厂商筛选同口径）。生产 18 个多 layer 通道**全部是多模型**（saiai 的 `[Opus, Sonnet, Fable 5.1]`、modelflare 的四个 GPT 变体…），要求「所有 layer 同模型」会让它们一条都筛不出来。
 - **过滤必须在 `useFilteredData` 与 `useMonitorData` 两处同时加**（两者是复制关系，注释里写明「逐字一致」）。顶部「正常运行/异常告警」统计走后者，只改前者会让表格 6 行、统计仍显示 66/18。
 - **家族是展示层反推，不越「模型是声明的、不是反推的」那条红线**：模型列渲染的本来就是 `shortenModelName(request_model)` 的派生结果，家族只是同一条既有派生链上再分一桶，不进 wire、不参与可信性判断、归错只影响分组。判定用「前缀 + 段边界」而非穷举模型 ID——后者会让新上的 `claude-opus-5-1` 静默掉进「其他」组且不报错。词表在 `frontend/src/utils/modelFamily.ts`，家族间前缀互不吞并有结构性断言守着。
 - **选项的 label/family 取自未经筛选的全量数据**。已选项被联动条件排除后仍要标 `(0)` 保留，此时它已不在子集里；Gemini 尤其明显——展示名被剥了厂商前缀（`gemini-2.5-flash` → `2.5-flash`），从 canonical key 反推不出家族，只有全量映射知道。选项构建由 `utils/modelFilter.buildModelOptions` 单一提供，首页与服务商页共用（那两页的筛选链路本就是各写一套的平行实现，别落下第三份）。
@@ -454,7 +455,7 @@ HTTP 响应
   - **admin 侧一字未动**：`Submission.Model/ModelVendor`、DB 两列、`AdminUpdate`（model/model_vendor **刻意支持显式清空**：模板从 native 改回普通模板时必须能清，否则组合校验会把这条申请永久卡死）、`AdminPublish` 的 `validateMonitorConfig`（在 `AdminConfigJSON` 整份覆盖**之后**跑）全部保留——那是管理员逃生口，火山方舟那批 native 通道靠它上架。`ValidateModelSelection` 的完整规则（native 漏填即拒、非 native 多填即拒、model 走严格 ASCII 白名单 `^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$` ≤128 字节——理由是 body 按**原始字节**发送、`{{MODEL}}` 是纯字符串替换且同时作用于 URL/headers/body/success_contains）在 admin 路径上照旧全部生效。
   - **proof 绑定**：`ProofClaims.Model` 在公开路径上恒为空串（签发端与校验端同为 `ValidateModelSelection` 的返回值），模板由 `Variant` 绑住——公开流程的模型由模板唯一决定，绑住模板即绑住模型。⚠️ 这意味着**任何 `claims.Model` 非空的 proof 在公开提交侧一律验签失败**，部署瞬间在途的浏览器测试需重测（TTL 5min，与 v2.79.0 那次 proof v2 升级同类）。
   - **模板闸 `resolveSelfServeTemplate`** 不变：模板必须是**本 service** 已注册变体且 `self_serve_visible`——管理员改 `template_name` 上架内部模板仍是有意保留的逃生口。
-  - **wire 变更**：`/api/onboarding/meta` 的 `request_shapes_by_service` 字段已删除（它只服务于「自填模型」那条已下线的路径）；`model_vendors` 保留——主表格厂商列（`useModelVendors`）、模型下拉的 optgroup 分组标题、admin 表单都还在消费它。
+  - **wire 变更**：`/api/onboarding/meta` 的 `request_shapes_by_service` 字段已删除（它只服务于「自填模型」那条已下线的路径）；`model_vendors` 保留——收录表单模型下拉的 optgroup 分组标题、admin 表单的厂商下拉（`useModelVendors`）都还在消费它。
 
 **PSC 各段（含三个 `target_*` 覆盖值）一律走 `config.ValidateProviderSlug`**——小写字母、数字、短横线，不能首尾短横线、**不能连续短横线**、≤100 字符。收紧到与 loader 同源是必须的：段内出现 `--` 会让 `ParseMonitorFileKey`（`SplitN(key,"--",3)`）把 `{provider}--{service}--{channel}` 文件名切错位，且加载期的 `ValidateProviderSlug` 会拒掉整份配置 = 「上架 200、热加载失败、重启拉不起来」。管理员填错覆盖值时返 `InvalidPSCOverrideError`（handler 映射 400、消息点名是哪一格），与「没填覆盖值、展示名又派生不出合法 slug」的 `InvalidProviderSlugError` 分开——两者处置动作不同。`AdminUpdate` 保存时对本次请求带来的 `target_*` 同规则 fail-fast（空串合法=清空覆盖；只校验本次改的字段，故存量脏值不会卡死无关编辑）。`AdminUpdate` 仅当 service/type/source/group 四元组真正变化时才重派生 channel_code（保护 legacy 两段记录），并对 channel_type(O/R/M)、service_type(cc/cx/gm) 做枚举校验。管理员可在发布前通过 `target_channel` 覆盖派生值（**故意保留的逃生口，不受三段命名约束**——但字符集规则同上，用于 legacy 与特殊命名）。前端 `ChannelTypeIcon` 通过首字母（大小写不敏感）识别通道类型图标（o→官方、r→逆向、m→混合）。
 

@@ -25,10 +25,10 @@ type ServiceConfig struct {
 	ModelID      string       `yaml:"model_id,omitempty" json:"model_id,omitempty"` // 监测行稳定唯一 id（md_<uuidv4>），系统生成、不可变；与 Model 一样不参与父子继承。Phase 1 起作内部存储键
 	ChannelID    string       `yaml:"-" json:"-"`                                   // 运行时注入：所属文件 channel_id 下沉到行（loadMonitorsDir），不持久化，经 MonitorResult.channel_id 暴露
 	RequestModel string       `yaml:"request_model,omitempty" json:"-"`             // 实际请求模型 ID（注入 {{MODEL}}/{{REQUEST_MODEL}}，为空时回退 Model）
-	// ModelVendor 模型厂商受控 code（词表见 internal/modelvendor）。与 Model/RequestModel 一样
-	// 可由 template 提供、config 行级覆盖；与 RequestModel 一样参与父子继承——同一通道的各 model
-	// 层必属同一厂商（「一个通道一个厂商」不变量，见 validateModelVendors）。
-	// 注意它与 Model 的继承语义相反：Model 是父子的区分字段故不继承，vendor 是通道内共享字段。
+	// ModelVendor 模型厂商受控 code（词表见 internal/modelvendor），是**行级**属性：同一通道的
+	// 各 model 层可属于不同厂商。取值链 config 行级 > template；父子继承只对非 native 模板
+	// 生效（native 子行必须自己写，理由见 inheritCoreBehavior）。
+	// 与 Model 不同的是它会被继承：Model 是父子的区分字段，vendor 是可共享的默认值。
 	ModelVendor string `yaml:"model_vendor,omitempty" json:"model_vendor,omitempty"`
 	Parent      string `yaml:"parent" json:"parent,omitempty"`             // 父通道引用，格式 provider/service/channel
 	ChannelName string `yaml:"channel_name" json:"channel_name,omitempty"` // Channel 显示名称（可选，未配置时回退到 channel）

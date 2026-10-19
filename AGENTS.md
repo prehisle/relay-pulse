@@ -33,14 +33,15 @@
 - native 族现有 5 个，选型看厂商模型的思考行为（均经真端点实测，别凭猜换）：`cc-native-arith`（`max_tokens:20`，不开思考的模型）／`cc-native-arith-nothink`（`thinking.disabled`+64，**默认开思考且认这个开关**的模型，首选）／`cc-native-arith-512`（仅放大预算，**默认开思考却不认 thinking 开关**的模型，如 kimi、以及 2026-08-31 起的 GLM 系）／`cx-native-arith`（`{{BASE_URL}}/v1/responses`）／`cx-native-arith-noreason`（`{{BASE_URL}}/responses` + 无 `reasoning` 字段）。⚠️ 两个 cx 模板的 **base_url 契约相反**：前者要求 base **不含**版本段、后者要求**已含**（如火山方舟 `…/api/coding/v3`）；填错只会在探测时变红，加载期无校验，选模板时先对齐 base_url 形态。
 - 给带思考的模型套 `max_tokens:20` 会让 thinking 吃光预算、`stop_reason=max_tokens` 正文为空 → 内容校验判红。这是接第一方厂商最容易踩的坑。
 - ⚠️ 模板选型会过期：厂商可能中途撤回对某字段的支持（火山方舟 GLM 系 2026-08-31 起对 `thinking.disabled` 返 400，`ark/cc/o-nat-glm` 恒红 16 天）。native 通道排障**先换 `-512` 打一发对照**再下「模型下架」结论；ark 那批设了 `auto_move_exempt: true`，恒红不掉板、没有被动提醒。
-- 前端（Phase 2 已落）：厂商列/筛选/图标/四语言已做。列显隐由 `showVendorColumn` 单一开关驱动，基于**未筛选**数据判定；通道级厂商要求**所有** layer 非空且同值，否则显示 `-`。未收录 code 原样显示 code，不猜名字。**v2.93.1 起厂商列紧挨在模型列左侧**（原在右侧），桌面表出「图标 + 厂商名」而移动卡片/grid 卡片仍 icon-only；列序在 colgroup/thead/td **三处**各写一遍，漏改一处整表错位，守卫是 `statusTableColumns.test.tsx` 的 32 种全组合。
+- **vendor 是逐模型（行级）属性，同一通道各层可属于不同厂商**（聚合平台一个入口卖多家模型，放同一条通道）。**native 子行不继承父行的 `model_vendor`/`request_model`**（继承＝混厂商通道里显示错厂商、请求错模型），`request_model` 留空回退本行 `model`（正常形态）；`model_vendor` 每行自己填，漏填由 `validateFinal` 告警。
+- 前端：没有独立厂商列，模型格里每个模型名前出它自己的厂商图标（`components/table/ModelName.tsx`，图标与名字取自同一个 `modelEntries` entry，别按下标回查 `layers`）。通道级只剩 `modelVendors[]` 供筛选，厂商筛选与模型筛选同为 **any 语义**，四处平行过滤链要同步改。未收录 code 不出图标、不猜名字。列序在 colgroup/thead/td **三处**各写一遍，守卫是 `statusTableColumns.test.tsx` 的全组合。
 - **自助收录：提交方只选模型，模型 ID / 厂商 / 请求形态一律由模板钉死**（站长 2026-08-21 裁定，推翻了同日早些时候「让用户填」的做法）。第一方厂商模型各有一个**专属模板**（`cc-glm52-arith`、`cx-doubao-seed21turbo-arith` …），与 Anthropic/OpenAI/Google 的模板同一形态。理由：厂商下拉与模型选择解绑就能提交出「模型 ID 是豆包、厂商标成智谱」，请求形态选错的症状是 HTTP 200 却恒红 `content_mismatch`——这三项只有我们判得了对错。新模型走 `/contact`，我们评估后加模板。
   - ⚠️ **模板文件名不跟模型版本走**：模板名是配置业务键，配置加载 fail-closed（模板找不到 = 整份加载失败、容器起不来），故厂商升版本时改 JSON 里的模型元数据、**不改文件名**（请求形态另按兼容性证据定：cc 侧本次就因厂商撤回 `thinking.disabled` 而照 `cc-native-arith-512` 重做了 body）——`cc-glm52-arith` 自 2026-09-20 起跑的是 `glm-5.3`。别以为 `self_serve_visible` 意味着没人引用：它只挡公开表单，admin 发布会把 `Submission.TemplateName` 原样写进 monitor 配置。改名前要只读核对四处：`monitors.d`、内联 `config.yaml`、`onboarding_submissions.template_name`(pending/approved)、`change_requests.test_variant`。
   - 公开请求体（`SubmitRequest` / `inlineTestRequest`）**没有** `model`/`model_vendor` 字段，客户端塞了会被 `ShouldBindJSON` 丢弃——不变量由结构体形状保证，不靠纪律。⚠️ 别为了「让提交方填模型」把字段加回来：`ValidateModelSelection` 对**非 native + 仅 vendor 非空**是放行的，而行级 vendor 在回退链里优先于模板值，字段一旦存在，直连 API 就能把 GLM 通道标成 Anthropic。
   - `Submission.Model/ModelVendor`、DB 列、`AdminUpdate`（支持**显式清空**）、`AdminPublish` 的 `validateMonitorConfig` 全部**保留**——那是 admin 逃生口，火山方舟那批 native 通道靠它。
   - 两条公开入口仍调 `ValidateModelSelection(template, "", "")` 作第二道 fail-closed：万一有人把 native 模板标回可见，它会在测试入口就报可读错误，而不是带着 `"model": ""` 去打上游。
-  - `/api/onboarding/meta` 的 `request_shapes_by_service` 字段**已删除**（wire 变更）；`model_vendors` 保留（主表格厂商列、下拉分组标题、admin 表单仍在用）。
-- 细节（校验挂载点为何是 `validateResolvedModelConstraints` 而非 `validate()`、「一个通道一个厂商」不变量）见 `CLAUDE.md`。
+  - `/api/onboarding/meta` 的 `request_shapes_by_service` 字段**已删除**（wire 变更）；`model_vendors` 保留（收录表单下拉分组标题、admin 表单仍在用）。
+- 细节（校验挂载点为何是 `validateResolvedModelConstraints` 而非 `validate()`、native 子行为何不继承身份）见 `CLAUDE.md`。
 
 ## 探针模板硬约束（改 `templates/` 前必读）
 

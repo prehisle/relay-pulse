@@ -104,13 +104,11 @@ func (c *AppConfig) validateResolvedModelConstraints() error {
 
 // validateModelVendors 宽松校验模型厂商，并把合法值写回规范形式。
 //
-// 两条规则：
-//  1. 非空值必须是受控词表内的 code（见 internal/modelvendor）；空值放行。
-//  2. 同一通道（PSC 三元组）下**均非空**的 vendor 必须一致——「一个通道一个厂商」不变量，
-//     它让 vendor 退化为通道级单值，前端列可排序/筛选，也给 rpdiag 干净的分组键。
+// 非空值必须是受控词表内的 code（见 internal/modelvendor）；空值放行。
 //
-// 只比较非空值是刻意的：既容忍「同通道一行已填、一行还空」的中间态，也容忍完全不关心
-// 厂商的自托管部署。
+// 只做逐行校验，不做跨行一致性：vendor 是行级属性，同一通道（PSC 三元组）的各层可以
+// 属于不同厂商——火山方舟这类聚合平台一个入口同时卖 DeepSeek / GLM / 豆包…，按厂商拆
+// 成多条通道只会让同一个入口在面板上占十几行。前端在每个模型名前单独出厂商图标。
 //
 // ⚠️ 与 model_id 不同，vendor **没有** fail-closed 运行时闸，将来也别加：它无法像
 // model_id 那样由 loader 自动派生（禁止从 request_model 前缀反推厂商——模型 ID 命名不稳、
@@ -119,10 +117,6 @@ func (c *AppConfig) validateResolvedModelConstraints() error {
 // 我方生产的覆盖靠「内置模板全部声明 vendor」保证，守卫见
 // TestBundledTemplatesDeclareModelVendor；native 模板那条唯一的例外由 validateFinal 告警兜。
 func (c *AppConfig) validateModelVendors() error {
-	// key = provider/service/channel，value = 该通道首个非空 vendor（已规范化）。
-	// 键的拼法与 validateMonitorUniqueness 的四元组键保持一致（PSC 各段的合法字符集
-	// 已由 validateMonitorFields 在更早阶段限定为小写，故无需再额外归一化）。
-	firstByChannel := make(map[string]string, len(c.Monitors))
 	for i := range c.Monitors {
 		m := &c.Monitors[i]
 
@@ -132,20 +126,6 @@ func (c *AppConfig) validateModelVendors() error {
 		}
 		// 写回规范形式，使下游（/api/status wire、跨产品 join）只需处理规范值。
 		m.ModelVendor = code
-		if code == "" {
-			continue
-		}
-
-		key := fmt.Sprintf("%s/%s/%s", m.Provider, m.Service, m.Channel)
-		if first, seen := firstByChannel[key]; seen {
-			if first != code {
-				return fmt.Errorf("monitor[%d] %s: 同一通道 %s 内 model_vendor 不一致（已有 %q，本行 %q）——"+
-					"一个通道只能属于一个厂商，聚合平台请按厂商拆成不同通道（channel_group）",
-					i, modelIDLocation(*m), key, first, code)
-			}
-			continue
-		}
-		firstByChannel[key] = code
 	}
 	return nil
 }
@@ -207,12 +187,13 @@ func (c *AppConfig) validateFinal() []error {
 
 		// native 模板厂商无关（见 IsNativeProbeTemplate），vendor 只能由监测行填写，没有模板兜底。
 		// 只告警不阻断：本仓库对 vendor 刻意不设 fail-closed 运行时闸（理由见
-		// TestBundledTemplatesDeclareModelVendor），且漏填的后果是前端厂商列显示「未知」——
+		// TestBundledTemplatesDeclareModelVendor），且漏填的后果是前端厂商图标缺失——
 		// 是缺信息，不是错信息。
 		// 必须挂在 validateFinal 而非 validateModelVendors：后者跟在 resolveTemplates 里执行，
-		// 早于父子继承（normalize 第 7 步），在那里判空会误伤「vendor 只写父行、子行靠继承」。
+		// 早于父子继承（normalize 第 7 步），没写 template 的子行那时还没拿到父行的 native 模板名，
+		// 判不出它是 native 行。native 子行不继承 vendor（见 inheritCoreBehavior），漏填在这里必现。
 		if IsNativeProbeTemplate(m.Template) && strings.TrimSpace(m.ModelVendor) == "" {
-			warns = append(warns, fmt.Errorf("monitor[%d] %s/%s/%s: 使用第一方厂商通用模板 %q 却未填 model_vendor，厂商列将显示为未知",
+			warns = append(warns, fmt.Errorf("monitor[%d] %s/%s/%s: 使用第一方厂商通用模板 %q 却未填 model_vendor，模型前将不显示厂商图标",
 				i, m.Provider, m.Service, m.Channel, m.Template))
 		}
 

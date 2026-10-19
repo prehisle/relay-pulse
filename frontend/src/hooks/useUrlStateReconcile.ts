@@ -11,10 +11,6 @@ export interface UrlStateReconcileParams {
   boardsEnabled: boolean;
   board: BoardFilter;
   setBoard: (board: BoardFilter) => void;
-  /** 未筛选数据的条数——厂商列判定的首屏闸。 */
-  rawDataLength: number;
-  /** 厂商列是否可见（由 rawData 派生）。 */
-  showVendorColumn: boolean;
   clearPriceRatioSort: () => void;
   clearQualityScoreSort: () => void;
   clearModelVendorSort: () => void;
@@ -32,8 +28,6 @@ export function useUrlStateReconcile({
   boardsEnabled,
   board,
   setBoard,
-  rawDataLength,
-  showVendorColumn,
   clearPriceRatioSort,
   clearQualityScoreSort,
   clearModelVendorSort,
@@ -65,12 +59,8 @@ export function useUrlStateReconcile({
     }
   }, [boardsEnabledLoaded, boardsEnabled, board, setBoard]);
 
-  // 同理：厂商列不可见时抹掉残留的 modelVendor_* URL 排序。
-  // ⚠️ 必须等 rawData 到货再判——首屏 rawData 为空时 showVendorColumn 恒 false，
-  // 不加这道闸会把用户带 ?sort=modelVendor_asc 的分享链接在数据到达前就清掉。
+  // 厂商排序已删除：首屏即清理旧链接，不依赖数据是否返回。
   useEffect(() => {
-    if (rawDataLength > 0 && !showVendorColumn) {
-      clearModelVendorSort();
-    }
-  }, [rawDataLength, showVendorColumn, clearModelVendorSort]);
+    clearModelVendorSort();
+  }, [clearModelVendorSort]);
 }

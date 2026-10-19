@@ -1,13 +1,5 @@
 // @vitest-environment jsdom
-//
-// 模型厂商列（model_vendor 正交轴 Phase 2）守护。钉死三条性质：
-//   ① showVendorColumn=false 时整列（表头 + 单元格 + 服务列 ⓘ）完全不存在
-//      —— Phase 3 回填厂商之前生产就是这个态，「对用户零变化」必须可证；
-//   ② showVendorColumn=true 时表头出现、有厂商的行出图标+名字、没厂商的行是 "-"
-//      （不是空白，否则读不出"这条没声明"）；
-//   ③ 表体单元格数与表头列数一致 —— colgroup/th/td 三处漏改一处就会整表错位，
-//      这是新增条件列最典型的 bug 类别。
-// 用 react-dom/client 在 jsdom 真实渲染，沿用 qualityUnavailable.test 形态、零新依赖。
+// 逐模型厂商图标、占位与服务列说明；保留通用徽章测试。
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -40,7 +32,7 @@ function monitor(overrides: Partial<ProcessedMonitorData>): ProcessedMonitorData
   };
 }
 
-function renderTable(data: ProcessedMonitorData[], showVendorColumn: boolean): HTMLElement {
+function renderTable(data: ProcessedMonitorData[], hasVendorData: boolean): HTMLElement {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -58,7 +50,7 @@ function renderTable(data: ProcessedMonitorData[], showVendorColumn: boolean): H
           onBlockHover={() => {}}
           onBlockLeave={() => {}}
           rpdiagEnabled={false}
-          showVendorColumn={showVendorColumn}
+          hasVendorData={hasVendorData}
         />
       </I18nextProvider>,
     );
@@ -82,87 +74,39 @@ beforeAll(async () => {
   })) as unknown as typeof window.matchMedia;
 });
 
-describe('模型厂商列', () => {
-  it('showVendorColumn=false：表头、单元格、服务列 ⓘ 全部不渲染', () => {
-    const container = renderTable([monitor({ modelVendor: 'zhipu' })], false);
-
-    const headers = Array.from(container.querySelectorAll('thead th')).map((th) => th.textContent ?? '');
-    expect(headers.some((h) => h.includes('厂商'))).toBe(false);
-    // 即使该行有 vendor，列关掉就一个字都不出
-    expect(container.textContent).not.toContain('智谱');
-    // 服务列 ⓘ 浮层触发器（文案指向厂商列）同样不渲染
-    expect(container.querySelector('thead button[aria-label], thead [data-info-popover]')).toBeNull();
+describe('模型名前的厂商图标', () => {
+  it('混厂商模型分别带自己的图标，无厂商或未知厂商保留占位', () => {
+    const container = renderTable([monitor({ modelVendors: ['zhipu', 'deepseek', 'brandnew'], modelEntries: [
+      { model: 'GLM', requestModel: 'glm-5.3', vendor: 'zhipu' },
+      { model: 'DeepSeek', requestModel: 'deepseek-v4-pro', vendor: 'deepseek' },
+      { model: 'Other', requestModel: 'other' },
+      { model: 'New', requestModel: 'new', vendor: 'brandnew' },
+    ] })], true);
+    const headers = Array.from(container.querySelectorAll('thead th'));
+    expect(headers.some(th => th.textContent?.includes('厂商'))).toBe(false);
+    const modelIndex = headers.findIndex(th => th.textContent?.includes('模型'));
+    const cell = container.querySelectorAll('tbody tr')[0].querySelectorAll('td')[modelIndex];
+    const slots = Array.from(cell.querySelectorAll('span')).filter(span => span.classList.contains('w-3.5'));
+    expect(cell.querySelector('[data-model-vendor="zhipu"]')?.getAttribute('aria-label')).toBe('智谱');
+    expect(cell.querySelector('[data-model-vendor="deepseek"]')?.getAttribute('aria-label')).toBe(i18n.t('vendors.deepseek'));
+    expect(cell.querySelector('[data-model-vendor="brandnew"] svg')).toBeNull();
+    expect(slots).toHaveLength(4);
+    expect(cell.textContent).toContain('glm-5.3');
+    expect(cell.textContent).toContain('other');
+    expect(cell.querySelector('[data-model-vendor="zhipu"] svg')?.getAttribute('class')).toContain('text-vendor-zhipu');
   });
 
-  it('showVendorColumn=true：表头出现且紧邻模型列', () => {
-    const container = renderTable([monitor({ modelVendor: 'zhipu' })], true);
-
-    const headers = Array.from(container.querySelectorAll('thead th')).map((th) => th.textContent ?? '');
-    const modelIdx = headers.findIndex((h) => h.includes('模型'));
-    const vendorIdx = headers.findIndex((h) => h.includes('厂商'));
-    expect(modelIdx).toBeGreaterThanOrEqual(0);
-    // 厂商在模型**之前**：厂商是模型的上位概念，且多模型通道里模型是三四行、
-    // 厂商只有一个徽章。与顶部筛选器同为「从粗到细」。
-    expect(vendorIdx).toBe(modelIdx - 1);
-  });
-
-  it('有厂商的行渲染「图标 + 厂商名」；无厂商的行渲染 "-"', () => {
-    const container = renderTable(
-      [monitor({ id: 'a', modelVendor: 'zhipu' }), monitor({ id: 'b' })],
-      true,
-    );
-
-    const rows = Array.from(container.querySelectorAll('tbody tr'));
-    const headers = Array.from(container.querySelectorAll('thead th')).map((th) => th.textContent ?? '');
-    const vendorIdx = headers.findIndex((h) => h.includes('厂商'));
-
-    const withVendor = rows[0].querySelectorAll('td')[vendorIdx];
-    expect(withVendor.querySelector('svg')).not.toBeNull();
-    // 桌面表出全名：商标只对 Anthropic/OpenAI 这类头部厂商自解释，认不出商标的厂商
-    // 在只有图标时等于没有厂商信号。这条断言同时钉住「别为省宽度改回 iconOnly」。
-    expect(withVendor.textContent?.trim()).toBe('智谱');
-
-    const withoutVendor = rows[1].querySelectorAll('td')[vendorIdx];
-    expect(withoutVendor.textContent?.trim()).toBe('-');
-  });
-
-  it('图标着色：品牌色类只套在 svg 上，不套在徽章外层（否则会连带染厂商名）', () => {
-    const container = renderTable([monitor({ modelVendor: 'zhipu' })], true);
-    // 按表头定位厂商列，别用全表第一个 svg——标注/通道类型列也有图标，会误命中
-    const headers = Array.from(container.querySelectorAll('thead th')).map((th) => th.textContent ?? '');
-    const vendorIdx = headers.findIndex((h) => h.includes('厂商'));
-    const badge = container
-      .querySelectorAll('tbody tr')[0]
-      .querySelectorAll('td')[vendorIdx]
-      .querySelector('span');
-    expect(badge).not.toBeNull();
-    expect(badge!.className).not.toContain('text-vendor-');
-
-    const svg = badge!.querySelector('svg');
-    expect(svg).not.toBeNull();
-    expect(svg!.getAttribute('class')).toContain('text-vendor-zhipu');
-  });
-
-  it('自带 fill 的商标（anthropic）不被品牌色类覆盖', () => {
-    const container = renderTable([monitor({ modelVendor: 'anthropic' })], true);
-    const svg = container.querySelector('tbody svg');
-    expect(svg).not.toBeNull();
-    expect(svg!.getAttribute('class')).not.toContain('text-vendor-');
-  });
-
-  it('词表外的 code 原样显示 code，不猜名字也不崩', () => {
-    const container = renderTable([monitor({ modelVendor: 'brandnew' })], true);
-    expect(container.textContent).toContain('brandnew');
-  });
-
-  it('表头列数与每行单元格数一致（colgroup/th/td 三处同步）', () => {
-    for (const show of [false, true]) {
-      const container = renderTable([monitor({ modelVendor: 'zhipu' })], show);
-      const thCount = container.querySelectorAll('thead th').length;
-      const colCount = container.querySelectorAll('colgroup col').length;
-      const tdCount = container.querySelectorAll('tbody tr')[0].querySelectorAll('td').length;
-      expect({ show, thCount, tdCount }).toEqual({ show, thCount, tdCount: thCount });
-      expect({ show, colCount }).toEqual({ show, colCount: thCount });
+  it('hasVendorData 只门控服务列说明，不门控逐模型图标', () => {
+    const item = monitor({ modelVendors: ['zhipu'], modelEntries: [
+      { model: 'GLM', requestModel: 'glm-5.3', vendor: 'zhipu' },
+    ] });
+    for (const hasVendorData of [false, true]) {
+      const container = renderTable([item], hasVendorData);
+      const service = container.querySelectorAll('thead th')[1];
+      expect(service.querySelector('.lucide-info') !== null).toBe(hasVendorData);
+      expect(container.querySelector('tbody [aria-label="智谱"]')).not.toBeNull();
+      expect(container.querySelectorAll('colgroup col').length).toBe(container.querySelectorAll('thead th').length);
+      expect(container.querySelectorAll('tbody td').length).toBe(container.querySelectorAll('thead th').length);
     }
   });
 });

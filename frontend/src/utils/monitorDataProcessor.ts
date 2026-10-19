@@ -31,21 +31,10 @@ export function canonicalVendor(value?: string): string {
   return value?.trim().toLowerCase() ?? '';
 }
 
-/**
- * 由各 layer 的 model_vendor 推导通道级厂商。
- *
- * 配置侧的「一个通道一个厂商」不变量只校验**非空**值互相一致（回填期必然出现同通道
- * 半填状态，见 spec 决策记录），因此「一行 zhipu、一行空」在后端是合法的。
- * 展示层刻意更严：**所有** layer 都非空且同值才提升为通道级厂商，否则视为未知。
- *
- * 理由：厂商列的全部价值是「别把 GLM 误当成便宜的 Claude」。把半填状态显示成某个
- * 厂商，等于用一半的证据给出十成的确定性——宁可显示「-」也不能显示错的那家。
- */
-export function deriveChannelVendor(layers?: Array<{ model_vendor?: string }>): string | undefined {
-  if (!layers || layers.length === 0) return undefined;
-  const first = canonicalVendor(layers[0].model_vendor);
-  if (!first) return undefined;
-  return layers.every((layer) => canonicalVendor(layer.model_vendor) === first) ? first : undefined;
+/** 汇总各层非空厂商，规范化去重并保留首次出现顺序。 */
+export function collectLayerVendors(layers?: readonly { model_vendor?: string }[]): string[] | undefined {
+  const vendors = [...new Set((layers ?? []).map(layer => canonicalVendor(layer.model_vendor)).filter(Boolean))];
+  return vendors.length > 0 ? vendors : undefined;
 }
 
 // ─── URL 校验 ───────────────────────────────────────────────
@@ -413,7 +402,7 @@ export function convertLegacyDataToProcessedData(
   const legacyModel = item.model?.trim() || item.request_model?.trim() || undefined;
   const legacyRequestModel = item.request_model?.trim() || legacyModel;
   const modelEntries = legacyModel
-    ? [{ model: legacyModel, requestModel: legacyRequestModel ?? legacyModel }]
+    ? [{ model: legacyModel, requestModel: legacyRequestModel ?? legacyModel, vendor: canonicalVendor(item.model_vendor) || undefined }]
     : undefined;
 
   const history = buildHistoryFromTimeline(
@@ -449,7 +438,7 @@ export function convertLegacyDataToProcessedData(
     channel: item.channel || undefined,
     channelName: channelName || undefined,
     channelId: item.channel_id || undefined,
-    modelVendor: canonicalVendor(item.model_vendor) || undefined,
+    modelVendors: collectLayerVendors([item]),
     board: item.board || 'hot',
     coldReason: item.cold_reason || undefined,
     boardReason: item.board_reason || undefined,
@@ -480,9 +469,9 @@ export function convertGroupToProcessedData(
     .map((layer) => {
       const model = layer.model?.trim() || '';
       const requestModel = layer.request_model?.trim() || model;
-      return (model || requestModel) ? { model, requestModel } : null;
+      return (model || requestModel) ? { model, requestModel, vendor: canonicalVendor(layer.model_vendor) || undefined } : null;
     })
-    .filter((entry): entry is { model: string; requestModel: string } => entry !== null);
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
   // composite history 的模型标识：单层直接用该层，多层用 "/" 拼接
   const compositeModel = modelEntries.length <= 1
@@ -542,7 +531,7 @@ export function convertGroupToProcessedData(
     channel: group.channel || undefined,
     channelName: channelName || undefined,
     channelId: group.channel_id || undefined,
-    modelVendor: deriveChannelVendor(group.layers),
+    modelVendors: collectLayerVendors(group.layers),
     board: group.board || 'hot',
     coldReason: group.cold_reason || undefined,
     boardReason: group.board_reason || undefined,

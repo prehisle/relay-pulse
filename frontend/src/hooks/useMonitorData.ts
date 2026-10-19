@@ -373,7 +373,7 @@ export function useMonitorData({
       const matchChannel = channelSet === null || (item.channel && channelSet.has(item.channel));
       const matchCategory = categorySet === null || (item.category && categorySet.has(item.category));
       // 未声明厂商的通道在厂商筛选生效时一律排除（"未知"不属于任何一家）
-      const matchVendor = vendorSet === null || (!!item.modelVendor && vendorSet.has(item.modelVendor));
+      const matchVendor = vendorSet === null || !!item.modelVendors?.some(v => vendorSet.has(v));
       // 模型是 any 语义：任一 layer 命中即保留整条通道。必须与 useFilteredData 同步——
       // 顶部「正常运行/异常告警」统计走的是本函数的结果，只改那边会让表格行数与
       // 统计数字对不上。

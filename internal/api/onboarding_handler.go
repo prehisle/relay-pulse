@@ -30,8 +30,8 @@ type OnboardingMetaResponse struct {
 	TestTypes                    []OnboardingTestType `json:"test_types"`
 	ContactInfo                  string               `json:"contact_info"`
 	// ModelVendors: 模型厂商受控词表，真相源在后端（internal/modelvendor），前端不自建一份。
-	// 消费方是「展示」而非「填写」：主表格的厂商列图标与人话名（useModelVendors）、
-	// 收录表单模型下拉的厂商分组标题、以及管理后台的厂商下拉。
+	// 消费方是「展示」而非「填写」：收录表单模型下拉的厂商分组标题、以及管理后台的
+	// 厂商下拉（useModelVendors）。主表格的厂商名走前端 i18n 的 vendors.<code>。
 	//
 	// ⚠️ 自助表单**不再**让提交方选厂商（站长 2026-08-21 裁定）：厂商由所选模型的模板声明，
 	// 提交方选得动就能出现「模型 ID 是豆包、厂商标成智谱」这种自相矛盾的上架数据。

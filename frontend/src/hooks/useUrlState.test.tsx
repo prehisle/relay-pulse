@@ -128,3 +128,42 @@ describe('useUrlState 同批次多次写入', () => {
     }).toEqual({ channel: 'vip', period: '30d', provider: null, service: null });
   });
 });
+
+describe('useUrlState 已下线的排序键', () => {
+  /** 只读一次初始 state，不需要上面 harness 的导航口。 */
+  function initialState(search: string): ReturnType<typeof useUrlState>[0] {
+    let state: ReturnType<typeof useUrlState>[0] | undefined;
+    function Probe() {
+      [state] = useUrlState();
+      return null;
+    }
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={[`/${search}`]}>
+          <Probe />
+        </MemoryRouter>,
+      );
+    });
+    mounted.push(() => act(() => root.unmount()));
+    return state!;
+  }
+
+  // 厂商列已并入模型列，旧分享链接里的 modelVendor_* 不能再当排序键用；也不能算「用户
+  // 手动排过序」——否则赞助置顶会因为一个已不存在的列而失效。
+  it.each(['?sort=modelVendor_asc', '?sort=modelVendor_desc', '?sort=modelVendor'])(
+    '%s 视同没有 sort 参数',
+    (search) => {
+      const state = initialState(search);
+      expect(state.sortConfig).toEqual({ key: 'uptime', direction: 'desc' });
+      expect(state.isInitialSort).toBe(true);
+    },
+  );
+
+  it('对照：仍在用的排序键照常解析', () => {
+    const state = initialState('?sort=latency_asc');
+    expect(state.sortConfig).toEqual({ key: 'latency', direction: 'asc' });
+    expect(state.isInitialSort).toBe(false);
+  });
+});

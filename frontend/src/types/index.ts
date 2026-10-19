@@ -183,9 +183,8 @@ export interface ProcessedMonitorData {
   channel?: string;                    // 业务通道标识
   channelName?: string;                // Channel 显示名称
   channelId?: string;                  // 通道稳定 id（跨产品 join 锚，Plan A 经 /api/status 暴露；旧后端/inline 缺失）
-  /** 通道级模型厂商 code（modelvendor 词表）。仅当该通道**所有** layer 都声明了同一厂商时才有值，
-   *  半填/冲突/未回填一律 undefined —— 见 monitorDataProcessor.deriveChannelVendor。 */
-  modelVendor?: string;
+  /** 各层非空厂商 code，规范化去重并保留首次出现顺序。 */
+  modelVendors?: string[];
   board: BoardValue;                   // 板块：hot/secondary/cold
   coldReason?: string;                 // 冷板原因（仅 cold 有值）
   boardReason?: string;                // 移板机器码（如 "quality_hardfail"），前端本地化
@@ -198,7 +197,7 @@ export interface ProcessedMonitorData {
   qualityScore?: number | null;        // rpdiag 通道质量排名分（max_score=活跃 model 排名贡献均值，fresh 取 30d 均值），sort 前由 useMonitorData 注入；null 表示未上报或 rpdiag 未启用
   isMultiModel: boolean;               // 是否为多模型监测组
   layers?: MonitorLayer[];             // 原始分层数据（仅多模型组有值）
-  modelEntries?: Array<{ model: string; requestModel: string }>; // 模型展示名与实际请求模型映射
+  modelEntries?: Array<{ model: string; requestModel: string; vendor?: string }>; // 模型展示名与实际请求模型映射
   history: Array<{
     index: number;
     status: StatusKey;

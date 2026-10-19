@@ -7,10 +7,11 @@ import { HeatmapBlock } from '../HeatmapBlock';
 import { ExternalLink } from '../ExternalLink';
 import { FavoriteButton } from '../FavoriteButton';
 import { AnnotationCell } from '../annotations';
-import { VendorBadge } from '../VendorBadge';
+import { ModelName } from './ModelName';
+import { vendorLabel } from '../VendorBadge';
 import { ColdReasonNote } from '../ColdReasonNote';
 import { ChannelCell } from './ChannelCell';
-import { getModelDisplayList, getModelTooltip } from './modelNames';
+import { getModelTooltip } from './modelNames';
 import { QualityScoreCell, shouldShowQualityPending } from '../quality';
 import { getCachedServiceIcon } from '../serviceIconCache';
 import { availabilityToColor, latencyToColor, sponsorLevelToCardBorderColor, sponsorLevelToPinnedBgClass } from '../../utils/color';
@@ -40,10 +41,9 @@ interface MobileRowProps {
   onBlockLeave: () => void;
   rpdiagScores?: RpdiagScoresResponse;
   rpdiagEnabled: boolean;
-  showVendorColumn: boolean;
 }
 
-function MobileRow({ index, style, data, slowLatencyMs, enableAnnotations, showProvider, showSponsor, useLatencyGradient, isFavorite, onToggleFavorite, onBlockHover, onBlockLeave, rpdiagScores, rpdiagEnabled, showVendorColumn }: RowComponentProps<MobileRowProps>) {
+function MobileRow({ index, style, data, slowLatencyMs, enableAnnotations, showProvider, showSponsor, useLatencyGradient, isFavorite, onToggleFavorite, onBlockHover, onBlockLeave, rpdiagScores, rpdiagEnabled }: RowComponentProps<MobileRowProps>) {
   const item = data[index];
   return (
     <div style={style}>
@@ -61,7 +61,6 @@ function MobileRow({ index, style, data, slowLatencyMs, enableAnnotations, showP
           onBlockLeave={onBlockLeave}
           rpdiagScore={rpdiagEnabled ? lookupRpdiagScore(rpdiagScores, [item.providerName, item.providerId], item.serviceType, item.channelName || item.channel, item.channelId) : undefined}
           rpdiagEnabled={rpdiagEnabled}
-          showVendorColumn={showVendorColumn}
         />
       </div>
     </div>
@@ -82,7 +81,6 @@ function MobileListItem({
   onBlockLeave,
   rpdiagScore,
   rpdiagEnabled = false,
-  showVendorColumn = false,
 }: {
   item: ProcessedMonitorData;
   slowLatencyMs: number;
@@ -96,7 +94,6 @@ function MobileListItem({
   onBlockLeave: () => void;
   rpdiagScore?: RpdiagScore;
   rpdiagEnabled?: boolean;
-  showVendorColumn?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const ServiceIcon = getCachedServiceIcon(item.serviceType);
@@ -195,22 +192,15 @@ function MobileListItem({
                   className="text-muted truncate"
                 />
               )}
-              {item.modelEntries && item.modelEntries.length > 0 && (() => {
-                const models = getModelDisplayList(item.modelEntries);
-                if (models.length === 0) return null;
-                return (
-                  <span
-                    className="text-[10px] text-muted truncate max-w-[120px]"
-                    title={getModelTooltip(item.modelEntries)}
-                  >
-                    {models.length === 1 ? models[0] : `${models[0]} +${models.length - 1}`}
-                  </span>
-                );
-              })()}
-              {/* 厂商：紧跟模型名。移动端只出图标——这一行还挤着通道名/模型名/收录天数，
-                  加一段厂商名会把前两者一起挤成省略号（实测），全名走 title。 */}
-              {showVendorColumn && (
-                <VendorBadge vendor={item.modelVendor} compact iconOnly className="text-[10px] text-muted max-w-[70px]" />
+              {/* 模型：只放得下首个模型（带它自己的厂商图标）+ 余数；完整的「厂商 · 模型 ID」列表走 title。 */}
+              {item.modelEntries && item.modelEntries.length > 0 && (
+                <span
+                  className="inline-flex items-center text-[10px] text-muted min-w-0 max-w-[120px]"
+                  title={getModelTooltip(item.modelEntries, (code) => vendorLabel(t, code))}
+                >
+                  <ModelName entry={item.modelEntries[0]} />
+                  {item.modelEntries.length > 1 && <span className="shrink-0 ml-1">+{item.modelEntries.length - 1}</span>}
+                </span>
               )}
               {/* 收录时间 */}
               {item.listedDays != null && (
@@ -289,7 +279,6 @@ function MobileSortMenu({
   hidePriceColumn,
   rpdiagScoresLoaded,
   rpdiagEnabled,
-  showVendorColumn,
 }: {
   sortConfig: SortConfig;
   isInitialSort?: boolean;
@@ -297,7 +286,6 @@ function MobileSortMenu({
   hidePriceColumn: boolean;
   rpdiagScoresLoaded: boolean;
   rpdiagEnabled: boolean;
-  showVendorColumn: boolean;
 }) {
   const { t } = useTranslation();
 
@@ -306,8 +294,6 @@ function MobileSortMenu({
     { key: 'uptime', label: t('table.sorting.uptime') },
     { key: 'lastCheck', label: t('table.sorting.lastCheck') },
     { key: 'serviceType', label: t('table.sorting.service') },
-    // 厂商未回填时移动端不提供"按厂商排序"（与桌面端隐藏厂商列一致）
-    ...(showVendorColumn ? [{ key: 'modelVendor', label: t('table.sorting.modelVendor') }] : []),
     ...(hidePriceColumn ? [] : [{ key: 'priceRatio', label: t('table.sorting.priceRatio') }]),
     { key: 'listedDays', label: t('table.sorting.listedDays') },
     // rpdiag 关闭时移动端不提供"按质量排序"（与桌面端隐藏质量列一致）
@@ -375,7 +361,6 @@ interface StatusTableMobileProps {
   rpdiagScoresLoaded: boolean;
   rpdiagEnabled: boolean;
   hidePriceColumn: boolean;
-  showVendorColumn: boolean;
 }
 
 export function StatusTableMobile({
@@ -396,7 +381,6 @@ export function StatusTableMobile({
   rpdiagScoresLoaded,
   rpdiagEnabled,
   hidePriceColumn,
-  showVendorColumn,
 }: StatusTableMobileProps) {
   // 计算虚拟列表高度（最大 MOBILE_MAX_HEIGHT，最小为所有项目高度）
   const mobileListHeight = Math.min(
@@ -413,7 +397,6 @@ export function StatusTableMobile({
         hidePriceColumn={hidePriceColumn}
         rpdiagScoresLoaded={rpdiagScoresLoaded}
         rpdiagEnabled={rpdiagEnabled}
-        showVendorColumn={showVendorColumn}
       />
       <List
         style={{ height: mobileListHeight, width: '100%' }}
@@ -421,7 +404,7 @@ export function StatusTableMobile({
         rowHeight={MOBILE_ROW_HEIGHT}
         overscanCount={3}
         rowComponent={MobileRow}
-        rowProps={{ data, slowLatencyMs, enableAnnotations, showProvider, showSponsor, useLatencyGradient, isFavorite, onToggleFavorite, onBlockHover, onBlockLeave, rpdiagScores, rpdiagEnabled, showVendorColumn }}
+        rowProps={{ data, slowLatencyMs, enableAnnotations, showProvider, showSponsor, useLatencyGradient, isFavorite, onToggleFavorite, onBlockHover, onBlockLeave, rpdiagScores, rpdiagEnabled }}
       />
     </div>
   );

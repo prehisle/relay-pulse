@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 //
-// 桌面表格的列骨架守护：11 列里有 5 列是条件渲染（标注 / 服务商 / 厂商 / 价格 / 质量），
+// 桌面表格的列骨架守护：列骨架有 4 列是条件渲染（标注 / 服务商 / 价格 / 质量），
 // 而每一列都要在 <colgroup>、<thead>、每个 <tbody> 行三处各写一遍。三处漏改一处
 // 就是整表错位——这是新增或隐藏条件列最典型的 bug 类别，且错位在类型层完全看不出来。
 //
-// 本文件对 5 根条件轴做全组合（2^5 = 32 种）断言：
+// 本文件对 4 根条件轴做全组合（2^4 = 16 种）断言：
 //   ① col 数 == th 数 == 每行 td 数；
-//   ② 出现的表头按固定 canonical 顺序排列（厂商紧挨在模型**之前**、质量紧邻趋势）；
+//   ② 出现的表头按固定 canonical 顺序排列（质量紧邻趋势）；
 //   ③ 某轴关闭时，它在三处同时消失（不是只在表头消失）。
 //
-// 与 modelVendorColumn.test.tsx 的分工：那份钉厂商列的**渲染语义**（图标/占位/ⓘ），
+// 与 modelVendorColumn.test.tsx 的分工：那份钉逐模型厂商的**渲染语义**（图标/占位/ⓘ），
 // 这份只钉**列骨架**，与具体列的内容无关。
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -45,7 +45,6 @@ function monitor(overrides: Partial<ProcessedMonitorData> = {}): ProcessedMonito
 interface Axes {
   annotations: boolean;
   provider: boolean;
-  vendor: boolean;
   price: boolean;
   quality: boolean;
 }
@@ -60,7 +59,7 @@ function renderTable(axes: Axes): HTMLElement {
         ? [{ id: 'public_service', family: 'positive', label: '公益', priority: 10, origin: 'config' }]
         : undefined,
     }),
-    monitor({ id: 'b', modelVendor: 'zhipu' }),
+    monitor({ id: 'b', modelVendors: ['zhipu'] }),
   ];
 
   const container = document.createElement('div');
@@ -80,7 +79,7 @@ function renderTable(axes: Axes): HTMLElement {
           onBlockHover={() => {}}
           onBlockLeave={() => {}}
           showProvider={axes.provider}
-          showVendorColumn={axes.vendor}
+          hasVendorData
           hidePriceColumn={!axes.price}
           rpdiagEnabled={axes.quality}
         />
@@ -99,7 +98,6 @@ function canonicalColumns(): Array<{ axis: keyof Axes | null; label: string }> {
     { axis: 'provider', label: t('table.headers.provider') },
     { axis: null, label: t('table.headers.service') },
     { axis: null, label: t('table.headers.channel') },
-    { axis: 'vendor', label: t('table.headers.modelVendor') },
     { axis: null, label: t('table.headers.model') },
     { axis: 'price', label: t('table.headers.priceRatioLine1') },
     { axis: null, label: t('table.headers.listedDaysLine1') },
@@ -110,9 +108,9 @@ function canonicalColumns(): Array<{ axis: keyof Axes | null; label: string }> {
   ];
 }
 
-const ALL_AXES: Array<keyof Axes> = ['annotations', 'provider', 'vendor', 'price', 'quality'];
+const ALL_AXES: Array<keyof Axes> = ['annotations', 'provider', 'price', 'quality'];
 
-// 5 根轴的全组合
+// 4 根轴的全组合
 function allCombos(): Axes[] {
   const combos: Axes[] = [];
   for (let mask = 0; mask < 1 << ALL_AXES.length; mask++) {
@@ -171,7 +169,7 @@ describe('桌面表格列骨架（colgroup / thead / tbody 三处并行）', () 
   );
 
   it('每根轴关掉时，它在 colgroup / thead / tbody 三处同时消失', () => {
-    const on: Axes = { annotations: true, provider: true, vendor: true, price: true, quality: true };
+    const on: Axes = { annotations: true, provider: true, price: true, quality: true };
     const full = renderTable(on);
     const fullCount = full.querySelectorAll('thead th').length;
 

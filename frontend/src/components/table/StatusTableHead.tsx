@@ -60,6 +60,7 @@ function SortableTh({ sortKey, onSort, disabled = false, children }: {
 
 interface StatusTableHeadProps {
   columns: StatusTableColumns;
+  hasVendorData?: boolean;
   sortConfig: SortConfig;
   isInitialSort: boolean;
   onSort: (key: string) => void;
@@ -73,6 +74,7 @@ interface StatusTableHeadProps {
  *  放在同一个组件里才能一眼看出对不对。行侧的第三份在 StatusTableRow。 */
 export function StatusTableHead({
   columns,
+  hasVendorData = false,
   sortConfig,
   isInitialSort,
   onSort,
@@ -92,7 +94,6 @@ export function StatusTableHead({
         {columns.provider && <col className="w-px" />}
         <col className="w-px" /> {/* service */}
         <col className="w-px" /> {/* channel */}
-        {columns.vendor && <col className="w-px" />} {/* modelVendor —— 在 model 之前，见 thead 注释 */}
         <col className="w-px" /> {/* model */}
         {columns.price && <col className="w-px" />} {/* priceRatio */}
         <col className="w-px" /> {/* listedDays */}
@@ -120,11 +121,8 @@ export function StatusTableHead({
           <SortableTh sortKey="serviceType" onSort={onSort}>
             <div className="flex items-center">
               {t('table.headers.service')}
-              {/* 服务列的语义是**接入协议族**（用哪套 API / 哪个客户端），不是「模型是谁家的」。
-                  第一方厂商开放兼容端点后二者解耦（用 Claude 协议跑智谱模型），故在此点明，
-                  并把「谁家的模型」指向厂商列。ⓘ 与价格/质量列同款组件。
-                  与厂商列同生共死：厂商列不在时这段文案会指向一个看不见的列，反而更费解。 */}
-              {columns.vendor && (
+              {/* 接入协议与模型厂商分别展示；仅有厂商数据时提示图标位置。 */}
+              {hasVendorData && (
                 <HeaderInfoPopover className="ml-1" align="center" widthClass="w-64">
                   {t('table.headers.serviceTooltip')}
                 </HeaderInfoPopover>
@@ -137,19 +135,6 @@ export function StatusTableHead({
               {t('table.headers.channel')} {sortIcon('channel')}
             </div>
           </SortableTh>
-          {/* 模型厂商列：紧邻模型列且排在它**之前**——两者一起回答「跑的是谁家的什么模型」，
-              与左边「服务=接入协议族」正交（服务列表头 ⓘ 解释了这层关系）。
-              厂商在前是因为它是模型的上位概念、且一个通道恒定一家：多模型通道的模型格是
-              三四行（gpt-6-astra / gpt-5.6-sol / gpt-5.6-terra），厂商只有一个徽章，
-              放左边读作「这是 OpenAI 的：…」；反过来则是先看明细再回头找归属。
-              整张表因此与顶部筛选器同为「从粗到细」（服务商→服务→通道→厂商→模型）。 */}
-          {columns.vendor && (
-            <SortableTh sortKey="modelVendor" onSort={onSort}>
-              <div className="flex items-center">
-                {t('table.headers.modelVendor')} {sortIcon('modelVendor')}
-              </div>
-            </SortableTh>
-          )}
           <th className="px-1.5 py-3 font-medium whitespace-nowrap">
             {t('table.headers.model')}
           </th>

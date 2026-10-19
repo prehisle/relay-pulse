@@ -130,10 +130,8 @@ function App() {
   // 手动刷新 + 冷却提示——需要 useMonitorData 的 refetch
   const { refreshCooldown, handleRefresh } = useRefreshCooldown(refetch);
 
-  // 厂商列显隐：基于**未筛选**的全量数据判定，避免"筛一下列就冒出来/消失"的布局抖动。
-  // Phase 3 回填厂商前恒 false —— 整列与筛选器对用户完全不存在。
-  // ⚠️ 必须先于 useUrlStateReconcile 求值——那里的厂商排序清理要用它。
-  const showVendorColumn = useMemo(() => rawData.some(item => !!item.modelVendor), [rawData]);
+  // 基于未筛选数据门控厂商筛选器和服务列说明。
+  const hasVendorData = useMemo(() => rawData.some(item => !!item.modelVendors?.length), [rawData]);
 
   // 运行时开关 ↔ URL 状态归一（隐藏列的残留排序、板块归一）
   useUrlStateReconcile({
@@ -143,8 +141,6 @@ function App() {
     boardsEnabled,
     board,
     setBoard,
-    rawDataLength: rawData.length,
-    showVendorColumn,
     clearPriceRatioSort,
     clearQualityScoreSort,
     clearModelVendorSort,
@@ -399,7 +395,7 @@ function App() {
                   rpdiagScoresLoaded={rpdiagScoresLoaded}
                   rpdiagEnabled={rpdiagEnabled}
                   hidePriceColumn={hidePriceColumn}
-                  showVendorColumn={showVendorColumn}
+                  hasVendorData={hasVendorData}
                 />
               )}
 
@@ -412,7 +408,6 @@ function App() {
                   isFavorite={isFavorite}
                   onToggleFavorite={toggleFavorite}
                   hidePriceColumn={hidePriceColumn}
-                  showVendorColumn={showVendorColumn}
                   onBlockHover={handleBlockHover}
                   onBlockLeave={handleBlockLeave}
                 />

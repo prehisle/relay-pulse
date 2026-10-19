@@ -11,7 +11,7 @@ import {
   canonicalize,
   convertGroupToProcessedData,
   convertLegacyDataToProcessedData,
-  deriveChannelVendor,
+  collectLayerVendors,
   probeCountOf,
 } from './monitorDataProcessor';
 
@@ -517,68 +517,41 @@ describe('monitorDataProcessor', () => {
 
 // ─── 模型厂商（model_vendor 正交轴） ─────────────────────────
 
-describe('deriveChannelVendor', () => {
-  it('所有 layer 同一厂商 → 提升为通道级厂商', () => {
-    expect(deriveChannelVendor([
-      { model_vendor: 'zhipu' },
-      { model_vendor: 'zhipu' },
-    ])).toBe('zhipu');
+describe('collectLayerVendors', () => {
+  it('规范化、忽略空值、按首次出现顺序去重，允许混厂商', () => {
+    expect(collectLayerVendors([
+      { model_vendor: ' ZHIPU ' }, {}, { model_vendor: 'moonshot' },
+      { model_vendor: 'zhipu' }, { model_vendor: ' ' },
+    ])).toEqual(['zhipu', 'moonshot']);
   });
 
-  it('单 layer 有厂商 → 直接采用', () => {
-    expect(deriveChannelVendor([{ model_vendor: 'moonshot' }])).toBe('moonshot');
-  });
-
-  it('大小写/空白差异归一后视为同一厂商', () => {
-    expect(deriveChannelVendor([
-      { model_vendor: ' Zhipu ' },
-      { model_vendor: 'zhipu' },
-    ])).toBe('zhipu');
-  });
-
-  // 这条是厂商列的核心安全性质：配置侧只校验非空值一致，半填是合法加载态，
-  // 展示层绝不能拿一半的证据给出十成的确定性。
-  it('半填（一行有一行空）→ undefined，不显示任何厂商', () => {
-    expect(deriveChannelVendor([
-      { model_vendor: 'zhipu' },
-      { model_vendor: '' },
-    ])).toBeUndefined();
-    expect(deriveChannelVendor([
-      { model_vendor: 'zhipu' },
-      {},
-    ])).toBeUndefined();
-  });
-
-  it('冲突（两家不同厂商）→ undefined', () => {
-    expect(deriveChannelVendor([
-      { model_vendor: 'zhipu' },
-      { model_vendor: 'moonshot' },
-    ])).toBeUndefined();
-  });
-
-  it('全空 / 空数组 / undefined → undefined', () => {
-    expect(deriveChannelVendor([{ model_vendor: '' }, {}])).toBeUndefined();
-    expect(deriveChannelVendor([])).toBeUndefined();
-    expect(deriveChannelVendor(undefined)).toBeUndefined();
+  it('无厂商时返回 undefined', () => {
+    expect(collectLayerVendors()).toBeUndefined();
+    expect(collectLayerVendors([])).toBeUndefined();
+    expect(collectLayerVendors([{}, { model_vendor: ' ' }])).toBeUndefined();
   });
 });
 
-describe('convert*ToProcessedData 的 modelVendor', () => {
-  it('分组路径：全 layer 一致时带上厂商', () => {
-    const result = convertGroupToProcessedData(
-      group({ layers: [layer({ model_vendor: 'zhipu' }), layer({ layer_order: 1, model_vendor: 'zhipu' })] }),
-      5000,
-    );
-    expect(result.modelVendor).toBe('zhipu');
+describe('convert*ToProcessedData 的逐层厂商', () => {
+  it('空模型层不打乱模型与厂商配对，厂商集合仍包含所有层', () => {
+    const result = convertGroupToProcessedData(group({ layers: [
+      layer({ model: '', request_model: '', model_vendor: 'moonshot' }),
+      layer({ model: 'GLM', request_model: 'glm-5.3', model_vendor: ' ZHIPU ' }),
+      layer({ model: 'DeepSeek', request_model: 'deepseek-v4-pro', model_vendor: 'deepseek' }),
+      layer({ model: 'Unknown', request_model: 'unknown', model_vendor: '' }),
+    ] }), 5000);
+    expect(result.modelVendors).toEqual(['moonshot', 'zhipu', 'deepseek']);
+    expect(result.modelEntries).toEqual([
+      { model: 'GLM', requestModel: 'glm-5.3', vendor: 'zhipu' },
+      { model: 'DeepSeek', requestModel: 'deepseek-v4-pro', vendor: 'deepseek' },
+      { model: 'Unknown', requestModel: 'unknown', vendor: undefined },
+    ]);
   });
 
-  it('分组路径：存量数据（无 vendor 键）→ undefined', () => {
-    const result = convertGroupToProcessedData(group({ layers: [layer()] }), 5000);
-    expect(result.modelVendor).toBeUndefined();
-  });
-
-  it('legacy 扁平路径：直接读 model_vendor 并归一', () => {
-    expect(convertLegacyDataToProcessedData(legacyItem({ model_vendor: ' QWEN ' }), 5000).modelVendor).toBe('qwen');
-    expect(convertLegacyDataToProcessedData(legacyItem({}), 5000).modelVendor).toBeUndefined();
+  it('legacy 路径同时产出 entry 厂商与通道厂商集合', () => {
+    const result = convertLegacyDataToProcessedData(legacyItem({ model: 'Qwen', model_vendor: ' QWEN ' }), 5000);
+    expect(result.modelVendors).toEqual(['qwen']);
+    expect(result.modelEntries?.[0].vendor).toBe('qwen');
+    expect(convertLegacyDataToProcessedData(legacyItem({}), 5000).modelVendors).toBeUndefined();
   });
 });

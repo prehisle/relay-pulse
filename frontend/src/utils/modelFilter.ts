@@ -90,10 +90,7 @@ export function collectModelOptions(entries?: readonly ModelEntryLike[]): ModelF
  * 模型筛选的匹配谓词：**any（通道级）语义**——通道只要有任一 layer 命中所选
  * 模型之一，整条通道就保留。
  *
- * ⚠️ 别照搬隔壁 vendor 轴的 all-agree 语义（`deriveChannelVendor` 要求所有 layer
- * 同厂商才认）。那条规则在 vendor 上零成本（生产 0 个通道跨厂商），但生产中 18 个
- * 多 layer 通道**全部是多模型**（saiai 的 `[Opus, Sonnet, Fable 5.1]`、modelflare
- * 的四个 GPT 变体…），要求「所有 layer 都是同一模型」会让它们一条都筛不出来。
+ * 厂商筛选同样采用通道级 any 语义，均保留整条通道的全部模型层。
  *
  * 未声明任何模型的通道在筛选生效时排除——与 vendor 口径一致，「未知」不属于
  * 任何一个具体选项。

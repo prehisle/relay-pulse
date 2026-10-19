@@ -1,14 +1,11 @@
 // 「模型」筛选器的取值与匹配语义守卫。
 //
 // 两条性质最容易在改动中被无声破坏，故重点钉死：
-//   ① **所见即所筛** —— 筛选选项的文字必须与表格「模型」列逐字一致。两者一旦
-//      各算各的，用户会在下拉里看到表格中根本不存在的名字。本文件用同一组
-//      真实数据同时驱动 modelDisplayName 与表格的 getModelDisplayList 做对拍。
-//   ② **any 语义** —— 通道只要有任一 layer 命中就算命中。现有 vendor 轴用的是
-//      all-agree（所有 layer 同厂商才算），照搬到模型上会让生产中 18 个多模型
-//      通道（saiai / 88code / modelflare 等）永远筛不出来。
+//   ① **所见即所筛** —— 筛选选项的文字必须与表格「模型」列逐字一致。表格的
+//      ModelName 与筛选器调用的是同一个 modelDisplayName，本文件钉住它的取名规则。
+//   ② **any 语义** —— 通道只要有任一 layer 命中就算命中。要求「所有 layer 同模型」
+//      会让生产中 18 个多模型通道（saiai / 88code / modelflare 等）永远筛不出来。
 import { describe, expect, it } from 'vitest';
-import { getModelDisplayList } from '../components/table/modelNames';
 import {
   collectModelOptions,
   matchesModelKeys,
@@ -43,12 +40,6 @@ describe('modelDisplayName：与表格模型列同源', () => {
     expect(modelDisplayName({ model: '', requestModel: '' })).toBe('-');
   });
 
-  // 这是防漂移的对拍：表格列与筛选选项必须逐字相同，否则「所见即所筛」是假的。
-  it('与表格 getModelDisplayList 的输出逐字一致', () => {
-    for (const entries of [SAIAI_CC, SINGLE_HAIKU]) {
-      expect(entries.map(modelDisplayName)).toEqual(getModelDisplayList(entries));
-    }
-  });
 });
 
 describe('modelFilterKey：canonical 折叠', () => {

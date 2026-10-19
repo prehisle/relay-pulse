@@ -283,7 +283,7 @@ export default function ProviderPage() {
     }
     if (effectiveFilterVendor.length > 0) {
       // 未声明厂商的通道在厂商筛选生效时排除（与 useMonitorData 口径一致）
-      filtered = filtered.filter(item => !!item.modelVendor && effectiveFilterVendor.includes(item.modelVendor));
+      filtered = filtered.filter(item => item.modelVendors?.some(v => effectiveFilterVendor.includes(v)));
     }
     if (filterModel.length > 0) {
       // 模型是 any 语义：任一 layer 命中即保留整条通道（口径同首页）
@@ -300,7 +300,7 @@ export default function ProviderPage() {
       filtered = filtered.filter(item => item.channel && filterChannel.includes(item.channel));
     }
     if (effectiveFilterVendor.length > 0) {
-      filtered = filtered.filter(item => !!item.modelVendor && effectiveFilterVendor.includes(item.modelVendor));
+      filtered = filtered.filter(item => item.modelVendors?.some(v => effectiveFilterVendor.includes(v)));
     }
     if (filterModel.length > 0) {
       const modelSet = new Set(filterModel);
@@ -318,7 +318,7 @@ export default function ProviderPage() {
       filtered = filtered.filter(item => filterService.includes(item.serviceType.toLowerCase()));
     }
     if (effectiveFilterVendor.length > 0) {
-      filtered = filtered.filter(item => !!item.modelVendor && effectiveFilterVendor.includes(item.modelVendor));
+      filtered = filtered.filter(item => item.modelVendors?.some(v => effectiveFilterVendor.includes(v)));
     }
     if (filterModel.length > 0) {
       const modelSet = new Set(filterModel);
@@ -351,7 +351,7 @@ export default function ProviderPage() {
       filtered = filtered.filter(item => matchesModelKeys(item.modelEntries, modelSet));
     }
     const set = new Set<string>();
-    filtered.forEach(item => { if (item.modelVendor) set.add(item.modelVendor); });
+    filtered.forEach(item => { item.modelVendors?.forEach(v => set.add(v)); });
     // 已选项即使被其他筛选筛没了也保持可见，否则用户取消不掉自己选的条件
     effectiveFilterVendor.forEach(vendor => set.add(vendor));
     return Array.from(set)
@@ -371,7 +371,7 @@ export default function ProviderPage() {
       filtered = filtered.filter(item => item.channel && filterChannel.includes(item.channel));
     }
     if (effectiveFilterVendor.length > 0) {
-      filtered = filtered.filter(item => !!item.modelVendor && effectiveFilterVendor.includes(item.modelVendor));
+      filtered = filtered.filter(item => item.modelVendors?.some(v => effectiveFilterVendor.includes(v)));
     }
     return buildModelOptions({
       scoped: filtered,
@@ -381,18 +381,11 @@ export default function ProviderPage() {
     });
   }, [optionsBaseData, filterService, filterChannel, effectiveFilterVendor, filterModel, t]);
 
-  // 厂商列显隐：基于**本 provider** 的未筛数据。用全站 allData 会让「别家有厂商、
-  // 本家没有」的服务商页凭空多出一整列 '-'；用已筛的 data 又会随筛选抖动。
-  const showVendorColumn = useMemo(
-    () => rawData.some(item => item.providerId === realProviderId && !!item.modelVendor),
+  // 筛选器与服务列说明只取本服务商未筛选的数据。
+  const hasVendorData = useMemo(
+    () => rawData.some(item => item.providerId === realProviderId && !!item.modelVendors?.length),
     [rawData, realProviderId],
   );
-
-  // 同 hidePriceColumn / rpdiagEnabled 的渲染期纠偏：厂商列不可见时本地 sortConfig
-  // 若停在 modelVendor 就退回默认排序。等 rawData 到货再判，避免首屏空数据误清。
-  if (rawData.length > 0 && !showVendorColumn && sortConfig.key === 'modelVendor') {
-    setSortConfig({ key: 'uptime', direction: 'desc' });
-  }
 
   // 收藏模式切换（ProviderPage 独立快照管理）
   const handleFavoritesModeChange = useCallback((enabled: boolean) => {
@@ -643,7 +636,7 @@ export default function ProviderPage() {
                   rpdiagScoresLoaded={rpdiagScoresLoaded}
                   rpdiagEnabled={rpdiagEnabled}
                   hidePriceColumn={hidePriceColumn}
-                  showVendorColumn={showVendorColumn}
+                  hasVendorData={hasVendorData}
                 />
               )}
 
@@ -660,7 +653,6 @@ export default function ProviderPage() {
                       isFavorite={isFavorite}
                       onToggleFavorite={toggleFavorite}
                       hidePriceColumn={hidePriceColumn}
-                      showVendorColumn={showVendorColumn}
                       onBlockHover={handleBlockHover}
                       onBlockLeave={handleBlockLeave}
                     />

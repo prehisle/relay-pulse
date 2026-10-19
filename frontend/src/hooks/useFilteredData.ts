@@ -81,7 +81,7 @@ export function useFilteredData({
       if (channelSet && !(item.channel && channelSet.has(item.channel))) return false;
       if (categorySet && !categorySet.has(item.category)) return false;
       // 未声明厂商的通道在厂商筛选生效时排除（与 useMonitorData 的过滤口径逐字一致）
-      if (vendorSet && !(item.modelVendor && vendorSet.has(item.modelVendor))) return false;
+      if (vendorSet && !item.modelVendors?.some(v => vendorSet.has(v))) return false;
       // 模型是 any 语义：任一 layer 命中即保留整条通道（口径同样与 useMonitorData 一致）
       if (modelSet && !matchesModelKeys(item.modelEntries, modelSet)) return false;
       return true;

@@ -7,11 +7,10 @@ import { layeredHeatmapHeightPx } from '../../utils/layeredHeatmapHeight';
 import { ExternalLink } from '../ExternalLink';
 import { FavoriteButton } from '../FavoriteButton';
 import { AnnotationCell } from '../annotations';
-import { VendorBadge } from '../VendorBadge';
+import { ModelName } from './ModelName';
 import { ColdReasonNote } from '../ColdReasonNote';
 import { ChannelCell } from './ChannelCell';
 import { HoverTooltip } from '../HoverTooltip';
-import { getModelDisplayList, getModelFullNames } from './modelNames';
 import { QualityScoreCell, shouldShowQualityPending } from '../quality';
 import { getCachedServiceIcon } from '../serviceIconCache';
 import { availabilityToColor, latencyToColor, sponsorLevelToBorderClass, sponsorLevelToPinnedBgClass } from '../../utils/color';
@@ -155,22 +154,9 @@ export function StatusTableRow({
           <ColdReasonNote board={item.board} reason={item.coldReason} className="max-w-[10rem]" />
         </div>
       </td>
-      {/* 厂商列在模型列**之前**（顺序理由见 StatusTableHead 的同名注释）。
-          桌面表出「图标 + 厂商名」：商标认得出 Anthropic/OpenAI 的人认不出 MiniMax/月之暗面，
-          而这一列的全部价值就是「别把 GLM 当成 Claude」——把全名藏进 hover 等于把答案藏起来。
-          宽度代价已实测有界：1280 视口下该列 52→86px（最宽是四汉字的「月之暗面」），
-          被趋势列自动吸收，表内与页面均零溢出。移动端卡片与 grid 卡片仍走 iconOnly——
-          那两处一行要塞通道名+模型名，宽度是真的见底（见 VendorBadge 的 iconOnly 注释）。 */}
-      {columns.vendor && (
-        <td className="px-1.5 py-1 text-secondary text-xs">
-          {item.modelVendor
-            ? <VendorBadge vendor={item.modelVendor} />
-            : <span className="text-muted">-</span>}
-        </td>
-      )}
       <td className="px-1.5 py-1 text-secondary text-xs max-w-[14rem]">
         {(() => {
-          const models = getModelDisplayList(item.modelEntries);
+          const models = item.modelEntries ?? [];
           if (models.length === 0) return <span className="text-muted">-</span>;
           return (
             <HoverTooltip
@@ -178,15 +164,15 @@ export function StatusTableRow({
               widthClass="max-w-[90vw]"
               content={
                 <span className="flex flex-col gap-0.5 font-mono whitespace-nowrap">
-                  {getModelFullNames(item.modelEntries).map((name, i) => (
-                    <span key={i}>{name}</span>
+                  {models.map((entry, i) => (
+                    <ModelName key={i} entry={entry} full />
                   ))}
                 </span>
               }
             >
               <span className="flex flex-col gap-0.5 min-w-0">
-                {models.map((m, i) => (
-                  <span key={i} className="block truncate">{m}</span>
+                {models.map((entry, i) => (
+                  <ModelName key={i} entry={entry} />
                 ))}
               </span>
             </HoverTooltip>

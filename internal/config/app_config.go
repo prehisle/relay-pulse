@@ -157,7 +157,7 @@ type AppConfig struct {
 	// 运行时配置：改 yaml 即触发热更新，前端通过 /api/status meta 拿到新值，
 	// 不需要重建镜像或重启容器。
 	// 与 HideCategoryFilter 同款语义：隐藏的只是筛选入口——model_vendor 字段照常
-	// 下发、**厂商列不受影响**（列是观察维度，筛选器是操作轴，绑死了以后想单独
+	// 下发、**模型名前的厂商图标不受影响**（图标是观察维度，筛选器是操作轴，绑死了以后想单独
 	// 调就难拆）。开关打开时前端把 URL 里残留的 ?vendor= 视为未选中（不再过滤
 	// 数据），但**不删除该参数**——关掉开关后用户原来的选择自动恢复。
 	HideVendorFilter bool `yaml:"hide_vendor_filter" json:"hide_vendor_filter"`

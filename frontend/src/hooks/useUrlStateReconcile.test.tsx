@@ -1,9 +1,5 @@
 // @vitest-environment jsdom
-//
-// 钉死「运行时开关变了就归一 URL 状态」的四条 effect，重点是两道容易被后人顺手删掉的闸：
-//   ① 厂商排序清理必须等 rawData 到货——首屏 rawData 为空时 showVendorColumn 恒 false，
-//      少了这道闸，用户带 ?sort=modelVendor_asc 的分享链接会在数据到达前就被清掉；
-//   ② 板块归一必须等 boardsEnabledLoaded——否则初始加载会覆盖 URL 里的 ?board=。
+// 旧厂商排序无条件清理；板块归一仍等待运行时配置。
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -24,8 +20,6 @@ function baseParams(calls: Calls): UrlStateReconcileParams {
     boardsEnabled: true,
     board: 'hot',
     setBoard: calls.setBoard,
-    rawDataLength: 3,
-    showVendorColumn: true,
     clearPriceRatioSort: calls.clearPriceRatioSort,
     clearQualityScoreSort: calls.clearQualityScoreSort,
     clearModelVendorSort: calls.clearModelVendorSort,
@@ -67,13 +61,13 @@ afterEach(() => {
 });
 
 describe('useUrlStateReconcile', () => {
-  it('全开关正常时四条都不动 URL', () => {
+  it('正常开关只执行旧厂商排序清理', () => {
     const calls = makeCalls();
     render({}, calls);
 
     expect(calls.clearPriceRatioSort).not.toHaveBeenCalled();
     expect(calls.clearQualityScoreSort).not.toHaveBeenCalled();
-    expect(calls.clearModelVendorSort).not.toHaveBeenCalled();
+    expect(calls.clearModelVendorSort).toHaveBeenCalledTimes(1);
     expect(calls.setBoard).not.toHaveBeenCalled();
   });
 
@@ -83,7 +77,7 @@ describe('useUrlStateReconcile', () => {
 
     expect(calls.clearPriceRatioSort).toHaveBeenCalledTimes(1);
     expect(calls.clearQualityScoreSort).not.toHaveBeenCalled();
-    expect(calls.clearModelVendorSort).not.toHaveBeenCalled();
+    expect(calls.clearModelVendorSort).toHaveBeenCalledTimes(1);
   });
 
   it('rpdiag 关闭后清掉 qualityScore 排序', () => {
@@ -94,22 +88,11 @@ describe('useUrlStateReconcile', () => {
     expect(calls.clearPriceRatioSort).not.toHaveBeenCalled();
   });
 
-  it('厂商列不可见且数据已到货时清掉 modelVendor 排序', () => {
+  it('厂商排序清理不依赖数据或运行时开关', () => {
     const calls = makeCalls();
-    render({ showVendorColumn: false, rawDataLength: 3 }, calls);
-
+    render({ boardsEnabledLoaded: false }, calls);
     expect(calls.clearModelVendorSort).toHaveBeenCalledTimes(1);
-  });
-
-  it('⚠️ 首屏闸：rawData 未到货时绝不清 modelVendor 排序（保住分享链接）', () => {
-    const calls = makeCalls();
-    render({ showVendorColumn: false, rawDataLength: 0 }, calls);
-
-    expect(calls.clearModelVendorSort).not.toHaveBeenCalled();
-
-    // 数据到货后（仍然没有任何通道声明厂商）才允许清
-    render({ showVendorColumn: false, rawDataLength: 5 }, calls);
-    expect(calls.clearModelVendorSort).toHaveBeenCalledTimes(1);
+    expect(calls.setBoard).not.toHaveBeenCalled();
   });
 
   it('板块功能禁用时把 board 归一到 hot', () => {

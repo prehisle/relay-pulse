@@ -230,19 +230,17 @@ func TestValidateModelVendors_UnknownCodeRejected(t *testing.T) {
 	}
 }
 
-// TestValidateModelVendors_SameChannelConflict 同一 PSC 下两行都非空且不同 → 拒。
-// 这是「一个通道一个厂商」不变量：聚合平台按厂商拆通道，混在一条里会把稳定性平均掉。
-func TestValidateModelVendors_SameChannelConflict(t *testing.T) {
+// TestValidateModelVendors_MixedChannelAllowed 同一 PSC 下不同厂商合法。
+func TestValidateModelVendors_MixedChannelAllowed(t *testing.T) {
 	cfg := &AppConfig{Monitors: []ServiceConfig{
 		{Provider: "a", Service: "cc", Channel: "x", Model: "M1", ModelVendor: "zhipu"},
 		{Provider: "a", Service: "cc", Channel: "x", Model: "M2", ModelVendor: "moonshot"},
 	}}
-	err := cfg.validateModelVendors()
-	if err == nil {
-		t.Fatal("同一通道混填两个厂商必须被拒")
+	if err := cfg.validateModelVendors(); err != nil {
+		t.Fatalf("同一通道不同厂商应合法: %v", err)
 	}
-	if !strings.Contains(err.Error(), "zhipu") || !strings.Contains(err.Error(), "moonshot") {
-		t.Fatalf("错误信息应同时含两个冲突值，实际 %q", err.Error())
+	if cfg.Monitors[0].ModelVendor != "zhipu" || cfg.Monitors[1].ModelVendor != "moonshot" {
+		t.Fatal("各行必须保留自己的厂商")
 	}
 }
 
@@ -300,9 +298,8 @@ func TestValidateModelVendors_ConflictSurvivesCaseDifference(t *testing.T) {
 	}
 }
 
-// TestLoad_TemplateVendorConflictWithinChannel 端到端：同一通道的两行引用了 vendor 不同的
-// 两个模板 → 加载失败。这一条正是把校验挂在模板解析之后（而非 validate() 里）才拦得住的情形。
-func TestLoad_TemplateVendorConflictWithinChannel(t *testing.T) {
+// TestLoad_MixedTemplateVendorsWithinChannel 同通道不同厂商模板可同时加载。
+func TestLoad_MixedTemplateVendorsWithinChannel(t *testing.T) {
 	cfgPath := newVendorFixture(t, `monitors:
   - provider: "acme"
     service: "cc"
@@ -321,15 +318,13 @@ func TestLoad_TemplateVendorConflictWithinChannel(t *testing.T) {
 		writeVendorTemplate(t, tmplDir, "cc-vendor-b", "Kimi", "moonshot")
 	})
 
-	_, err := NewLoader().Load(cfgPath)
-	if err == nil {
-		t.Fatal("同一通道两行经模板拿到不同 vendor，必须加载失败")
+	cfg, err := NewLoader().Load(cfgPath)
+	if err != nil {
+		t.Fatalf("不同厂商模板应可同时加载: %v", err)
 	}
-	// 只断言「加载失败」不够——四元组重复、父图校验等都会让 Load 失败，
-	// 那样这条测试会在 vendor 校验被摘掉后依然假绿。断言到 vendor 专属错误文案。
-	if !strings.Contains(err.Error(), "model_vendor 不一致") ||
-		!strings.Contains(err.Error(), "zhipu") || !strings.Contains(err.Error(), "moonshot") {
-		t.Fatalf("失败原因必须是 vendor 冲突，实际 %v", err)
+	if monitorByModel(t, cfg, "GLM").ModelVendor != "zhipu" ||
+		monitorByModel(t, cfg, "Kimi").ModelVendor != "moonshot" {
+		t.Fatal("各行必须保留自己的模板厂商")
 	}
 }
 
@@ -376,5 +371,105 @@ func TestLoad_WritesBackCanonicalVendorEndToEnd(t *testing.T) {
 	}
 	if got := cfg.Monitors[0].ModelVendor; got != "zhipu" {
 		t.Fatalf("运行配置里的 vendor 未规范化，got %q", got)
+	}
+}
+
+// native 模板族的子行不继承父行的模型身份（vendor / request_model）。混厂商通道里父行是
+// DeepSeek、子行是 GLM 很正常，子行漏填时继承父值 = 图标显示错厂商、请求打到父行的模型。
+
+// TestInheritCoreBehavior_NativeChildDoesNotInheritIdentity 子行没写模板、从父行继承到 native
+// 模板时，漏填的 vendor / request_model 保持空。
+func TestInheritCoreBehavior_NativeChildDoesNotInheritIdentity(t *testing.T) {
+	parent := &ServiceConfig{Template: "cc-native-arith-nothink", ModelVendor: "deepseek", RequestModel: "deepseek-v4-pro"}
+	child := &ServiceConfig{Model: "glm-5.3"}
+	inheritCoreBehavior(child, parent)
+	if child.Template != "cc-native-arith-nothink" {
+		t.Fatalf("前提不成立：子行应先继承到父行模板，got %q", child.Template)
+	}
+	if child.ModelVendor != "" || child.RequestModel != "" {
+		t.Fatalf("native 子行不应继承模型身份，got vendor=%q request_model=%q", child.ModelVendor, child.RequestModel)
+	}
+}
+
+// TestInheritCoreBehavior_ExplicitNativeChildDoesNotInheritIdentity 子行自己写了 native 模板
+// （父行是普通模板）同样不继承——判定看的是子行最终模板，不是父行模板。
+func TestInheritCoreBehavior_ExplicitNativeChildDoesNotInheritIdentity(t *testing.T) {
+	parent := &ServiceConfig{Template: "cc-vendor-a", ModelVendor: "deepseek", RequestModel: "deepseek-v4-pro"}
+	child := &ServiceConfig{Model: "glm-5.3", Template: "cc-native-arith-512"}
+	inheritCoreBehavior(child, parent)
+	if child.ModelVendor != "" || child.RequestModel != "" {
+		t.Fatalf("native 子行不应继承模型身份，got vendor=%q request_model=%q", child.ModelVendor, child.RequestModel)
+	}
+}
+
+// TestInheritCoreBehavior_NativeChildKeepsOwnIdentity native 子行自己填的值原样保留。
+func TestInheritCoreBehavior_NativeChildKeepsOwnIdentity(t *testing.T) {
+	parent := &ServiceConfig{Template: "cc-native-arith", ModelVendor: "deepseek", RequestModel: "deepseek-v4-pro"}
+	child := &ServiceConfig{Model: "glm-5.3", ModelVendor: "zhipu", RequestModel: "glm-5.3"}
+	inheritCoreBehavior(child, parent)
+	if child.ModelVendor != "zhipu" || child.RequestModel != "glm-5.3" {
+		t.Fatalf("native 子行自己的身份被改写，got vendor=%q request_model=%q", child.ModelVendor, child.RequestModel)
+	}
+}
+
+// TestInheritCoreBehavior_NonNativeChildStillInheritsIdentity 非 native 子行照旧继承（反向对照，
+// 防止把「不继承」误扩到全部模板）。
+func TestInheritCoreBehavior_NonNativeChildStillInheritsIdentity(t *testing.T) {
+	parent := &ServiceConfig{Template: "cc-vendor-a", ModelVendor: "deepseek", RequestModel: "deepseek-v4-pro"}
+	child := &ServiceConfig{Model: "deepseek-lite"}
+	inheritCoreBehavior(child, parent)
+	if child.ModelVendor != "deepseek" || child.RequestModel != "deepseek-v4-pro" {
+		t.Fatalf("非 native 子行应继承父值，got vendor=%q request_model=%q", child.ModelVendor, child.RequestModel)
+	}
+}
+
+// TestLoad_NativeChildMissingVendorWarns 端到端：native 子行漏填 vendor 走完整条加载流水线后
+// 仍是空值，并被 validateFinal 的 native 判空告警点名（而不是悄悄带上父行的厂商）。
+func TestLoad_NativeChildMissingVendorWarns(t *testing.T) {
+	cfgPath := newVendorFixture(t, `monitors:
+  - provider: "acme"
+    service: "cc"
+    channel: "o-nat"
+    base_url: "https://api.acme.com"
+    template: "cc-native-arith"
+    model: "deepseek-v4-pro"
+    model_vendor: "deepseek"
+    api_key: "sk-xxxxxxxx"
+  - provider: "acme"
+    service: "cc"
+    channel: "o-nat"
+    parent: "acme/cc/o-nat"
+    model: "glm-5.3"
+`, func(tmplDir string) {
+		// native 模板刻意不声明 model / request_model / model_vendor（writeVendorTemplate 总会写
+		// request_model，不符合这个形态，故单独落一份）。
+		native := `{
+  "url": "{{BASE_URL}}/v1/messages",
+  "method": "POST",
+  "headers": {"x-api-key": "{{API_KEY}}"},
+  "body": {"model": "{{MODEL}}"},
+  "response": {"success_contains": "ok"}
+}`
+		if err := os.WriteFile(filepath.Join(tmplDir, "cc-native-arith.json"), []byte(native), 0600); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	cfg, err := NewLoader().Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	child := monitorByModel(t, cfg, "glm-5.3")
+	if child.ModelVendor != "" {
+		t.Fatalf("native 子行漏填 vendor 却拿到了 %q", child.ModelVendor)
+	}
+	found := false
+	for _, w := range cfg.validateFinal() {
+		if strings.Contains(w.Error(), "未填 model_vendor") && strings.Contains(w.Error(), "acme/cc/o-nat") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("native 子行漏填 vendor 必须出告警")
 	}
 }
