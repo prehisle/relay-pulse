@@ -5,6 +5,7 @@
 > 只读用途：查「某个版本当时改了什么 / 回滚锚点叫什么 / 当时 prod 实测结论」。当前生产状态请直接 `gh release list -L 5` + `git log --oneline -10`。
 
 ## 检查点（最新在最上）
+- **2026-10-19 v2.104.0**（`63ef894`，监测服务器 21:27 CST 重建；prod git_commit=`63ef894`、health=200、`配置加载完成 monitors=336`；回滚锚点 `rollback-20261019-vendor-pre`→`9b0ba54`；无 schema、无迁移）。厂商改为逐模型标注：去掉「一个通道一个厂商」校验，native 子行不再继承父行 model_vendor/request_model；前端删厂商列、模型名前逐个出厂商图标，厂商筛选改 any 语义，厂商排序下线（旧 `?sort=modelVendor_*` 视同无排序）。部署前只读审计：prod 15 个 native 文件全为 `parent: ""`，继承改动对现网 no-op。**prod 实证**：playwright 首页表头无厂商列、84 个模型图标槽、方舟仍 14 行（合并为下一步运维迁移）。
 - **2026-10-19 v2.103.3**（`9b0ba54`，监测服务器 17:38 CST 重建；prod git_commit=`9b0ba54`、health/ready=200、`配置加载完成 monitors=336`；回滚锚点 `rollback-20261019-writecheck-pre`→`e61d2a2`；无 schema、无迁移）。后台写入监测通道前先查展示名：admin 增改/切换、收录上架、变更应用撞名回 409、不落盘（`MonitorStore.checkDisplayNameConflict`，与 loader 共用判定）。只报受本次写入影响的冲突，读不出或推不出唯一 PSC 的文件跳过；300 文件约 13ms/次。**prod 实证**：对已停用的 91token `o-max-main` 发撞名 PUT，回 409，文件哈希与 revision 不变。
 
 - **2026-10-19 v2.103.2**（`e61d2a2`，监测服务器 17:04 CST 重建；health/ready=200、`配置加载完成 monitors=336`；回滚锚点 `rollback-20261019-displaykey-pre`→`79048e0`；无 schema、无迁移）。loader 拒绝展示名重复的配置：同一 (provider 展示名, service, channel 展示名) 只能属于一条通道，不看监测行 model，在 trim 与父子继承后检查，停用/隐藏行也参与。起因：CodeKey 两条通道都叫 O-Max，rpdiag 身份撞车，Claude 采样批次大半 500。**部署硬序**：先改名再上新版（否则重启起不来）。上线前用脱敏生产快照跑真 loader，又查出拾光API「官方Max主号池」一处（两条探测模型不同，含 model 的旧版判据漏掉）。生产共改 4 条，名字留给 rpdiag 有历史、在用的那条：CodeKey/Novaris/91token 的 `o-max-main`→`O-Max-2`，拾光 `o-max-main`→`官方Max主号池-2`；原文件备份在 `/opt/relaypulse_pg/config/monitors.d.bak_20261019_omax/`（含 key，700）。
