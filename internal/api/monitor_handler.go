@@ -442,6 +442,10 @@ func (h *Handler) AdminCreateMonitor(c *gin.Context) {
 	}
 
 	if err := store.Create(&file); err != nil {
+		if isDisplayNameConflictError(err) {
+			apiError(c, http.StatusConflict, ErrCodeInvalidParam, err.Error())
+			return
+		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "已存在") {
 			apiError(c, http.StatusConflict, ErrCodeInvalidParam, errMsg)
@@ -471,6 +475,13 @@ func (h *Handler) AdminCreateMonitor(c *gin.Context) {
 // 注意 toggle 路径刻意不映射：那里的 payload **只写** disabled/hidden（`model_id` 是
 // 纯选择器、不落进 MonitorFile），重复 id 必然来自磁盘上的历史坏文件，属服务端状态
 // 问题，保持 5xx + 日志更诚实。
+// isDisplayNameConflictError 判断写入是否因展示名与其它通道重复而被拒。
+// 必须先于按错误文本子串判错的分支：展示名来自配置，可能恰好含"无效""不存在"等字样。
+func isDisplayNameConflictError(err error) bool {
+	var conflict *config.DisplayNameConflictError
+	return errors.As(err, &conflict)
+}
+
 func isDuplicateModelIDError(err error) bool {
 	var dup *config.DuplicateModelIDError
 	return errors.As(err, &dup)
@@ -506,6 +517,10 @@ func (h *Handler) AdminUpdateMonitor(c *gin.Context) {
 	}
 
 	if err := store.Update(key, &req.Monitor, req.Revision); err != nil {
+		if isDisplayNameConflictError(err) {
+			apiError(c, http.StatusConflict, ErrCodeInvalidParam, err.Error())
+			return
+		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "不存在") {
 			apiError(c, http.StatusNotFound, ErrCodeNotFound, errMsg)
@@ -674,6 +689,10 @@ func (h *Handler) AdminToggleMonitor(c *gin.Context) {
 	}
 
 	if err := store.Update(key, file, file.Metadata.Revision); err != nil {
+		if isDisplayNameConflictError(err) {
+			apiError(c, http.StatusConflict, ErrCodeInvalidParam, err.Error())
+			return
+		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "revision") {
 			apiError(c, http.StatusConflict, ErrCodeInvalidParam, errMsg)

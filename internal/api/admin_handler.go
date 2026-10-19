@@ -252,6 +252,10 @@ func (h *Handler) AdminPublishSubmission(c *gin.Context) {
 	}
 
 	if err := svc.AdminPublish(c.Request.Context(), publicID, board); err != nil {
+		if isDisplayNameConflictError(err) {
+			apiError(c, http.StatusConflict, ErrCodeInvalidParam, err.Error())
+			return
+		}
 		var conflict *onboarding.PSCConflictError
 		if errors.As(err, &conflict) {
 			logger.Warn("admin", "上架 PSC 冲突", "public_id", publicID,

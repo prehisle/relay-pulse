@@ -300,3 +300,44 @@ func TestAdminListMonitorsSearchTemplateModel(t *testing.T) {
 		}
 	}
 }
+
+// TestAdminMonitorDisplayNameConflictMapsTo409 锁死：撞展示名的创建/改名回 409 且不落盘。
+// 展示名故意含"不存在"：409 分支必须先于按错误文案子串判错的分支，否则 PUT 会被误判成 404。
+func TestAdminMonitorDisplayNameConflictMapsTo409(t *testing.T) {
+	r := newAdminMonitorTestHandler(t)
+	send := func(method, path, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer test-token")
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		return w
+	}
+	monitor := func(channel, name string) string {
+		return `{"provider":"acme","service":"cc","channel":"` + channel + `","channel_name":"` + name +
+			`","model":"Opus","template":"cc-haiku-tiny","base_url":"https://x.com"}`
+	}
+
+	if w := send(http.MethodPost, "/api/admin/monitors", `{"monitors":[`+monitor("vip", "不存在的VIP")+`]}`); w.Code != http.StatusCreated {
+		t.Fatalf("准备阶段创建失败：status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	if w := send(http.MethodPost, "/api/admin/monitors", `{"monitors":[`+monitor("vip2", "不存在的VIP")+`]}`); w.Code != http.StatusConflict {
+		t.Fatalf("撞名创建应回 409，实际 %d, body = %s", w.Code, w.Body.String())
+	}
+	if w := send(http.MethodGet, "/api/admin/monitors/acme--cc--vip2", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("被拒的创建不应落盘，GET status = %d", w.Code)
+	}
+
+	if w := send(http.MethodPost, "/api/admin/monitors", `{"monitors":[`+monitor("vip2", "VIP-2")+`]}`); w.Code != http.StatusCreated {
+		t.Fatalf("不同展示名应可创建：status = %d, body = %s", w.Code, w.Body.String())
+	}
+	w := send(http.MethodPut, "/api/admin/monitors/acme--cc--vip2",
+		`{"revision":1,"monitor":{"metadata":{"source":"admin"},"monitors":[`+monitor("vip2", "不存在的VIP")+`]}}`)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("改名撞名应回 409，实际 %d, body = %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "展示名重复") {
+		t.Errorf("409 应带可操作的错误文案，body = %s", w.Body.String())
+	}
+}

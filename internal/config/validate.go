@@ -328,49 +328,21 @@ func (c *AppConfig) validateMonitorUniqueness(ctx *validateContext) error {
 }
 
 // validateMonitorDisplayKeyUniqueness 检查一组展示名 (provider 展示名/service/channel 展示名)
-// 只对应一条通道 (provider slug + channel slug)。
+// 只对应一条通道 (provider slug + channel slug)。为什么要唯一见 display_name.go。
 //
-// rpdiag 按展示名给通道建身份（它的 (provider, service, channel_name, model) 唯一键），
-// 其中 model 是 rpdiag 采样器自己选的，与监测行的 model 无关：采样器按通道去重，再用同一个
-// 模型去测本批所有通道。所以两条 slug 不同、展示名相同的通道，不论各自探测什么模型，
-// 在 rpdiag 都会撞成同一行：第二个 cid 与第一个冲突，该通道永远采不到。
-// 2026-10 CodeKey 两条 O-Max（slug o-max / o-max-main）即此形状，曾拖垮约 80% 的 Claude 采样批次。
-//
-// 同一通道的多条监测行（父子、多模型）共享 slug，不算冲突。
-// 展示名留空时回退到 slug，与 /api/status 下发的 provider_name / channel_name 口径一致。
+// 须在 trim 与父子继承之后调用（normalize 末尾）。2026-10 CodeKey 两条 O-Max
+// （slug o-max / o-max-main）即此形状，曾拖垮约 80% 的 Claude 采样批次。
 func (c *AppConfig) validateMonitorDisplayKeyUniqueness() error {
-	// 用结构体而非拼接字符串做 key：展示名允许含 "/"，拼接会让不同身份撞成同一串。
-	type displayKey struct{ provider, service, channel string }
-	type owner struct {
-		provider, channel string // slug
-		where             string
-	}
-	seen := make(map[displayKey]owner, len(c.Monitors))
+	seen := make(map[displayKey]displayOwner, len(c.Monitors))
 	for i, m := range c.Monitors {
-		provider := m.ProviderName
-		if provider == "" {
-			provider = m.Provider
-		}
-		channel := m.ChannelName
-		if channel == "" {
-			channel = m.Channel
-		}
-		key := displayKey{provider: provider, service: m.Service, channel: channel}
-		cur := owner{
-			provider: m.Provider,
-			channel:  m.Channel,
-			where:    fmt.Sprintf("monitor[%d] %s/%s/%s", i, m.Provider, m.Service, m.Channel),
-		}
+		key, cur := displayIdentity(m, fmt.Sprintf("monitor[%d] %s/%s/%s", i, m.Provider, m.Service, m.Channel))
 		prev, exists := seen[key]
 		if !exists {
 			seen[key] = cur
 			continue
 		}
-		if prev.provider != cur.provider || prev.channel != cur.channel {
-			return fmt.Errorf(
-				"展示名重复: %s/%s/%s 同时属于 %s 与 %s。rpdiag 按 provider/service/channel_name 识别通道，二者会被当成同一条；请给其中一条改 channel_name 使之唯一",
-				provider, m.Service, channel, prev.where, cur.where,
-			)
+		if err := key.conflict(prev, cur); err != nil {
+			return err
 		}
 	}
 	return nil

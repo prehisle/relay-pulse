@@ -254,6 +254,11 @@ func (s *MonitorStore) Create(file *MonitorFile) error {
 		return err
 	}
 
+	// 写盘前 fail-loud：撞展示名的文件落盘后会让 loader 整份拒载（重启即起不来）。
+	if err := s.checkDisplayNameConflict(path, file); err != nil {
+		return err
+	}
+
 	if err := AtomicWriteYAML(path, file); err != nil {
 		return err
 	}
@@ -463,6 +468,9 @@ func (s *MonitorStore) Update(key string, file *MonitorFile, expectedRevision in
 	// 写盘前 fail-loud：一对一合并已杜绝"复制既有 id"，但 payload 自带的重复 id 仍会原样落盘。
 	// 拒绝时磁盘文件与 revision 均不改动。
 	if err := ValidateFileModelIDsUnique(file); err != nil {
+		return err
+	}
+	if err := s.checkDisplayNameConflict(path, file); err != nil {
 		return err
 	}
 

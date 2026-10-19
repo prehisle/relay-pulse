@@ -380,6 +380,10 @@ func (h *Handler) AdminApplyChange(c *gin.Context) {
 
 	publicID := c.Param("id")
 	if err := svc.AdminApply(c.Request.Context(), publicID); err != nil {
+		if isDisplayNameConflictError(err) {
+			apiError(c, http.StatusConflict, ErrCodeInvalidParam, err.Error())
+			return
+		}
 		logger.Error("admin", "应用变更失败", "public_id", publicID, "error", err)
 		apiError(c, http.StatusInternalServerError, ErrCodeInternalError, err.Error())
 		return
