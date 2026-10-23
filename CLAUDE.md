@@ -377,6 +377,8 @@ HTTP 响应
 - **`GET /ready`**：含存储连通性；热更新未被应用时 GET body 附 `config_reload{last_skipped_at,last_error,skipped_count}` **信息化**，HTTP 状态**恒不因此翻 503**。两条静默失败路径已全覆盖（v2.77.0）：① `CheckRuntimeModelIDs` fail-closed 闸跳过——`last_error` 是该闸原文（只含 provider/service/channel/model + 固定文案，已知可公开）；② `loadOrRollback` 加载/`validate()` 失败后「保留旧配置」（model_id 重复、yaml 语法错等）——`last_error` 是**固定脱敏串**「配置热更新失败，保持旧配置；详情见服务端日志」，原始错误只进日志（`/ready` 无鉴权，loader 错误可能含 yaml 路径与解析细节）。
   ⚠️ 该状态是「**进程生命周期内曾发生过**」，成功热更新**不会**清除、进程重启才归零——报警要看 `skipped_count` 增量或 `last_skipped_at` 是否推进，别把「字段存在」直接读成「当前仍卡住」；定位仍需 `level=ERROR msg=重载失败` 日志。
 
+- **`GET /api/status` 有站外消费方 notifier `internal/social`（社媒草稿）**：它读 `groups[]` 的 `provider_name`/`channel_name`/`service`/`listed_days`/`interval_ms`、`layers[].current_status.{status,timestamp}`、`timeline[].{time,timestamp,availability,status_counts}`。改这些字段的形状或语义，草稿会静默算错而不报错——同步改 `notifier/internal/social/status.go`。注意组级 `current_status` 是各层**最差值**，「整家挂了」要逐层判断（social 就是这么做的）。
+
 **/api/status 查询参数**:
 - `period`: `90m` / `24h`（默认，`1d` 为别名）/ `7d` / `30d`
 - `align`: `hour`（整点对齐，可选）
