@@ -103,6 +103,20 @@ screenshot:
 
 > 浏览器进程常驻约 115MB。截图通常是低频操作，`idle_timeout` 到点后后台协程会关掉浏览器把这部分内存还给系统；小内存主机上别把它调得过大。
 
+### 社媒草稿（可选，默认关闭）
+
+```yaml
+social:
+  enabled: false
+  admin_chat_id: 0              # 接收草稿的站长 Telegram chat id（可向 @userinfobot 查询）
+  site_url: "https://relaypulse.top"  # 数据来源（公开 /api/status）与文案里的链接
+  check_interval: "5m"          # 多家异常的检查间隔
+  outage_min_providers: 5       # 同一服务方向至少这么多家全红才算多家异常
+  outage_ratio: 0.5             # 且占该方向服务商数不低于这个比例
+```
+
+只生成草稿私发给站长，不对外发布：每周一 10:00（北京时间）一份热板周报；同一服务方向多家同时异常时一份，回落后再一份。每份草稿分两条消息，第一条是只给站长看的口径和依据，第二条是可直接转发到群或复制到 X 的正文。需要配置 Telegram Bot Token。
+
 ## 环境变量
 
 | 变量名 | 说明 | 必需 |
@@ -196,6 +210,8 @@ curl http://Windows电脑IP:3000/get_login_info
 | `/snap` | 生成订阅服务的状态截图 |
 | `/status` | 查看服务状态 |
 | `/help` | 显示帮助 |
+
+启用社媒草稿时，站长私聊另有 `/weekly`：立即预览一份周报草稿（不影响定时周报）。其他人发送会被当作未知命令。
 
 ### QQ 命令
 

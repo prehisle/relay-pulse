@@ -460,6 +460,17 @@ func (s *SQLiteStorage) ensureMultiPlatformSchema(ctx context.Context) error {
 		return fmt.Errorf("创建 deliveries 索引失败: %w", err)
 	}
 
+	// 社媒草稿模块的键值状态
+	if err := execWithRetry(ctx, s.db, `
+		CREATE TABLE IF NOT EXISTS social_state (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at INTEGER NOT NULL
+		)
+	`); err != nil {
+		return fmt.Errorf("创建 social_state 表失败: %w", err)
+	}
+
 	return nil
 }
 
@@ -487,6 +498,33 @@ func (s *SQLiteStorage) UpdateCursor(ctx context.Context, lastEventID int64) err
 	`, lastEventID, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("更新游标失败: %w", err)
+	}
+	return nil
+}
+
+// ===== 社媒草稿状态 =====
+
+// GetSocialState 读取社媒模块的持久化状态
+func (s *SQLiteStorage) GetSocialState(ctx context.Context, key string) (string, bool, error) {
+	var value string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM social_state WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("读取 social_state 失败: %w", err)
+	}
+	return value, true, nil
+}
+
+// SetSocialState 写入社媒模块的持久化状态
+func (s *SQLiteStorage) SetSocialState(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO social_state (key, value, updated_at) VALUES (?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+	`, key, value, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("写入 social_state 失败: %w", err)
 	}
 	return nil
 }

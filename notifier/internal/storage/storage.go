@@ -97,6 +97,14 @@ type Storage interface {
 
 	// CleanupOldDeliveries 清理旧的投递记录
 	CleanupOldDeliveries(ctx context.Context, before time.Time) (int64, error)
+
+	// ===== 社媒草稿状态 =====
+
+	// GetSocialState 读取社媒模块的持久化状态（如上次周报的周编号），不存在时 ok=false
+	GetSocialState(ctx context.Context, key string) (value string, ok bool, err error)
+
+	// SetSocialState 写入社媒模块的持久化状态
+	SetSocialState(ctx context.Context, key, value string) error
 }
 
 // Chat 多平台用户/群

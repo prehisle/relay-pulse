@@ -141,6 +141,12 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, par
 	return &msg, nil
 }
 
+// SendText 发送纯文本消息（不解析格式，原样显示）
+func (c *Client) SendText(ctx context.Context, chatID int64, text string) error {
+	_, err := c.SendMessage(ctx, chatID, text, "")
+	return err
+}
+
 // SendMessageHTML 发送 HTML 格式消息
 func (c *Client) SendMessageHTML(ctx context.Context, chatID int64, text string) (*Message, error) {
 	return c.SendMessage(ctx, chatID, text, "HTML")

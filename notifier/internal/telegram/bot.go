@@ -25,10 +25,17 @@ type Bot struct {
 	screenshotService *screenshot.Service
 	validator         *validator.RelayPulseValidator
 	handlers          map[string]CommandHandler
+	social            SocialAdmin
 
 	mu       sync.Mutex
 	running  bool
 	stopChan chan struct{}
+}
+
+// SocialAdmin 社媒草稿的站长命令（由 social 包实现，接口放这里避免循环依赖）
+type SocialAdmin interface {
+	IsAdmin(chatID int64) bool
+	PreviewWeekly(ctx context.Context) error
 }
 
 // CommandHandler 命令处理函数
@@ -67,6 +74,7 @@ func NewBot(cfg *config.Config, store storage.Storage) *Bot {
 	b.handlers["status"] = b.handleStatus
 	b.handlers["help"] = b.handleHelp
 	b.handlers["snap"] = b.handleSnap
+	b.handlers["weekly"] = b.handleWeekly
 
 	return b
 }
@@ -74,6 +82,11 @@ func NewBot(cfg *config.Config, store storage.Storage) *Bot {
 // SetScreenshotService 设置截图服务（可选）
 func (b *Bot) SetScreenshotService(svc *screenshot.Service) {
 	b.screenshotService = svc
+}
+
+// SetSocial 启用站长的社媒草稿命令（可选）
+func (b *Bot) SetSocial(s SocialAdmin) {
+	b.social = s
 }
 
 // Start 启动 Bot（Long Polling）
@@ -768,6 +781,16 @@ func (b *Bot) handleHelp(ctx context.Context, msg *Message, args string) error {
 
 	b.sendReply(ctx, msg.Chat.ID, help)
 	return nil
+}
+
+// handleWeekly 站长手动预览周报草稿；非站长私聊一律按未知命令回复，不暴露命令存在
+func (b *Bot) handleWeekly(ctx context.Context, msg *Message, args string) error {
+	if b.social == nil || msg.Chat.Type != "private" || !b.social.IsAdmin(msg.Chat.ID) {
+		b.sendReply(ctx, msg.Chat.ID, "未知命令。发送 /help 查看帮助。")
+		return nil
+	}
+	b.sendReply(ctx, msg.Chat.ID, "正在生成周报草稿…")
+	return b.social.PreviewWeekly(ctx)
 }
 
 // handleSnap 处理 /snap 命令（截图订阅服务状态）

@@ -17,6 +17,7 @@ import (
 	"notifier/internal/poller"
 	"notifier/internal/qq"
 	"notifier/internal/screenshot"
+	"notifier/internal/social"
 	"notifier/internal/storage"
 	"notifier/internal/telegram"
 )
@@ -62,6 +63,7 @@ func main() {
 		"telegram_enabled", cfg.HasTelegramToken(),
 		"qq_enabled", cfg.HasQQ(),
 		"screenshot_enabled", cfg.HasScreenshot(),
+		"social_enabled", cfg.HasSocial(),
 	)
 
 	// 创建上下文，支持优雅关闭
@@ -115,6 +117,8 @@ func main() {
 	var bot *telegram.Bot
 	var sender *notifier.Sender
 	var eventPoller *poller.Poller
+	socialCancel := context.CancelFunc(func() {})
+	var socialDone chan struct{}
 
 	// 初始化 QQ Bot（如果启用）
 	// QQ Bot 通过 HTTP 回调工作，不需要主动运行 goroutine
@@ -138,6 +142,19 @@ func main() {
 		bot = telegram.NewBot(cfg, store)
 		if screenshotSvc != nil {
 			bot.SetScreenshotService(screenshotSvc)
+		}
+		// 社媒草稿：只私发站长，不对外发布（config 校验已保证启用时有 token 与 admin_chat_id）
+		if cfg.HasSocial() {
+			socialSvc := social.NewService(cfg.Social, store, telegram.NewClient(cfg.Telegram.BotToken))
+			bot.SetSocial(socialSvc)
+			var socialCtx context.Context
+			socialCtx, socialCancel = context.WithCancel(ctx)
+			socialDone = make(chan struct{})
+			go func() {
+				defer close(socialDone)
+				// 只在 ctx 结束时返回；单轮失败在内部记日志后继续，不拖垮整个服务
+				_ = socialSvc.Start(socialCtx)
+			}()
 		}
 		go func() {
 			if err := bot.Start(ctx); err != nil && ctx.Err() == nil {
@@ -193,6 +210,15 @@ func main() {
 	}
 	if bot != nil {
 		bot.Stop()
+	}
+	// 社媒草稿循环会读写存储，必须在 defer 关存储之前停下
+	socialCancel()
+	if socialDone != nil {
+		select {
+		case <-socialDone:
+		case <-time.After(10 * time.Second):
+			slog.Warn("社媒草稿服务未在 10s 内退出")
+		}
 	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)

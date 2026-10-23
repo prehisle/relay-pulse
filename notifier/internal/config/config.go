@@ -18,6 +18,7 @@ type Config struct {
 	API        APIConfig        `yaml:"api"`
 	Limits     LimitsConfig     `yaml:"limits"`
 	Screenshot ScreenshotConfig `yaml:"screenshot"`
+	Social     SocialConfig     `yaml:"social"`
 }
 
 // RelayPulseConfig relay-pulse 事件 API 配置
@@ -93,6 +94,22 @@ type ScreenshotConfig struct {
 	Timeout       time.Duration `yaml:"timeout"`        // 截图超时时间，默认 30s
 	MaxConcurrent int           `yaml:"max_concurrent"` // 最大并发数，默认 3
 	IdleTimeout   time.Duration `yaml:"idle_timeout"`   // 浏览器空闲多久后回收，默认 10m
+}
+
+// SocialConfig 社媒草稿配置
+//
+// 只生成草稿私发给站长，不直接对外发布：周报每周一 10:00（北京时间）一份，
+// 同一服务方向多家同时异常时一份，回落后再一份。
+type SocialConfig struct {
+	Enabled       bool          `yaml:"enabled"`        // 是否启用
+	AdminChatID   int64         `yaml:"admin_chat_id"`  // 接收草稿的 Telegram chat id（站长私聊）
+	SiteURL       string        `yaml:"site_url"`       // 数据来源与文案里的站点地址，默认 https://relaypulse.top
+	CheckInterval time.Duration `yaml:"check_interval"` // 异常检查间隔，默认 5m
+
+	// 同一服务方向「整家全红」的服务商数同时满足两条才算多家异常：
+	// 不少于 OutageMinProviders 家，且占该方向服务商数不低于 OutageRatio
+	OutageMinProviders int     `yaml:"outage_min_providers"` // 默认 5
+	OutageRatio        float64 `yaml:"outage_ratio"`         // 默认 0.5
 }
 
 // Load 从文件加载配置，并应用环境变量覆盖
@@ -222,6 +239,20 @@ func (c *Config) setDefaults() {
 	if c.Screenshot.IdleTimeout == 0 {
 		c.Screenshot.IdleTimeout = 10 * time.Minute
 	}
+	// Social 默认值
+	if c.Social.SiteURL == "" {
+		c.Social.SiteURL = "https://relaypulse.top"
+	}
+	c.Social.SiteURL = strings.TrimRight(c.Social.SiteURL, "/")
+	if c.Social.CheckInterval == 0 {
+		c.Social.CheckInterval = 5 * time.Minute
+	}
+	if c.Social.OutageMinProviders == 0 {
+		c.Social.OutageMinProviders = 5
+	}
+	if c.Social.OutageRatio == 0 {
+		c.Social.OutageRatio = 0.5
+	}
 }
 
 // splitAndTrimCSV 将逗号分隔的字符串拆分并去除空白
@@ -267,6 +298,23 @@ func (c *Config) validate() error {
 	if c.Screenshot.IdleTimeout < 0 {
 		return fmt.Errorf("screenshot.idle_timeout 不能为负数（当前 %s）；留空或 0 表示使用默认 10m", c.Screenshot.IdleTimeout)
 	}
+	if c.Social.Enabled {
+		if c.Telegram.BotToken == "" {
+			return fmt.Errorf("social.enabled 需要配置 Telegram Bot Token（草稿经 Telegram 私发）")
+		}
+		if c.Social.AdminChatID == 0 {
+			return fmt.Errorf("social.enabled 需要配置 social.admin_chat_id")
+		}
+		if c.Social.CheckInterval < time.Minute {
+			return fmt.Errorf("social.check_interval 不能小于 1m（当前 %s）", c.Social.CheckInterval)
+		}
+		if c.Social.OutageMinProviders < 2 {
+			return fmt.Errorf("social.outage_min_providers 不能小于 2（当前 %d）", c.Social.OutageMinProviders)
+		}
+		if c.Social.OutageRatio <= 0 || c.Social.OutageRatio > 1 {
+			return fmt.Errorf("social.outage_ratio 必须在 (0, 1] 之间（当前 %g）", c.Social.OutageRatio)
+		}
+	}
 	// Telegram Bot Token 在开发环境可选（仅 API 服务启动）
 	// 如果未设置，Bot 和 Poller 功能将不可用
 	return nil
@@ -280,6 +328,11 @@ func (c *Config) HasTelegramToken() bool {
 // HasQQ 检查是否启用了 QQ 通知
 func (c *Config) HasQQ() bool {
 	return c.QQ.Enabled && c.QQ.OneBotHTTPURL != ""
+}
+
+// HasSocial 检查是否启用了社媒草稿
+func (c *Config) HasSocial() bool {
+	return c.Social.Enabled
 }
 
 // HasScreenshot 检查是否启用了截图功能

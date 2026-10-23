@@ -91,3 +91,16 @@ limits:
 
   # 兼容旧配置（deprecated）：等价于 telegram_rate_limit_per_second
   # rate_limit_per_second: 25
+
+# 社媒草稿（可选，默认关闭）：只私发站长，不对外发布
+social:
+  enabled: false
+  # 接收草稿的站长 Telegram chat id（可向 @userinfobot 查询）
+  admin_chat_id: 0
+  # 数据来源（公开 /api/status）与文案里的链接（默认: https://relaypulse.top）
+  site_url: "https://relaypulse.top"
+  # 多家异常的检查间隔（默认: 5m，不能小于 1m）
+  check_interval: "5m"
+  # 同一服务方向全红服务商不少于这么多家（默认: 5），且占比不低于 outage_ratio（默认: 0.5）才出草稿
+  outage_min_providers: 5
+  outage_ratio: 0.5
