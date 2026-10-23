@@ -5,6 +5,7 @@
 > 只读用途：查「某个版本当时改了什么 / 回滚锚点叫什么 / 当时 prod 实测结论」。当前生产状态请直接 `gh release list -L 5` + `git log --oneline -10`。
 
 ## 检查点（最新在最上）
+- **2026-10-23 v2.105.0**（`391ae15`，监测服务器 11:40 CST 重建；prod git_commit=`391ae15`、health=200、`配置加载完成 monitors=341`；回滚锚点 `rollback-20261023-pre`→`63ef894`；notifier 同日 11:38 重建到 `391ae15`，锚点同名→`79048e0`；无 schema 迁移，notifier 自建 `social_state` 表）。页头恢复「加入社群」菜单（12a36c7 随讨论入口一并移除，讨论入口不恢复），新增 Telegram 群 `t.me/relaypulse_top`。notifier 新增社媒草稿模块（`internal/social`，默认关闭）：周报与多家同时异常只私发站长、人工转发，不接任何对外发布接口；prod `config.yaml` 末尾追加 `social.enabled/admin_chat_id`（备份 `config.yaml.bak_2026-10-23_033740`）。**prod 实证**：playwright 线上页头菜单出 QQ 群/Telegram 群两项、TG 链接正确；notifier 日志 `social_enabled=true`、`社媒草稿服务启动`、首轮检查零 WARN。
 - **2026-10-19 v2.104.0**（`63ef894`，监测服务器 21:27 CST 重建；prod git_commit=`63ef894`、health=200、`配置加载完成 monitors=336`；回滚锚点 `rollback-20261019-vendor-pre`→`9b0ba54`；无 schema、无迁移）。厂商改为逐模型标注：去掉「一个通道一个厂商」校验，native 子行不再继承父行 model_vendor/request_model；前端删厂商列、模型名前逐个出厂商图标，厂商筛选改 any 语义，厂商排序下线（旧 `?sort=modelVendor_*` 视同无排序）。部署前只读审计：prod 15 个 native 文件全为 `parent: ""`，继承改动对现网 no-op。**prod 实证**：playwright 首页表头无厂商列、84 个模型图标槽、方舟仍 14 行（合并为下一步运维迁移）。
 - **2026-10-19 v2.103.3**（`9b0ba54`，监测服务器 17:38 CST 重建；prod git_commit=`9b0ba54`、health/ready=200、`配置加载完成 monitors=336`；回滚锚点 `rollback-20261019-writecheck-pre`→`e61d2a2`；无 schema、无迁移）。后台写入监测通道前先查展示名：admin 增改/切换、收录上架、变更应用撞名回 409、不落盘（`MonitorStore.checkDisplayNameConflict`，与 loader 共用判定）。只报受本次写入影响的冲突，读不出或推不出唯一 PSC 的文件跳过；300 文件约 13ms/次。**prod 实证**：对已停用的 91token `o-max-main` 发撞名 PUT，回 409，文件哈希与 revision 不变。
 
