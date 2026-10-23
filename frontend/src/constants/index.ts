@@ -131,4 +131,10 @@ export const COMMUNITY_LIST: CommunityItem[] = [
     qrImageSrc: '/qqun.jpg',
     joinUrl: 'https://qm.qq.com/q/oPN0J85hIs',
   },
+  {
+    id: 'rp-telegram-group',
+    platform: 'telegram',
+    nameKey: 'community.items.telegramGroup',
+    joinUrl: 'https://t.me/relaypulse_top',
+  },
 ];

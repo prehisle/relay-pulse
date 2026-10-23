@@ -333,7 +333,8 @@
   "community": {
     "title": "コミュニティ",
     "items": {
-      "qqGroup": "QQ グループ"
+      "qqGroup": "QQ グループ",
+      "telegramGroup": "Telegram グループ"
     },
     "groupNumber": "グループID",
     "joinLink": "参加する",

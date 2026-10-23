@@ -333,7 +333,8 @@
   "community": {
     "title": "加入社群",
     "items": {
-      "qqGroup": "QQ 群"
+      "qqGroup": "QQ 群",
+      "telegramGroup": "Telegram 群"
     },
     "groupNumber": "群号",
     "joinLink": "点击加入",

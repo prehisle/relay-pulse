@@ -333,7 +333,8 @@
   "community": {
     "title": "Join Community",
     "items": {
-      "qqGroup": "QQ Group"
+      "qqGroup": "QQ Group",
+      "telegramGroup": "Telegram Group"
     },
     "groupNumber": "Group ID",
     "joinLink": "Click to join",
