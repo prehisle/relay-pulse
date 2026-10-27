@@ -23,13 +23,13 @@
   "dependencies": {
     "@types/react-window": "^2.0.0",
     "country-flag-icons": "^1.6.20",
-    "i18next": "^26.5.5",
-    "i18next-browser-languagedetector": "^8.2.1",
+    "i18next": "^26.5.10",
+    "i18next-browser-languagedetector": "^8.2.2",
     "lucide-react": "^1.61.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-helmet-async": "^3.0.0",
-    "react-i18next": "^17.1.2",
+    "react-i18next": "^17.1.8",
     "react-router-dom": "^7.18.4",
     "react-window": "^2.5.0"
   },
