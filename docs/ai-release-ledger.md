@@ -5,6 +5,15 @@
 > 只读用途：查「某个版本当时改了什么 / 回滚锚点叫什么 / 当时 prod 实测结论」。当前生产状态请直接 `gh release list -L 5` + `git log --oneline -10`。
 
 ## 检查点（最新在最上）
+- **2026-10-27 v2.105.3**（`eb36b20`，含未单独部署的 v2.105.2；监测服务器 21:37 CST 重建；prod git_commit=`eb36b20`、health=200、ready ok、`配置加载完成 monitors=342`、`variants=48`；回滚锚点 `rollback-20261027-deps-pre`→`43574f1`；notifier 同日 21:38 重建到 `470ae9a`，锚点同名→`391ae15`；无 schema、无迁移）。纯依赖批，dependabot 开放 PR 6→0。
+
+  **Go**：主仓 `golang.org/x/net` 0.61.0（本仓只用它的 proxy 包做 SOCKS 拨号，这版只修 QUIC 帧类型检查，不碰探针请求形态）、sqlite 1.61.0、brotli 1.2.7，连带 x/crypto/sys/text、modernc libc；notifier sqlite 1.61.0。go 指令仍 1.26.0，`godebug tlssecpmlkem=0` 不动。
+
+  **前端**：minor/patch 15 项（react 19.3.1、i18next 26.5.10、react-i18next 17.1.8、react-window 2.5、lucide-react 1.61、vite 8.3.5、vitest 5.0.5 等），另 `npm audit fix` 修掉构建工具链上的 brace-expansion/zod/@humanfs/@babel 四条，audit 归零。i18next 26.5.10 收紧语言模糊匹配（两字母码不再匹配以它开头的三字母码），本站四个 locale 都不是三字母码。
+
+  **CI**：`cycjimmy/semantic-release-action` v6→v8（v7 删 `branch` 输入、v8 要求 semantic-release ≥20；本仓不钉 `semantic_version`，只传 `extra_plugins`），v2.105.2/v2.105.3 两次发版即实证。
+
+  **prod 实证**：playwright 线上首页主板 65 行、`/en/` `/ja/` `/ru/` 的 `lang` 与标题各自正确、390px 宽移动卡片（react-window 虚拟列表）滚动正常且无页面横向溢出、四页控制台 0 错误、页脚版本徽章 `eb36b20`；notifier 启动日志 Telegram/截图/社媒草稿三项齐全、零 ERROR。重建后 6 分钟 27 次探测完成，唯一一条 ERROR 是 Code0 cx 上游 15s 超时（通道侧）。
 - **2026-10-27 v2.105.1**（`43574f1`，监测服务器 11:19 CST 重建；prod git_commit=`43574f1`、health=200、`配置加载完成 monitors=342`；回滚锚点 `rollback-20261027-rpdiag-current-pre`→`391ae15`；无 schema、无迁移，notifier 未动）。质量列改为显式请求 rpdiag 导出 `?scoring_version=current`（只取当前评分大版本 v4 的分），不再跟随 rpdiag 默认值；同日 rpdiag 把裸请求默认也改成 current（export `ranking-export.v5.16`，rpdiag `726c76e` 先于本版部署），本客户端按 `ranking-export.v5` 前缀判版本、零改动可读。起因：`all` 模式把 v3/v4 冻结分直接平均，30 天窗里新旧分占比各家不同，codex 板排序会被颠倒；已退池的 gpt-5.5/5.6-sol 旧 v3 高分还会垫高均分。部署前用真实 `buildScoresAt`/`buildQualitySignalsAt` 重放同一时刻 all/current 两份快照：通道无增减、移板信号 0 变化，72 个通道 MaxScore 变（中位 −2.1，26 个 ≥10 分，降幅大的多是 codex 通道，如 OmniaKey O-Pro 65→21、CodeKey O-Team 63→28；升幅如 TRIAPI O-Pro 68→97、subarx O-Plus 19→52），4 个通道 0→无分。**prod 实证**：重建后 `/api/rpdiag-scores` 90 个键与重放预测逐条一致（误差 ≤1 分）。
 - **2026-10-23 v2.105.0**（`391ae15`，监测服务器 11:40 CST 重建；prod git_commit=`391ae15`、health=200、`配置加载完成 monitors=341`；回滚锚点 `rollback-20261023-pre`→`63ef894`；notifier 同日 11:38 重建到 `391ae15`，锚点同名→`79048e0`；无 schema 迁移，notifier 自建 `social_state` 表）。页头恢复「加入社群」菜单（12a36c7 随讨论入口一并移除，讨论入口不恢复），新增 Telegram 群 `t.me/relaypulse_top`。notifier 新增社媒草稿模块（`internal/social`，默认关闭）：周报与多家同时异常只私发站长、人工转发，不接任何对外发布接口；prod `config.yaml` 末尾追加 `social.enabled/admin_chat_id`（备份 `config.yaml.bak_2026-10-23_033740`）。**prod 实证**：playwright 线上页头菜单出 QQ 群/Telegram 群两项、TG 链接正确；notifier 日志 `social_enabled=true`、`社媒草稿服务启动`、首轮检查零 WARN。
 - **2026-10-19 v2.104.0**（`63ef894`，监测服务器 21:27 CST 重建；prod git_commit=`63ef894`、health=200、`配置加载完成 monitors=336`；回滚锚点 `rollback-20261019-vendor-pre`→`9b0ba54`；无 schema、无迁移）。厂商改为逐模型标注：去掉「一个通道一个厂商」校验，native 子行不再继承父行 model_vendor/request_model；前端删厂商列、模型名前逐个出厂商图标，厂商筛选改 any 语义，厂商排序下线（旧 `?sort=modelVendor_*` 视同无排序）。部署前只读审计：prod 15 个 native 文件全为 `parent: ""`，继承改动对现网 no-op。**prod 实证**：playwright 首页表头无厂商列、84 个模型图标槽、方舟仍 14 行（合并为下一步运维迁移）。
