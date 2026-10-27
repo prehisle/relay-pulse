@@ -2240,7 +2240,7 @@ MONITOR_CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 MONITOR_RPDIAG_ENABLED=true
 
 # 排名导出地址（可选；默认指向官方 diag.relaypulse.top）
-MONITOR_RPDIAG_EXPORT_URL=https://diag.relaypulse.top/api/v1/ranking/export?scoring_version=all
+MONITOR_RPDIAG_EXPORT_URL=https://diag.relaypulse.top/api/v1/ranking/export?scoring_version=current
 
 # 导出缓存 TTL（可选；Go duration 语法，默认 10m）
 MONITOR_RPDIAG_CACHE_TTL=10m

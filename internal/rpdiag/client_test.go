@@ -1003,8 +1003,15 @@ func TestBoardURLsFromExportURL(t *testing.T) {
 	if tc := u.Query().Get("test_case"); tc != codexBoardTestCase {
 		t.Errorf("codex board test_case = %q, want %q", tc, codexBoardTestCase)
 	}
-	if sv := u.Query().Get("scoring_version"); sv != "all" {
-		t.Errorf("codex board dropped scoring_version: got %q, want all", sv)
+	if sv := u.Query().Get("scoring_version"); sv != "current" {
+		t.Errorf("codex board scoring_version = %q, want current", sv)
+	}
+	base, err := url.Parse(got[0])
+	if err != nil {
+		t.Fatalf("base board URL unparseable: %v", err)
+	}
+	if sv := base.Query().Get("scoring_version"); sv != "current" {
+		t.Errorf("base board scoring_version = %q, want current", sv)
 	}
 }
 

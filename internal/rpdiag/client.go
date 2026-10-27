@@ -40,7 +40,12 @@ import (
 )
 
 const (
-	defaultExportURL = "https://diag.relaypulse.top/api/v1/ranking/export?scoring_version=all"
+	// scoring_version is pinned here instead of left to rpdiag's default, so a
+	// default change over there cannot reshape the quality column unannounced.
+	// `current` reads only scores from rpdiag's current scoring major version
+	// (ranking-export v5.16); `all` would mix the frozen scores of every version,
+	// which reordered channels while the 30-day window still held old ones.
+	defaultExportURL = "https://diag.relaypulse.top/api/v1/ranking/export?scoring_version=current"
 
 	// codexBoardTestCase is the rpdiag root test-case slug for the codex (cx)
 	// quality board. The default export URL (no test_case) returns the claude
