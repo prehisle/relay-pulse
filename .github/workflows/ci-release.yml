@@ -176,7 +176,7 @@ jobs:
 
       - name: Semantic Release
         id: semantic
-        uses: cycjimmy/semantic-release-action@v6
+        uses: cycjimmy/semantic-release-action@v8
         with:
           # 只装 semantic-release **没有**自带的那一个：commit-analyzer / release-notes-generator /
           # github 三个插件本就是 semantic-release 的依赖，由它按互相兼容的版本装好；把它们再
