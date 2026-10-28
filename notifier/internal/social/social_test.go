@@ -212,6 +212,176 @@ func TestOutageDetector_MembersLeavingSampleIsNotRecovery(t *testing.T) {
 	}
 }
 
+// alertCx 20 家里 cx00-cx09 全红，连续两次后告警
+func alertCx(t *testing.T, d *OutageDetector) {
+	t.Helper()
+	observe(d, 20, 10, t0)
+	if got := observe(d, 20, 10, t0.Add(5*time.Minute)); len(got) != 1 {
+		t.Fatalf("10/20 应告警: %+v", got)
+	}
+}
+
+// healthyOnly 只剩 cx10-cx19 且都没挂：告警成员全部不在样本里
+func healthyOnly(at time.Time) map[string]*ServiceSnapshot {
+	return Snapshot(fleet("cx", 20, 0, at)[10:], at)
+}
+
+func TestOutageDetector_DepartedMembersEndTracking(t *testing.T) {
+	d := newDetector()
+	alertCx(t, d)
+	start := t0.Add(10 * time.Minute)
+	// 成员移出热板：不到 2 小时照旧等它们回来
+	for at := start; at.Before(start.Add(memberGoneAfter)); at = at.Add(5 * time.Minute) {
+		if got := d.Observe(healthyOnly(at), at); len(got) != 0 {
+			t.Fatalf("%s 成员离开不足 2 小时，不应结束跟踪: %+v", at.Sub(start), got)
+		}
+	}
+	got := d.Observe(healthyOnly(start.Add(memberGoneAfter)), start.Add(memberGoneAfter))
+	if len(got) != 1 || got[0].Text != "" || !strings.Contains(got[0].Note, "异常跟踪结束 · Codex") ||
+		!strings.Contains(got[0].Note, "2 小时以上") {
+		t.Fatalf("成员离开满 2 小时应只给站长一条结束说明: %+v", got)
+	}
+	// 不再卡在告警态：新的一轮异常照常报
+	later := start.Add(3 * time.Hour)
+	observe(d, 20, 10, later)
+	if got := observe(d, 20, 10, later.Add(5*time.Minute)); len(got) != 1 || !strings.Contains(got[0].Text, "有点不对") {
+		t.Fatalf("结束跟踪后应能再次告警: %+v", got)
+	}
+}
+
+// departedCx cx00 到 cx(gone-1) 已移出热板，其余照常；remainingRed 时原告警成员里留下的仍红
+func departedCx(at time.Time, gone int, remainingRed bool) map[string]*ServiceSnapshot {
+	down := 0
+	if remainingRed {
+		down = 10
+	}
+	return Snapshot(fleet("cx", 20, down, at)[gone:], at)
+}
+
+func TestOutageDetector_RecoveryAfterSomeMembersDepart(t *testing.T) {
+	d := newDetector()
+	alertCx(t, d)
+	// cx00-cx03 移出热板，cx04-cx09 留下且仍红
+	start := t0.Add(10 * time.Minute)
+	for at := start; !at.After(start.Add(2 * time.Hour)); at = at.Add(5 * time.Minute) {
+		if got := d.Observe(departedCx(at, 4, true), at); len(got) != 0 {
+			t.Fatalf("留下的成员仍红，不应有草稿: %+v", got)
+		}
+	}
+	// 留下的 6 家变绿：占告警时 10 家的一半以上，连续两次报恢复
+	at := start.Add(2*time.Hour + 5*time.Minute)
+	d.Observe(departedCx(at, 4, false), at)
+	got := d.Observe(departedCx(at.Add(5*time.Minute), 4, false), at.Add(5*time.Minute))
+	if len(got) != 1 || !strings.Contains(got[0].Text, "在好转") {
+		t.Fatalf("留下的成员变绿且够一半应报恢复: %+v", got)
+	}
+}
+
+func TestOutageDetector_ExactlyHalfRemainingKeepsTracking(t *testing.T) {
+	d := newDetector()
+	alertCx(t, d)
+	// cx00-cx04 移出热板，恰好留下一半（cx05-cx09，仍红）：还可能凑够，继续跟踪
+	start := t0.Add(10 * time.Minute)
+	for at := start; !at.After(start.Add(3 * time.Hour)); at = at.Add(5 * time.Minute) {
+		if got := d.Observe(departedCx(at, 5, true), at); len(got) != 0 {
+			t.Fatalf("剩下恰好一半不应结束跟踪: %+v", got)
+		}
+	}
+	at := start.Add(3*time.Hour + 5*time.Minute)
+	d.Observe(departedCx(at, 5, false), at)
+	if got := d.Observe(departedCx(at.Add(5*time.Minute), 5, false), at.Add(5*time.Minute)); len(got) != 1 ||
+		!strings.Contains(got[0].Text, "在好转") {
+		t.Fatalf("剩下的一半全部变绿应报恢复: %+v", got)
+	}
+}
+
+func TestOutageDetector_RecoveryNeedsHalfOfOriginalMembers(t *testing.T) {
+	d := newDetector()
+	alertCx(t, d)
+	// cx00-cx03 移出热板；留下的 6 家里 cx04-cx06 变绿、cx07-cx09 仍红。
+	// 红的只剩 3 家，按剩下 6 家算恰好一半回来了，但只占告警时 10 家的 3 成，不算恢复
+	start := t0.Add(10 * time.Minute)
+	for at := start; !at.After(start.Add(3 * time.Hour)); at = at.Add(5 * time.Minute) {
+		gs := fleet("cx", 20, 0, at)[4:]
+		for i := 3; i < 6; i++ {
+			gs[i].Layers[0].CurrentStatus.Status = statusRed
+		}
+		if got := d.Observe(Snapshot(gs, at), at); len(got) != 0 {
+			t.Fatalf("回来的不到告警时家数一半，不应有草稿: %+v", got)
+		}
+	}
+}
+
+func TestOutageDetector_TooManyDepartedEndsTrackingInsteadOfRecovering(t *testing.T) {
+	d := newDetector()
+	alertCx(t, d)
+	// cx00-cx07 移出热板；留下的 cx08 变绿、cx09 仍红。剩下的分母若按 2 家算，
+	// 1 家变绿就够一半了，但告警时的 10 家里只确认了 1 家恢复，不能报「在好转」
+	start := t0.Add(10 * time.Minute)
+	var got []Draft
+	for at := start; !at.After(start.Add(3 * time.Hour)); at = at.Add(5 * time.Minute) {
+		gs := fleet("cx", 20, 0, at)[8:]
+		gs[1].Layers[0].CurrentStatus.Status = statusRed // cx09
+		got = append(got, d.Observe(Snapshot(gs, at), at)...)
+	}
+	if len(got) != 1 || got[0].Text != "" ||
+		!strings.Contains(got[0].Note, "告警时全红的 10 家里，有 8 家已连续 2 小时以上") {
+		t.Fatalf("离开的成员过半应只发结束说明、不报恢复: %+v", got)
+	}
+}
+
+func TestOutageDetector_BriefAbsencesDoNotAccumulate(t *testing.T) {
+	d := newDetector()
+	alertCx(t, d)
+	at := t0.Add(10 * time.Minute)
+	for round := 0; round < 3; round++ {
+		// 离开 1.5 小时又回来（仍红），离开时长不跨轮累加
+		for end := at.Add(90 * time.Minute); at.Before(end); at = at.Add(5 * time.Minute) {
+			if got := d.Observe(healthyOnly(at), at); len(got) != 0 {
+				t.Fatalf("短暂离开不应结束跟踪: %+v", got)
+			}
+		}
+		if got := observe(d, 20, 10, at); len(got) != 0 {
+			t.Fatalf("成员回来仍红，不应有草稿: %+v", got)
+		}
+		at = at.Add(5 * time.Minute)
+	}
+}
+
+func TestOutageDetector_FetchGapRestartsAbsenceClock(t *testing.T) {
+	d := newDetector()
+	alertCx(t, d)
+	// 成员开始缺席，随后 2 小时拉不到数据：断档期间看不到它们，缺席要从断档后重新计时
+	at := t0.Add(10 * time.Minute)
+	d.Observe(healthyOnly(at), at)
+	at = at.Add(2 * time.Hour)
+	for end := at.Add(2 * time.Hour); at.Before(end); at = at.Add(5 * time.Minute) {
+		if got := d.Observe(healthyOnly(at), at); len(got) != 0 {
+			t.Fatalf("断档前后的缺席不应连起来算: %+v", got)
+		}
+	}
+	if got := d.Observe(healthyOnly(at), at); len(got) != 1 {
+		t.Fatalf("断档后重新连续缺席满 2 小时应结束跟踪: %+v", got)
+	}
+}
+
+func TestOutageDetector_AlertedServiceMissingFromSnapshot(t *testing.T) {
+	d := newDetector()
+	alertCx(t, d)
+	// 之后热板上一条 cx 都没有了，只剩 cc：cx 的告警也要能结束，且不早于 2 小时
+	start := t0.Add(10 * time.Minute)
+	for at := start; at.Before(start.Add(2 * time.Hour)); at = at.Add(5 * time.Minute) {
+		if got := d.Observe(Snapshot(fleet("cc", 10, 0, at), at), at); len(got) != 0 {
+			t.Fatalf("缺席不足 2 小时不应结束: %+v", got)
+		}
+	}
+	end := start.Add(2 * time.Hour)
+	got := d.Observe(Snapshot(fleet("cc", 10, 0, end), end), end)
+	if len(got) != 1 || !strings.Contains(got[0].Note, "异常跟踪结束 · Codex") {
+		t.Fatalf("整个方向缺席满 2 小时应结束跟踪: %+v", got)
+	}
+}
+
 func TestOutageDetector_InsufficientSampleDoesNotBridgeGap(t *testing.T) {
 	d := newDetector()
 	observe(d, 10, 5, t0)
@@ -527,6 +697,17 @@ func TestCheckOutage_UndeliveredDraftsAreRetried(t *testing.T) {
 	}
 	if len(out.sent) != 4 || !strings.Contains(out.sent[1].text, "Claude Code") || !strings.Contains(out.sent[3].text, "Codex") {
 		t.Fatalf("补发内容不对: %+v", out.sent)
+	}
+}
+
+func TestSendDraft_NoteOnlyDraftSendsOneMessage(t *testing.T) {
+	out := &recorder{}
+	svc := newTestService("https://example.test", &memStore{kv: map[string]string{}}, out)
+	if err := svc.sendDraft(context.Background(), Draft{Note: "只有说明"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.sent) != 1 || out.sent[0].text != "只有说明" {
+		t.Fatalf("没有正文时只发说明: %+v", out.sent)
 	}
 }
 

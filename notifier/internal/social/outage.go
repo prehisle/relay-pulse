@@ -14,6 +14,9 @@ const (
 	// 一个模型层的最新探测超过 max(3 个间隔, 15 分钟) 视为不新鲜，不参与判断
 	freshIntervals = 3
 	freshMinWindow = 15 * time.Minute
+	// 告警时全红的服务商连续这么久不在样本里，就当它已离开。移出热板、停用之后它不会
+	// 再出现，一直等下去这个方向就卡在告警态：既出不了恢复草稿，新的异常也不会再报
+	memberGoneAfter = 2 * time.Hour
 )
 
 // ServiceSnapshot 某服务方向在一次检查时的状况
@@ -86,21 +89,27 @@ func Snapshot(groups []StatusGroup, now time.Time) map[string]*ServiceSnapshot {
 	return out
 }
 
-// Draft 一份草稿：Note 只给站长看，Text 是可直接转发的正文
+// Draft 一份草稿：Note 只给站长看，Text 是可直接转发的正文（为空＝只有说明）
 type Draft struct {
 	Note string
 	Text string
 }
 
 type outageState struct {
-	streak     int             // 连续满足异常条件的检查次数
-	recoverRun int             // 告警后连续回落的检查次数
-	alerted    bool            // 已出过异常草稿、还没出恢复草稿
-	alertNeed  int             // 告警时的门槛；恢复按它判断，不随样本变化浮动
-	members    map[string]bool // 告警时全红的服务商；恢复须见到它们重新变绿，退出样本不算
-	startedAt  time.Time       // 第一次满足条件的检查时刻
-	lastAt     time.Time       // 上一次样本足够、可用于判断的观测时刻
-	peak       int             // 本次异常期间的最多全红家数
+	streak     int       // 连续满足异常条件的检查次数
+	recoverRun int       // 告警后连续回落的检查次数
+	alerted    bool      // 已出过异常草稿、还没出恢复草稿
+	alertNeed  int       // 告警时的门槛；恢复按它判断，不随样本变化浮动
+	startedAt  time.Time // 第一次满足条件的检查时刻
+	lastAt     time.Time // 上一次样本足够、可用于判断的观测时刻
+	peak       int       // 本次异常期间的最多全红家数
+
+	// 告警时全红的服务商 → 从哪次观测起不在样本里（零值＝上次还在）。
+	// 恢复须见到其中至少一半（按告警时的家数 memberTotal 算）重新变绿，退出样本不算；
+	// 连续 memberGoneAfter 不在的移出名单，剩下的全变绿也凑不够一半时结束跟踪
+	members     map[string]time.Time
+	memberTotal int
+	prunedAt    time.Time // 上一次刷新成员在场记录的观测时刻（含样本不足的观测）
 }
 
 // OutageDetector 按服务方向判断「多家同时异常」及其回落。非并发安全，由单个循环调用。
@@ -130,15 +139,24 @@ func (d *OutageDetector) threshold(providers int) int {
 }
 
 // Observe 喂入一次有效检查结果，返回需要私发给站长的草稿。
-// 本轮没出现的方向视为无数据，状态原样保留。
+// 本轮没出现的方向视为无数据，状态原样保留；已告警的方向例外，按全部服务商都不在样本里处理。
 func (d *OutageDetector) Observe(snaps map[string]*ServiceSnapshot, now time.Time) []Draft {
 	var drafts []Draft
-	for _, service := range sortedKeys(snaps) {
+	for _, service := range d.servicesToVisit(snaps) {
 		snap := snaps[service]
+		if snap == nil {
+			snap = &ServiceSnapshot{Service: service}
+		}
 		st := d.states[service]
 		if st == nil {
 			st = &outageState{}
 			d.states[service] = st
+		}
+		// 先于样本量判断：服务商都移出热板时，样本往往也一起不够了
+		if st.alerted && !d.pruneDepartedMembers(st, snap, now) {
+			drafts = append(drafts, d.untrackedDraft(snap, st, now))
+			*st = outageState{lastAt: st.lastAt}
+			continue
 		}
 		need := d.threshold(snap.Providers)
 		down := len(snap.Down)
@@ -167,9 +185,9 @@ func (d *OutageDetector) Observe(snaps map[string]*ServiceSnapshot, now time.Tim
 			st.peak = max(st.peak, down)
 			if st.streak >= outageConfirmChecks {
 				st.alerted, st.alertNeed, st.recoverRun = true, need, 0
-				st.members = map[string]bool{}
+				st.members, st.memberTotal, st.prunedAt = map[string]time.Time{}, len(snap.Down), now
 				for _, name := range snap.Down {
-					st.members[name] = true
+					st.members[name] = time.Time{}
 				}
 				drafts = append(drafts, d.outageDraft(snap, snaps, st))
 			}
@@ -183,11 +201,11 @@ func (d *OutageDetector) Observe(snaps map[string]*ServiceSnapshot, now time.Tim
 		st.peak = max(st.peak, down)
 		back := 0
 		for _, name := range snap.Up {
-			if st.members[name] {
+			if _, ok := st.members[name]; ok {
 				back++
 			}
 		}
-		if down*2 < st.alertNeed && back*2 >= len(st.members) {
+		if down*2 < st.alertNeed && back*2 >= st.memberTotal {
 			st.recoverRun++
 			if st.recoverRun >= outageConfirmChecks {
 				drafts = append(drafts, d.recoveryDraft(snap, st, now))
@@ -232,6 +250,54 @@ func (d *OutageDetector) recoveryDraft(snap *ServiceSnapshot, st *outageState, n
 	note := fmt.Sprintf("恢复草稿 · %s（%s 确认回落；对应之前那条异常草稿，那条没发的话这条也不用发）",
 		label, now.In(cst).Format("15:04"))
 	return Draft{Note: note, Text: text}
+}
+
+// untrackedDraft 只给站长的说明：离开样本的成员太多，判断不了这次异常是否过去，不出可转发的正文
+func (d *OutageDetector) untrackedDraft(snap *ServiceSnapshot, st *outageState, now time.Time) Draft {
+	note := fmt.Sprintf("异常跟踪结束 · %s（%s）：告警时全红的 %d 家里，有 %d 家已连续 %.0f 小时以上"+
+		"不在热板数据里（移出热板或停止探测），剩下的即使全部恢复也不到一半，判断不了这次异常是否过去，"+
+		"不再跟踪，也不会出恢复草稿。之前那条异常草稿如果发出去了，需要的话自己补一句说明。",
+		serviceLabel(snap.Service), now.In(cst).Format("15:04"),
+		st.memberTotal, st.memberTotal-len(st.members), memberGoneAfter.Hours())
+	return Draft{Note: note}
+}
+
+// servicesToVisit 本轮要看的方向：出现在快照里的，加上已告警但本轮整个缺席的
+func (d *OutageDetector) servicesToVisit(snaps map[string]*ServiceSnapshot) []string {
+	services := sortedKeys(snaps)
+	for service, st := range d.states {
+		if _, ok := snaps[service]; !ok && st.alerted {
+			services = append(services, service)
+		}
+	}
+	sort.Strings(services)
+	return services
+}
+
+// pruneDepartedMembers 刷新告警成员的在场记录，移出连续 memberGoneAfter 不在样本里的；
+// 返回剩下的成员是否还可能凑够告警时家数的一半（凑不够就再也确认不了恢复）
+func (d *OutageDetector) pruneDepartedMembers(st *outageState, snap *ServiceSnapshot, now time.Time) bool {
+	// 与上次观测之间拉取断档：断档期间看不到它们，缺席从本次重新计时
+	gap := now.Sub(st.prunedAt) > d.maxGap
+	st.prunedAt = now
+	present := make(map[string]bool, len(snap.Down)+len(snap.Up))
+	for _, name := range snap.Down {
+		present[name] = true
+	}
+	for _, name := range snap.Up {
+		present[name] = true
+	}
+	for name, absentSince := range st.members {
+		switch {
+		case present[name]:
+			st.members[name] = time.Time{}
+		case absentSince.IsZero() || gap:
+			st.members[name] = now
+		case now.Sub(absentSince) >= memberGoneAfter:
+			delete(st.members, name)
+		}
+	}
+	return len(st.members)*2 >= st.memberTotal
 }
 
 // cst 文案里的时间一律按北京时间

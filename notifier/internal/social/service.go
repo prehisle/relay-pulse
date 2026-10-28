@@ -193,12 +193,16 @@ func (s *Service) buildWeekly(ctx context.Context, prev float64) (*WeeklyReport,
 	return BuildWeeklyReport(groups, prev, s.cfg.SiteURL, s.now())
 }
 
-// sendDraft 先发说明、再发正文：正文单独一条，站长可直接转发到群或复制到 X
+// sendDraft 先发说明、再发正文：正文单独一条，站长可直接转发到群或复制到 X。
+// 没有正文的只发说明
 func (s *Service) sendDraft(ctx context.Context, d Draft) error {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 	if err := s.out.SendText(ctx, s.cfg.AdminChatID, d.Note); err != nil {
 		return fmt.Errorf("发送草稿说明失败: %w", err)
+	}
+	if d.Text == "" {
+		return nil
 	}
 	if err := s.out.SendText(ctx, s.cfg.AdminChatID, d.Text); err != nil {
 		return fmt.Errorf("发送草稿正文失败: %w", err)
