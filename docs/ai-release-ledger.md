@@ -5,6 +5,7 @@
 > 只读用途：查「某个版本当时改了什么 / 回滚锚点叫什么 / 当时 prod 实测结论」。当前生产状态请直接 `gh release list -L 5` + `git log --oneline -10`。
 
 ## 检查点（最新在最上）
+- **2026-10-30 v2.105.4**（`5526c46`，只改 notifier；notifier 22:25 CST 重建到 `5526c46`，锚点 `rollback-20261030-pre`→`470ae9a`；监测服务器未动；无 schema、无迁移）。多家同时异常的告警，告警时全红的服务商移出热板或停用后再也不出现，该方向会一直停在告警态（恢复草稿出不来，同方向新异常也不报）。现在成员连续 2 小时不在样本里就移出名单，剩下的全变绿也凑不够告警时家数一半时只给站长发说明并重新检测；恢复仍按告警时家数判。发版时 GitHub 推 tag 两次服务端报错（`fatal error in commit_refs` / `Internal Server Error`，tag 未建），第三次 `rerun --failed` 成功。notifier 主机部署前磁盘 98%（每个镜像约 2GB、彼此只共用 1 层），删了两个旧锚 `rollback-20261013-deps-pre`（`a5014e7`）与 `rollback-20261023-pre`（`79048e0`），ghcr 上按 sha 仍可拉回；部署后 87%。**prod 实证**：容器 healthy、`/health` 200、启动日志 version=`5526c46`，配置/截图/社媒草稿/Telegram Bot 四项齐全、零 ERROR。
 - **2026-10-27 v2.105.3**（`eb36b20`，含未单独部署的 v2.105.2；监测服务器 21:37 CST 重建；prod git_commit=`eb36b20`、health=200、ready ok、`配置加载完成 monitors=342`、`variants=48`；回滚锚点 `rollback-20261027-deps-pre`→`43574f1`；notifier 同日 21:38 重建到 `470ae9a`，锚点同名→`391ae15`；无 schema、无迁移）。纯依赖批，dependabot 开放 PR 6→0。
 
   **Go**：主仓 `golang.org/x/net` 0.61.0（本仓只用它的 proxy 包做 SOCKS 拨号，这版只修 QUIC 帧类型检查，不碰探针请求形态）、sqlite 1.61.0、brotli 1.2.7，连带 x/crypto/sys/text、modernc libc；notifier sqlite 1.61.0。go 指令仍 1.26.0，`godebug tlssecpmlkem=0` 不动。
