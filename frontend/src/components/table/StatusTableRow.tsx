@@ -11,7 +11,7 @@ import { ModelName } from './ModelName';
 import { ColdReasonNote } from '../ColdReasonNote';
 import { ChannelCell } from './ChannelCell';
 import { HoverTooltip } from '../HoverTooltip';
-import { QualityScoreCell, shouldShowQualityPending } from '../quality';
+import { DrawingCell, QualityScoreCell, shouldShowQualityPending } from '../quality';
 import { getCachedServiceIcon } from '../serviceIconCache';
 import { availabilityToColor, latencyToColor, sponsorLevelToBorderClass, sponsorLevelToPinnedBgClass } from '../../utils/color';
 import { hasAnyAnnotation } from '../../utils/annotationUtils';
@@ -61,6 +61,10 @@ export function StatusTableRow({
   const ServiceIcon = getCachedServiceIcon(item.serviceType);
   const hasItemAnnotations = hasAnyAnnotation(item, { enableAnnotations });
   const pinnedBg = item.pinned ? sponsorLevelToPinnedBgClass(item.sponsorLevel) : '';
+  // 质量列与画作列共用一次查表（provider 候选「展示名优先、slug 兜底」，见 rpdiagLookupCallSites.test）
+  const rpScore = columns.quality || columns.drawing
+    ? lookupRpdiagScore(rpdiagScores, [item.providerName, item.providerId], item.serviceType, item.channelName || item.channel, item.channelId)
+    : undefined;
 
   return (
     <tr
@@ -226,7 +230,6 @@ export function StatusTableRow({
       {columns.quality && (
         <td className="px-1.5 py-1 whitespace-nowrap">
           {(() => {
-            const rpScore = lookupRpdiagScore(rpdiagScores, [item.providerName, item.providerId], item.serviceType, item.channelName || item.channel, item.channelId);
             if (rpScore && rpScore.models && rpScore.models.length > 0) {
               return <QualityScoreCell score={rpScore} />;
             }
@@ -239,6 +242,11 @@ export function StatusTableRow({
             }
             return <span className="text-muted text-xs">-</span>;
           })()}
+        </td>
+      )}
+      {columns.drawing && (
+        <td className="px-1.5 py-1 whitespace-nowrap">
+          <DrawingCell score={rpScore} />
         </td>
       )}
       <td className="pl-1.5 pr-2 py-1.5 align-middle">

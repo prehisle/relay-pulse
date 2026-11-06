@@ -84,6 +84,7 @@ export function useMonitorData({
   // 它只是个展示入口开关，没有"打包时就要定"的场景，缺失即显示（旧后端行为零变化）。
   const [hideCategoryFilter, setHideCategoryFilter] = useState<boolean>(false);
   const [hideVendorFilter, setHideVendorFilter] = useState<boolean>(false);
+  const [hideDrawingColumn, setHideDrawingColumn] = useState<boolean>(false);
   // rpdiag 质量功能总开关。默认 true（fail-open）：滚动发布或旧后端缺 meta.rpdiag_enabled 时
   // 行为零变化；仅当新后端明确返回 false（私有部署未接 rpdiag）才隐藏质量列 + diag 外链入口。
   const [rpdiagEnabled, setRpdiagEnabled] = useState<boolean>(true);
@@ -172,6 +173,7 @@ export function useMonitorData({
           // 提取分类筛选器隐藏开关（兼容旧后端：字段缺失即显示）
           setHideCategoryFilter(json.meta.hide_category_filter === true);
           setHideVendorFilter(json.meta.hide_vendor_filter === true);
+          setHideDrawingColumn(json.meta.hide_drawing_column === true);
 
           // 提取 rpdiag 质量功能总开关（fail-open：仅显式 false 才关，缺失/undefined 视为启用）
           setRpdiagEnabled(json.meta.rpdiag_enabled !== false);
@@ -421,6 +423,7 @@ export function useMonitorData({
     allMonitorIdsSupported, // 后端是否支持 all_monitor_ids（用于区分"空列表"和"不支持"）
     hidePriceColumn, // runtime 价格列隐藏开关（meta.hide_price_column 优先，缺失时回落 build-time）
     hideCategoryFilter, // runtime 分类筛选器隐藏开关（meta.hide_category_filter；缺失即显示）
+    hideDrawingColumn, // runtime 画作列隐藏开关（meta.hide_drawing_column；缺失即显示）
     hideVendorFilter, // runtime 厂商筛选器隐藏开关（meta.hide_vendor_filter；缺失即显示）
     effectiveFilterVendor, // 经开关裁决后的厂商筛选值——调用方一律用它，别再自己判 hideVendorFilter
     effectiveFilterCategory, // 经开关裁决后的分类筛选值——调用方一律用它，别再自己判 hideCategoryFilter

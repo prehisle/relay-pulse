@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 interface HoverTooltipProps {
@@ -25,6 +25,8 @@ interface HoverTooltipProps {
  * - mouseleave 留 100ms 关闭延迟做 hover 桥，让指针能从触发器移到浮层内选择
  *   文本 / 点击内链。
  * - 打开期间监听 scroll/resize 重算坐标，浮层跟随触发器。
+ * - 浮层渲染后量一次尺寸：右边放不下就改为贴视口右边，下面放不下且上面放得下就翻到
+ *   触发器上方（画作列的三幅大图浮层最容易越界）。直接改 DOM 样式，不走 state。
  */
 export function HoverTooltip({
   content,
@@ -33,15 +35,31 @@ export function HoverTooltip({
   widthClass = 'md:min-w-[20rem] max-w-[90vw] md:max-w-2xl',
 }: HoverTooltipProps) {
   const triggerRef = useRef<HTMLSpanElement>(null);
+  const floatRef = useRef<HTMLSpanElement>(null);
   const leaveTimer = useRef<number>(0);
   const [hover, setHover] = useState(false);
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number; top: number } | null>(null);
 
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    setPos({ x: rect.left, y: rect.bottom });
+    setPos({ x: rect.left, y: rect.bottom, top: rect.top });
   }, []);
+
+  useLayoutEffect(() => {
+    const el = floatRef.current;
+    if (!hover || !pos || !el) return;
+    const margin = 8;
+    // clientWidth/Height 不含滚动条。越界时改用 right/bottom 锚定，浮层之后再长大也不会出界。
+    const { clientWidth, clientHeight } = document.documentElement;
+    const { width, height } = el.getBoundingClientRect();
+    const overflowsRight = pos.x + width > clientWidth - margin;
+    el.style.left = overflowsRight ? 'auto' : `${pos.x}px`;
+    el.style.right = overflowsRight ? `${margin}px` : 'auto';
+    const flipUp = pos.y + height > clientHeight - margin && pos.top - height >= margin;
+    el.style.top = flipUp ? 'auto' : `${pos.y}px`;
+    el.style.bottom = flipUp ? `${clientHeight - pos.top}px` : 'auto';
+  }, [hover, pos, content]);
 
   const handleEnter = useCallback(() => {
     clearTimeout(leaveTimer.current);
@@ -79,6 +97,7 @@ export function HoverTooltip({
       {children}
       {hover && pos && createPortal(
         <span
+          ref={floatRef}
           className={`fixed px-2 py-1.5 bg-elevated border border-default text-xs rounded-lg shadow-lg z-50 select-text cursor-text ${widthClass}`}
           style={{ left: pos.x, top: pos.y }}
           onMouseEnter={handleEnter}

@@ -232,6 +232,7 @@ func NewServer(store storage.Storage, cfg *config.AppConfig, port string, autoMo
 	router.GET("/api/status/query", handler.GetStatusQuery)
 	router.POST("/api/status/batch", handler.PostStatusBatch)
 	router.GET("/api/rpdiag-scores", handler.GetRpdiagScores)
+	router.GET("/api/rpdiag-drawings", handler.GetRpdiagDrawings)
 
 	// 事件 API 路由
 	router.GET("/api/events", handler.GetEvents)

@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useDrawingColumnPreference } from '../hooks/useDrawingColumnPreference';
 import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { useTranslation } from 'react-i18next';
@@ -164,7 +165,7 @@ export default function ProviderPage() {
 
   // 数据获取 - 先获取全部数据用于构建映射
   // Provider 页面不启用置顶功能（isInitialSort=false）
-  const { data: allData, rawData, loading, error, stats, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, hideVendorFilter, effectiveFilterVendor, rpdiagEnabled, refetch } = useMonitorData({
+  const { data: allData, rawData, loading, error, stats, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, hideVendorFilter, effectiveFilterVendor, rpdiagEnabled, hideDrawingColumn, refetch } = useMonitorData({
     timeRange,
     timeAlign,
     timeFilter,
@@ -182,6 +183,9 @@ export default function ProviderPage() {
     rpdiagScores,
     rpdiagScoresLoaded,
   });
+  // 画作列：rpdiag 启用且站点没关时才有这一列，访客可再自行关掉
+  const { showDrawings, toggleDrawings } = useDrawingColumnPreference();
+  const drawingColumnAvailable = rpdiagEnabled && !hideDrawingColumn;
 
   // 运行时隐藏价格列后，若本地 sortConfig 还停留在 priceRatio，
   // 则退回默认排序，避免 UI 上"按隐藏列排序"的语义错位（局部状态，无 URL 干扰）。
@@ -584,6 +588,8 @@ export default function ProviderPage() {
           onVendorChange={setFilterVendor}
           onShowFavoritesOnlyChange={handleFavoritesModeChange}
           onViewModeChange={setViewMode}
+          showDrawings={showDrawings}
+          onToggleDrawings={drawingColumnAvailable ? toggleDrawings : undefined}
           onRefresh={handleRefresh}
           refreshCooldown={refreshCooldown}
         />
@@ -637,6 +643,7 @@ export default function ProviderPage() {
                   rpdiagEnabled={rpdiagEnabled}
                   hidePriceColumn={hidePriceColumn}
                   hasVendorData={hasVendorData}
+                  showDrawingColumn={drawingColumnAvailable && showDrawings && !isEmbedMode}
                 />
               )}
 

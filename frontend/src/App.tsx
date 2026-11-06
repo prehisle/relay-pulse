@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
+import { useDrawingColumnPreference } from './hooks/useDrawingColumnPreference';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
@@ -108,7 +109,7 @@ function App() {
 
   const { scores: rpdiagScores, loaded: rpdiagScoresLoaded } = useRpdiagScores();
 
-  const { loading, error, data, rawData, stats, providers, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, boardCounts, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, hideCategoryFilter, effectiveFilterCategory, hideVendorFilter, effectiveFilterVendor, rpdiagEnabled, refetch } = useMonitorData({
+  const { loading, error, data, rawData, stats, providers, slowLatencyMs, enableAnnotations, boardsEnabled, boardsEnabledLoaded, boardCounts, allMonitorIds, allMonitorIdsSupported, hidePriceColumn, hideCategoryFilter, effectiveFilterCategory, hideVendorFilter, effectiveFilterVendor, rpdiagEnabled, hideDrawingColumn, refetch } = useMonitorData({
     timeRange,
     timeAlign,
     timeFilter,
@@ -126,6 +127,9 @@ function App() {
     rpdiagScores,
     rpdiagScoresLoaded,
   });
+  // 画作列：rpdiag 启用且站点没关时才有这一列，访客可再自行关掉
+  const { showDrawings, toggleDrawings } = useDrawingColumnPreference();
+  const drawingColumnAvailable = rpdiagEnabled && !hideDrawingColumn;
 
   // 手动刷新 + 冷却提示——需要 useMonitorData 的 refetch
   const { refreshCooldown, handleRefresh } = useRefreshCooldown(refetch);
@@ -345,6 +349,8 @@ function App() {
               onTimeFilterChange={setTimeFilter}
               onBoardChange={setBoard}
               onViewModeChange={setViewMode}
+              showDrawings={showDrawings}
+              onToggleDrawings={drawingColumnAvailable ? toggleDrawings : undefined}
               onRefresh={handleRefresh}
               refreshCooldown={refreshCooldown}
               autoRefresh={autoRefresh}
@@ -396,6 +402,7 @@ function App() {
                   rpdiagEnabled={rpdiagEnabled}
                   hidePriceColumn={hidePriceColumn}
                   hasVendorData={hasVendorData}
+                  showDrawingColumn={drawingColumnAvailable && showDrawings && !isScreenshotMode}
                 />
               )}
 

@@ -188,6 +188,12 @@ server:
 - **默认值**: `false`
 - **说明**: 隐藏列表与卡片中的「价格」列。开启后前端会一并清掉 URL 里残留的按价格排序参数。
 
+#### `hide_drawing_column`
+- **类型**: bool
+- **默认值**: `false`
+- **说明**: 隐藏桌面表格里的「画作」列（rpdiag 最近 3 次出了分的测试中模型画的 SVG，格子显示最新一幅、超过 7 天的变淡，悬停看 3 幅并附同组官方画对照）。未接 rpdiag（`MONITOR_RPDIAG_ENABLED` 未开）时该列本就不出。不关时访客还可以用工具栏的图片按钮自行隐藏，选择存在浏览器本地。
+- **注意**: 画由后端经 `/api/rpdiag-drawings` 代取并缓存，只接受当前 rpdiag 快照里出现过的测试 id；需要 rpdiag 导出 `ranking-export.v5.18` 及以上（带 `score_trend.recent_runs`），旧导出下这一列全是「-」。
+
 #### `hide_category_filter`
 - **类型**: bool
 - **默认值**: `false`

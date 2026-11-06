@@ -134,6 +134,10 @@
       "disabled": "自动刷新：已暂停",
       "enabledHint": "自动刷新中，点击暂停",
       "disabledHint": "已暂停，点击恢复"
+    },
+    "drawings": {
+      "show": "显示画作列",
+      "hide": "隐藏画作列"
     }
   },
   "favorites": {
@@ -161,6 +165,8 @@
       "priceRatioTooltip": "多少人民币可用 1 美元 token，仅作参考",
       "quality": "质量",
       "qualityTooltip": "由 <diag>diag.relaypulse.top</diag> 独立采样的质量分（0-100）。通道里每个模型一条 5 点 sparkline 叠绘：30d 均 / 7d 均 / 最近 3 次单 sample；80 / 100 两条参考线作 Y 轴刻度。",
+      "drawing": "画作",
+      "drawingTooltip": "rpdiag 最近 3 次出了分的测试里，模型画的「鹈鹕骑自行车」SVG。格子里是最新一幅（超过 7 天的会变淡），鼠标移上去看 3 幅，右下角小图是同一组官方模型的画。画风只作直观参考。",
       "listedDays": "收录天数",
       "listedDaysLine1": "收录",
       "listedDaysLine2": "天数",
@@ -218,7 +224,17 @@
         "textNoModels": "近3次评测均未取得可评分响应，已暂移备用板"
       }
     },
-    "filterByProvider": "按此服务商筛选"
+    "filterByProvider": "按此服务商筛选",
+    "drawing": {
+      "tooltipNote": "单次画作仅供参考：官方模型自己也会画出不同风格。右下角小图为同组官方的画。",
+      "moreLink": "在 rpdiag 查看",
+      "latestAlt": "最近一次出了分的测试的画作（{{time}}）",
+      "staleAlt": "最近一次出了分的测试已超过 7 天（{{time}}），近期测试没有出分",
+      "candidateAlt": "该通道的画作（{{time}}）",
+      "officialAlt": "同组官方的画作",
+      "failed": "画图失败",
+      "none": "无画作"
+    }
   },
   "card": {
     "uptime": "可用率:"

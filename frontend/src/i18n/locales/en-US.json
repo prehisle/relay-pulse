@@ -134,6 +134,10 @@
       "disabled": "Auto-refresh: Paused",
       "enabledHint": "Auto-refreshing, click to pause",
       "disabledHint": "Paused, click to resume"
+    },
+    "drawings": {
+      "show": "Show drawing column",
+      "hide": "Hide drawing column"
     }
   },
   "favorites": {
@@ -161,6 +165,8 @@
       "priceRatioTooltip": "How many CNY per 1 USD of tokens, for reference only",
       "quality": "Quality",
       "qualityTooltip": "Independent quality score (0-100) sampled by <diag>diag.relaypulse.top</diag>. Each model in the channel renders its own 5-point sparkline (30d avg / 7d avg / 3 most-recent samples) overlaid; two reference lines at 80 / 100 act as the Y-axis scale.",
+      "drawing": "Drawing",
+      "drawingTooltip": "The \"pelican riding a bicycle\" SVG the model drew in rpdiag's last 3 scored tests. The cell shows the newest one (faded when older than 7 days); hover to see all 3, each with the same group's official drawing in the corner. The drawing style is only a visual reference.",
       "listedDays": "Listed Days",
       "listedDaysLine1": "Listed",
       "listedDaysLine2": "Days",
@@ -218,7 +224,17 @@
         "textNoModels": "No scorable response in the last 3 evaluations; moved to the backup board"
       }
     },
-    "filterByProvider": "Filter by this provider"
+    "filterByProvider": "Filter by this provider",
+    "drawing": {
+      "tooltipNote": "A single drawing is only a reference: the official model draws in varying styles too. The small corner image is the same group's official drawing.",
+      "moreLink": "View on rpdiag",
+      "latestAlt": "Drawing from the latest scored test ({{time}})",
+      "staleAlt": "The latest scored test is over 7 days old ({{time}}); recent tests produced no score",
+      "candidateAlt": "Channel drawing ({{time}})",
+      "officialAlt": "Official drawing from the same group",
+      "failed": "Drawing failed",
+      "none": "No drawing"
+    }
   },
   "card": {
     "uptime": "Uptime:"

@@ -97,6 +97,17 @@ type ScoreTrend struct {
 	RecentAttempts []*float64 `json:"recent_attempts"`
 	N7D            int        `json:"n_7d"`
 	N30D           int        `json:"n_30d"`
+	// RecentRuns (ranking-export.v5.18) names the run behind each upstream
+	// recent_scores entry. Not aligned with RecentScores after
+	// normalizeHardFailTrend rewrites the latter; the drawing column reads it
+	// on its own through Client.Drawings and nothing else reads it.
+	RecentRuns []RecentRun `json:"recent_runs,omitempty"`
+}
+
+// RecentRun is one scored rpdiag run: its scored task and when it ran.
+type RecentRun struct {
+	TaskID string `json:"task_id"`
+	RunAt  string `json:"run_at"`
 }
 
 // ModelScore captures one (channel, model) row from rpdiag.
@@ -172,8 +183,14 @@ type Client struct {
 	// consumers can detect a new load without inflating on cache hits.
 	generation uint64
 	expiresAt  time.Time
+	// knownRuns holds every RecentRuns task id of the same snapshot. Drawings
+	// only fetches ids found here, so the endpoint cannot be used to read
+	// arbitrary rpdiag tasks through us.
+	knownRuns map[string]struct{}
 
 	sf singleflight.Group
+
+	drawings drawingCache
 }
 
 // NewClient constructs a Client with explicit dependencies. Used by tests
@@ -468,9 +485,17 @@ func (c *Client) refresh(ctx context.Context) (map[string]Score, error) {
 	// generation bump, and the expiry all become visible together. This is the
 	// invariant that lets Scores and QualitySignals share a single refresh path
 	// without ever exposing a half-updated cache.
+	runs := make(map[string]struct{})
+	for _, row := range rows {
+		for _, run := range row.ScoreTrend.RecentRuns {
+			runs[run.TaskID] = struct{}{}
+		}
+	}
+
 	c.mu.Lock()
 	c.cache = scores
 	c.qualityByBucket = signals
+	c.knownRuns = runs
 	c.generation++
 	c.expiresAt = now.Add(c.ttl)
 	c.mu.Unlock()
@@ -1018,6 +1043,9 @@ func copyFloat(v *float64) *float64 {
 func cloneScoreTrend(t ScoreTrend) ScoreTrend {
 	if t.RecentScores != nil {
 		t.RecentScores = append([]float64(nil), t.RecentScores...)
+	}
+	if t.RecentRuns != nil {
+		t.RecentRuns = append([]RecentRun(nil), t.RecentRuns...)
 	}
 	if t.RecentAttempts != nil {
 		// Deep-copy: each element is a pointer, so a shallow slice copy would

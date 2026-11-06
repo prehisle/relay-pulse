@@ -145,6 +145,10 @@ type AppConfig struct {
 	// 不需要重建镜像或重启容器。
 	HidePriceColumn bool `yaml:"hide_price_column" json:"hide_price_column"`
 
+	// 是否在公开列表中隐藏「画作」列（rpdiag 最近几次测试的鹈鹕画）。默认 false（显示）。
+	// 运行时配置，同 hide_price_column；未接 rpdiag 时该列本来就不出。
+	HideDrawingColumn bool `yaml:"hide_drawing_column" json:"hide_drawing_column"`
+
 	// 是否在公开列表中隐藏「分类」筛选器（公益站/商业站）。默认 false（显示）。
 	// 运行时配置：改 yaml 即触发热更新，前端通过 /api/status meta 拿到新值，
 	// 不需要重建镜像或重启容器。

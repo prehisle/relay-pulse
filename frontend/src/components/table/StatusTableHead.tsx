@@ -100,6 +100,7 @@ export function StatusTableHead({
         <col className="w-px" /> {/* uptime */}
         <col className="w-px" /> {/* lastCheck */}
         {columns.quality && <col className="w-px" />} {/* quality */}
+        {columns.drawing && <col className="w-px" />} {/* drawing */}
         <col className="w-full" /> {/* trend */}
       </colgroup>
       <thead>
@@ -211,7 +212,18 @@ export function StatusTableHead({
               </div>
             </SortableTh>
           )}
-          <th className="pl-1.5 pr-2 py-3 font-medium min-w-[224px]">
+          {columns.drawing && (
+            <th className="px-1.5 py-3 font-medium whitespace-nowrap">
+              <div className="flex items-center gap-1">
+                {t('table.headers.drawing')}
+                <HeaderInfoPopover align="right" widthClass="w-56">
+                  {t('table.headers.drawingTooltip')}
+                </HeaderInfoPopover>
+              </div>
+            </th>
+          )}
+          {/* 趋势列最小宽度：画作列占了约 50px，同步让出来，否则 1216px 容器下整表横向溢出 */}
+          <th className={`pl-1.5 pr-2 py-3 font-medium ${columns.drawing ? 'min-w-[176px]' : 'min-w-[224px]'}`}>
             <div className="flex items-center gap-2">
               {t('table.headers.trend')}
               <span className="text-[10px] normal-case opacity-50 border border-default px-1 rounded">

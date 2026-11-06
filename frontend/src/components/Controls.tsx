@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Filter, LayoutGrid, List, X, Clock, AlignStartVertical, Star } from 'lucide-react';
+import { Filter, LayoutGrid, List, X, Clock, AlignStartVertical, Star, Image, ImageOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getTimeRanges } from '../constants';
 import { MultiSelect } from './MultiSelect';
@@ -62,6 +62,9 @@ interface ControlsProps {
   onViewModeChange: (mode: ViewMode) => void;
   onRefresh: () => void;
   onToggleAutoRefresh?: () => void; // 切换自动刷新开关
+  /** 画作列的访客开关。不传 onToggleDrawings 就不出按钮（站点关了画作列 / 未接 rpdiag）。 */
+  showDrawings?: boolean;
+  onToggleDrawings?: () => void;
 }
 
 export function Controls({
@@ -110,6 +113,8 @@ export function Controls({
   onViewModeChange,
   onRefresh,
   onToggleAutoRefresh,
+  showDrawings = true,
+  onToggleDrawings,
 }: ControlsProps) {
   const { t } = useTranslation();
 
@@ -334,6 +339,22 @@ export function Controls({
                 <LayoutGrid size={16} />
               </button>
             </div>
+          )}
+
+          {/* 画作列开关（仅桌面表格视图） */}
+          {!isMobile && viewMode === 'table' && onToggleDrawings && (
+            <button
+              type="button"
+              onClick={onToggleDrawings}
+              className={`h-8 min-w-[32px] px-1.5 flex items-center justify-center rounded-lg border border-default/50 shadow-sm bg-surface focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:outline-none ${
+                showDrawings ? 'text-accent' : 'text-secondary hover:text-primary'
+              }`}
+              title={showDrawings ? t('controls.drawings.hide') : t('controls.drawings.show')}
+              aria-label={showDrawings ? t('controls.drawings.hide') : t('controls.drawings.show')}
+              aria-pressed={showDrawings}
+            >
+              {showDrawings ? <Image size={16} /> : <ImageOff size={16} />}
+            </button>
           )}
 
           {/* 刷新按钮 */}

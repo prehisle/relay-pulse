@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 //
-// 桌面表格的列骨架守护：列骨架有 4 列是条件渲染（标注 / 服务商 / 价格 / 质量），
+// 桌面表格的列骨架守护：列骨架有 5 列是条件渲染（标注 / 服务商 / 价格 / 质量 / 画作），
 // 而每一列都要在 <colgroup>、<thead>、每个 <tbody> 行三处各写一遍。三处漏改一处
 // 就是整表错位——这是新增或隐藏条件列最典型的 bug 类别，且错位在类型层完全看不出来。
 //
-// 本文件对 4 根条件轴做全组合（2^4 = 16 种）断言：
+// 本文件对 5 根条件轴做全组合（2^5 = 32 种）断言（画作列另需 rpdiag 启用，即质量轴开）：
 //   ① col 数 == th 数 == 每行 td 数；
 //   ② 出现的表头按固定 canonical 顺序排列（质量紧邻趋势）；
 //   ③ 某轴关闭时，它在三处同时消失（不是只在表头消失）。
@@ -47,6 +47,7 @@ interface Axes {
   provider: boolean;
   price: boolean;
   quality: boolean;
+  drawing: boolean;
 }
 
 function renderTable(axes: Axes): HTMLElement {
@@ -82,6 +83,7 @@ function renderTable(axes: Axes): HTMLElement {
           hasVendorData
           hidePriceColumn={!axes.price}
           rpdiagEnabled={axes.quality}
+          showDrawingColumn={axes.drawing}
         />
       </I18nextProvider>,
     );
@@ -104,13 +106,21 @@ function canonicalColumns(): Array<{ axis: keyof Axes | null; label: string }> {
     { axis: null, label: t('table.headers.uptime') },
     { axis: null, label: t('table.headers.lastCheckLine1') },
     { axis: 'quality', label: t('table.headers.quality') },
+    { axis: 'drawing', label: t('table.headers.drawing') },
     { axis: null, label: t('table.headers.trend') },
   ];
 }
 
-const ALL_AXES: Array<keyof Axes> = ['annotations', 'provider', 'price', 'quality'];
+const ALL_AXES: Array<keyof Axes> = ['annotations', 'provider', 'price', 'quality', 'drawing'];
 
-// 4 根轴的全组合
+// 画作列挂在 rpdiag 开关之下：质量轴关时它也不出
+function isVisible(axis: keyof Axes | null, axes: Axes): boolean {
+  if (axis === null) return true;
+  if (axis === 'drawing') return axes.quality && axes.drawing;
+  return axes[axis];
+}
+
+// 5 根轴的全组合
 function allCombos(): Axes[] {
   const combos: Axes[] = [];
   for (let mask = 0; mask < 1 << ALL_AXES.length; mask++) {
@@ -152,7 +162,7 @@ describe('桌面表格列骨架（colgroup / thead / tbody 三处并行）', () 
       const ths = Array.from(container.querySelectorAll('thead th'));
       const rows = Array.from(container.querySelectorAll('tbody tr'));
 
-      const expected = canonicalColumns().filter((c) => c.axis === null || axes[c.axis]);
+      const expected = canonicalColumns().filter((c) => isVisible(c.axis, axes));
 
       expect(ths).toHaveLength(expected.length);
       expect(cols).toHaveLength(expected.length);
@@ -169,19 +179,21 @@ describe('桌面表格列骨架（colgroup / thead / tbody 三处并行）', () 
   );
 
   it('每根轴关掉时，它在 colgroup / thead / tbody 三处同时消失', () => {
-    const on: Axes = { annotations: true, provider: true, price: true, quality: true };
+    const on: Axes = { annotations: true, provider: true, price: true, quality: true, drawing: true };
     const full = renderTable(on);
     const fullCount = full.querySelectorAll('thead th').length;
 
     for (const axis of ALL_AXES) {
+      // 关质量（rpdiag）会连画作列一起带走
+      const removed = axis === 'quality' ? 2 : 1;
       const container = renderTable({ ...on, [axis]: false });
       const ths = container.querySelectorAll('thead th').length;
       const cols = container.querySelectorAll('colgroup col').length;
       const tds = container.querySelector('tbody tr')?.querySelectorAll('td').length ?? -1;
 
-      expect(ths, `关掉 ${axis} 后表头应少一列`).toBe(fullCount - 1);
-      expect(cols, `关掉 ${axis} 后 colgroup 应少一列`).toBe(fullCount - 1);
-      expect(tds, `关掉 ${axis} 后单元格应少一个`).toBe(fullCount - 1);
+      expect(ths, `关掉 ${axis} 后表头应少 ${removed} 列`).toBe(fullCount - removed);
+      expect(cols, `关掉 ${axis} 后 colgroup 应少 ${removed} 列`).toBe(fullCount - removed);
+      expect(tds, `关掉 ${axis} 后单元格应少 ${removed} 个`).toBe(fullCount - removed);
     }
   });
 });

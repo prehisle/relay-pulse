@@ -37,6 +37,7 @@ func (h *Handler) queryAndSerialize(ctx context.Context, period, align string, t
 	annotationRules := h.config.AnnotationRules
 	globalInterval := h.config.IntervalDuration
 	hidePriceColumn := h.config.HidePriceColumn
+	hideDrawingColumn := h.config.HideDrawingColumn
 	hideCategoryFilter := h.config.HideCategoryFilter
 	hideVendorFilter := h.config.HideVendorFilter
 	h.cfgMu.RUnlock()
@@ -135,6 +136,7 @@ func (h *Handler) queryAndSerialize(ctx context.Context, period, align string, t
 		"slow_latency_ms":      slowLatencyMs,
 		"enable_annotations":   enableAnnotations,
 		"hide_price_column":    hidePriceColumn,
+		"hide_drawing_column":  hideDrawingColumn,
 		"hide_category_filter": hideCategoryFilter,
 		"hide_vendor_filter":   hideVendorFilter,
 		"rpdiag_enabled":       h.rpdiagEnabled(), // 质量列/diag 入口总开关；私有部署未接 rpdiag 时为 false

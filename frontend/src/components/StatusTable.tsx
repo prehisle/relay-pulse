@@ -32,6 +32,8 @@ interface StatusTableProps {
   hidePriceColumn?: boolean;
   /** 未筛选数据含厂商声明时显示服务列说明。 */
   hasVendorData?: boolean;
+  /** 画作列（rpdiag 最近几次测试的画）。调用方已合并 rpdiag 开关、站点开关与访客开关。默认 false。 */
+  showDrawingColumn?: boolean;
 }
 
 function StatusTableComponent({
@@ -54,6 +56,7 @@ function StatusTableComponent({
   rpdiagEnabled = true,
   hidePriceColumn = false,
   hasVendorData = false,
+  showDrawingColumn = false,
 }: StatusTableProps) {
   // 平板/移动端走卡片分支（tablet 断点 = max-width:1023px，见 utils/mediaQuery.ts BREAKPOINTS）
   const isMobile = useBreakpointMatch('tablet');
@@ -95,6 +98,7 @@ function StatusTableComponent({
     price: !hidePriceColumn,
     // rpdiag 未启用（私有部署）时质量列整列消失：表头 + 格子 + colgroup
     quality: rpdiagEnabled,
+    drawing: rpdiagEnabled && showDrawingColumn,
   };
 
   // 桌面端：表格视图

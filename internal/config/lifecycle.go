@@ -279,6 +279,7 @@ func (c *AppConfig) clone() *AppConfig {
 		HiddenProviders:         make([]hiddenProviderConfig, len(c.HiddenProviders)),
 		AllowPrivateNetworks:    c.AllowPrivateNetworks,
 		HidePriceColumn:         c.HidePriceColumn,
+		HideDrawingColumn:       c.HideDrawingColumn,
 		HideCategoryFilter:      c.HideCategoryFilter,
 		HideVendorFilter:        c.HideVendorFilter,
 		Boards:                  c.Boards, // Boards 是值类型（含 AutoMove），直接复制

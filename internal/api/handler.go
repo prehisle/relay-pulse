@@ -324,6 +324,45 @@ func (h *Handler) GetRpdiagScores(c *gin.Context) {
 	c.JSON(http.StatusOK, scores)
 }
 
+// GetRpdiagDrawings 返回画作列要的画：`?task_ids=` 重复给出（取自质量分里的
+// trend.recent_runs，≤ rpdiag.MaxDrawingIDs 个）。只认当前快照里出现过的 run，
+// 其余静默略过；rpdiag 取不到时返回已缓存的部分，不让一列图拖垮页面。
+func (h *Handler) GetRpdiagDrawings(c *gin.Context) {
+	if !h.rpdiagEnabled() {
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, gin.H{"items": []rpdiag.Drawing{}})
+		return
+	}
+	ids := c.QueryArray("task_ids")
+	if len(ids) == 0 || len(ids) > rpdiag.MaxDrawingIDs {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam,
+			fmt.Sprintf("task_ids 需 1–%d 个", rpdiag.MaxDrawingIDs))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+
+	items, complete, err := h.rpdiagClient.Drawings(ctx, ids)
+	if err != nil {
+		logger.FromContext(c.Request.Context(), "api").Error(
+			"获取 rpdiag 画作失败", "error", err,
+		)
+		apiError(c, http.StatusServiceUnavailable, ErrCodeServiceUnavailable, "画作暂不可用")
+		return
+	}
+	if items == nil {
+		items = []rpdiag.Drawing{}
+	}
+	if complete {
+		c.Header("Cache-Control", "public, max-age=300")
+	} else {
+		// rpdiag 取不到时的残缺结果别进共享缓存
+		c.Header("Cache-Control", "no-store")
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
 // SetProbeLimiter 设置公共探测端点限流器。
 func (h *Handler) SetProbeLimiter(l *probe.IPLimiter) {
 	h.probeLimiter = l

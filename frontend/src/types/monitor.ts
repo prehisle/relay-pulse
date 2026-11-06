@@ -177,6 +177,28 @@ export interface RpdiagScoreTrend {
   recent_attempts?: (number | null)[] | null;
   n_7d: number;
   n_30d: number;
+  /** v5.18+: recent_scores 背后的那几次测试（与之逐项对应，升序）。画作列据此取画。 */
+  recent_runs?: RpdiagRecentRun[] | null;
+}
+
+/** rpdiag 一次出了分的测试：打分那步的 task id + 测试时间（ISO）。 */
+export interface RpdiagRecentRun {
+  task_id: string;
+  run_at: string;
+}
+
+/** 画作的一侧（候选或同组官方）。state 沿用 rpdiag：done / failed / pending / not_reached / none；
+ *  svg 只在 done 且回答里有完整 <svg> 时给出——它是模型输出，只能经 <img> data URI 显示。 */
+export interface RpdiagDrawingSide {
+  state: string;
+  svg?: string;
+}
+
+/** /api/rpdiag-drawings 的一项。official 缺失＝该组没有唯一的官方测试可对照。 */
+export interface RpdiagDrawing {
+  task_id: string;
+  candidate: RpdiagDrawingSide;
+  official?: RpdiagDrawingSide;
 }
 
 /** rpdiag (provider, service, channel) 三元组下某个 model 的质量分。 */
