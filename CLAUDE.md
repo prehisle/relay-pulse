@@ -234,7 +234,7 @@ HTTP 响应
 - `max_concurrency` 的 `-1` = 无限，不是禁用。
 - `degraded_weight`（默认 0.7）是黄色状态计入可用率的权重，不是阈值。
 - `cache_ttl` 按 period 分档：90m/24h=10s，7d/30d=60s。
-- `hide_price_column` / `hide_category_filter` / `hide_vendor_filter` 是**运行时**开关，改 yaml 热更新即生效、经 `/api/status` meta 下发前端。**后两个只隐藏筛选入口**：`category`/`model_vendor` 字段照常下发（`hide_vendor_filter` 下**模型名前的厂商图标也照常渲染**——图标是观察维度、筛选器是操作轴，刻意解耦），URL 里残留的 `?category=`/`?vendor=` 视为未选中（参数保留不删，关掉开关即恢复原选择）。三者都走 `useMonitorData` 内的 **effective 派生**而非 effect 抹 URL——后者已被证伪（`setSearchParams` 的 prev 是上一次渲染的，会被紧随其后的 sort 清理覆盖回去）。
+- `hide_price_column` / `hide_category_filter` / `hide_vendor_filter` / `hide_drawing_column` 是**运行时**开关，改 yaml 热更新即生效、经 `/api/status` meta 下发前端。**后两个只隐藏筛选入口**：`category`/`model_vendor` 字段照常下发（`hide_vendor_filter` 下**模型名前的厂商图标也照常渲染**——图标是观察维度、筛选器是操作轴，刻意解耦），URL 里残留的 `?category=`/`?vendor=` 视为未选中（参数保留不删，关掉开关即恢复原选择）。三者都走 `useMonitorData` 内的 **effective 派生**而非 effect 抹 URL——后者已被证伪（`setSearchParams` 的 prev 是上一次渲染的，会被紧随其后的 sort 清理覆盖回去）。
 - Onboarding 的 `enabled` **改了要重启容器**（不是热更新）；启用 onboarding 时允许**零 monitors 启动**。
 - `storage.archive.keep_days` 的 `0` = 永久保留，不是「不保留」。
 
@@ -378,6 +378,8 @@ HTTP 响应
 - **`GET /ready`**：含存储连通性；热更新未被应用时 GET body 附 `config_reload{last_skipped_at,last_error,skipped_count}` **信息化**，HTTP 状态**恒不因此翻 503**。两条静默失败路径已全覆盖（v2.77.0）：① `CheckRuntimeModelIDs` fail-closed 闸跳过——`last_error` 是该闸原文（只含 provider/service/channel/model + 固定文案，已知可公开）；② `loadOrRollback` 加载/`validate()` 失败后「保留旧配置」（model_id 重复、yaml 语法错等）——`last_error` 是**固定脱敏串**「配置热更新失败，保持旧配置；详情见服务端日志」，原始错误只进日志（`/ready` 无鉴权，loader 错误可能含 yaml 路径与解析细节）。
   ⚠️ 该状态是「**进程生命周期内曾发生过**」，成功热更新**不会**清除、进程重启才归零——报警要看 `skipped_count` 增量或 `last_skipped_at` 是否推进，别把「字段存在」直接读成「当前仍卡住」；定位仍需 `level=ERROR msg=重载失败` 日志。
 
+- **`GET /api/rpdiag-drawings?task_ids=`（画作列，v2.106.0）**：只放行**同一次 rpdiag 刷新快照**里 `score_trend.recent_runs` 出现过的 task id（`Client.knownRuns`，与分数缓存同锁写入），其余静默略过——别改成接受任意 id，那会把它变成读 rpdiag 任意测试的开放代理。上游失败时返回已缓存的部分并改 `no-store`，不让残缺结果进 CDN。需要 rpdiag export ≥ v5.18；旧 export 下整列是「-」。
+- **桌面表格宽度没有余量**：容器最宽 1216px，不开画作列时表格是 1213px。画作列开着时趋势列最小宽 224→176 才放得下（`StatusTableHead`）。**再加任何列都要先量**：1280 宽视口下 `table.scrollWidth` 对比外层 `clientWidth`，超了就得从别的列让出宽度，否则所有桌面宽度都会横向滚动、趋势列被挤出可视区。
 - **`GET /api/status` 有站外消费方 notifier `internal/social`（社媒草稿）**：它读 `groups[]` 的 `provider_name`/`channel_name`/`service`/`listed_days`/`interval_ms`、`layers[].current_status.{status,timestamp}`、`timeline[].{time,timestamp,availability,status_counts}`。改这些字段的形状或语义，草稿会静默算错而不报错——同步改 `notifier/internal/social/status.go`。注意组级 `current_status` 是各层**最差值**，「整家挂了」要逐层判断（social 就是这么做的）。
 
 **/api/status 查询参数**:
