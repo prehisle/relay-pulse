@@ -123,6 +123,11 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 	if err != nil || parsedBaseURL.Scheme != "https" {
 		return nil, fmt.Errorf("base_url 必须使用 HTTPS 协议")
 	}
+	// 与测试端点同一条形状约束：SameEndpoint 不比较 fragment 与空 `?`，只在测试侧拦，
+	// 提交时追加 `#x` / `?` 仍能过比对，并把模板拼出的请求路径挤歪。
+	if err := urlutil.ValidatePublicBaseShape(req.BaseURL); err != nil {
+		return nil, err
+	}
 
 	// 验证 test_api_url 与 base_url 指向同一接入点（共享 urlutil.SameEndpoint，与 change 流程
 	// 同一真相源）：不仅 host/port，路径与查询串也要一致。只比 host/port 时，可以拿
@@ -144,6 +149,11 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 	// 悄悄失效；这里一行显式比较，把它变成不依赖别处的局部事实。
 	if strings.TrimSpace(req.TestType) != strings.TrimSpace(req.ServiceType) {
 		return nil, fmt.Errorf("test_type 与 service_type 不一致，请重新测试后提交")
+	}
+
+	// 与测试端点同一条 key 规则（理由见 apikey.ValidatePublicKey）。
+	if err := apikey.ValidatePublicKey(req.APIKey); err != nil {
+		return nil, err
 	}
 
 	// 加密 API Key

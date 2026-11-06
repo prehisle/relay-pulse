@@ -4,6 +4,7 @@
 package urlutil
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 )
@@ -63,4 +64,31 @@ func normalizedPort(u *url.URL) string {
 	default:
 		return ""
 	}
+}
+
+// ValidatePublicBaseShape 拒绝公开自助流程里带查询串、fragment 或 userinfo 的 base_url。
+//
+// 当前生产配置没有一条用到这三样，公开自助流程也不支持；它们却是拿回显服务冒充模型接口的
+// 抓手：`https://httpbin.org/anything?RP_ANSWER=20&…&RP_ANSWER=198` 把全部可能的答案塞进
+// 查询串，回显里必含正确答案，算术题照样判绿（2026-11 生产日志实证）。查询串连空 `?` 也拒、
+// fragment 连空 `#` 也拒：模板按字符串拼 `{{BASE_URL}}/v1/messages`，`https://h/base?` 或
+// `https://h/base#x` 会把后缀挤进 query/fragment，实际请求的仍是 `/base`；而 SameEndpoint
+// 不比较这两样，测试与提交两侧都得在入口挡住（这一条是代码评审发现的绕过，非日志实证）。
+//
+// 只用于公开的收录/变更流程；管理员路径与调度器不受约束。
+func ValidatePublicBaseShape(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("base_url 无效")
+	}
+	if u.RawQuery != "" || u.ForceQuery {
+		return fmt.Errorf("base_url 不能带查询参数（?…），请填写接口根地址")
+	}
+	if u.Fragment != "" || strings.Contains(raw, "#") {
+		return fmt.Errorf("base_url 不能带 # 片段，请填写接口根地址")
+	}
+	if u.User != nil {
+		return fmt.Errorf("base_url 不能内嵌用户名或密码")
+	}
+	return nil
 }

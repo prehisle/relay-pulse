@@ -114,3 +114,49 @@ func TestSubmit_TestTypeMustMatchServiceType(t *testing.T) {
 		t.Fatalf("test_type 与 service_type 不一致应被拒，实际: %v", err)
 	}
 }
+
+// TestSubmit_RejectsQueryOrFragmentBaseURL 锁住提交侧的形状约束。SameEndpoint 不比较 fragment
+// 与空 `?`，所以只在测试端点拦不够：测 `https://h/base` 拿到 proof，提交 `https://h/base#x`
+// 仍能过比对，模板拼出 `…/base#x/v1/messages` 后实际请求的是 `/base`。
+func TestSubmit_RejectsQueryOrFragmentBaseURL(t *testing.T) {
+	for _, base := range []string{"https://edge.example.com/base#x", "https://edge.example.com/base?"} {
+		svc := newSubmitTestService(t)
+		_, err := svc.Submit(context.Background(), &SubmitRequest{
+			AgreementAccepted: true,
+			ProviderName:      "Prov",
+			ServiceType:       "cc",
+			TemplateName:      "cc-haiku-arith",
+			ChannelType:       "O",
+			ChannelSource:     "max",
+			ChannelGroup:      "main",
+			BaseURL:           base,
+			TestAPIURL:        "https://edge.example.com/base",
+		}, "1.2.3.4")
+		if err == nil || !strings.Contains(err.Error(), "base_url 不能带") {
+			t.Fatalf("%q 应因形状约束被拒，实际: %v", base, err)
+		}
+	}
+}
+
+// TestSubmit_RejectsKeyWithSurroundingWhitespace 锁住提交侧与测试端点同一条 key 规则：
+// 首尾带空白的 key 被 Go 发请求时裁掉，回显回来已不是原样，回显检测因此失效。
+// HTTP 层的 binding 只管长度，这条只在 Service 里守。
+func TestSubmit_RejectsKeyWithSurroundingWhitespace(t *testing.T) {
+	svc := newSubmitTestService(t)
+	_, err := svc.Submit(context.Background(), &SubmitRequest{
+		AgreementAccepted: true,
+		ProviderName:      "Prov",
+		ServiceType:       "cc",
+		TemplateName:      "cc-haiku-arith",
+		ChannelType:       "O",
+		ChannelSource:     "max",
+		ChannelGroup:      "main",
+		BaseURL:           "https://api.example.com",
+		TestAPIURL:        "https://api.example.com",
+		TestType:          "cc",
+		APIKey:            "abcdefghijk ",
+	}, "1.2.3.4")
+	if err == nil || !strings.Contains(err.Error(), "首尾") {
+		t.Fatalf("首尾带空白的 key 应被拒，实际: %v", err)
+	}
+}

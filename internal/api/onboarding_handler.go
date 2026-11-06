@@ -15,6 +15,7 @@ import (
 	"monitor/internal/modelvendor"
 	"monitor/internal/onboarding"
 	"monitor/internal/probe"
+	"monitor/internal/urlutil"
 )
 
 // OnboardingMetaResponse 申请表单元数据
@@ -193,7 +194,8 @@ type inlineTestRequest struct {
 	ServiceType  string `json:"service_type" binding:"required"`
 	TemplateName string `json:"template_name" binding:"required"`
 	BaseURL      string `json:"base_url" binding:"required"`
-	APIKey       string `json:"api_key" binding:"required"`
+	// 长度与首尾空白由 bind 之后的 apikey.ValidatePublicKey 校验（两条测试端点共用）。
+	APIKey string `json:"api_key" binding:"required"`
 	// TargetKey 是变更流程的目标通道（`provider--service--channel`），**仅变更流程使用**。
 	// 不能标 binding:"required"：收录流程共用本结构体，那里根本没有已存在的通道可指。
 	TargetKey string `json:"target_key"`
@@ -215,6 +217,11 @@ func (h *Handler) inlineTestGuards(c *gin.Context) bool {
 
 // validateProbeTargetURL 对用户给出的探测目标做 SSRF 前置校验。
 func (h *Handler) validateProbeTargetURL(c *gin.Context, rawURL string) bool {
+	// 纯语法的形状检查放在要查 DNS 的 SSRF 守卫之前：失败原因更确定，也不必为它发一次解析。
+	if err := urlutil.ValidatePublicBaseShape(rawURL); err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, err.Error())
+		return false
+	}
 	guard := probe.NewSSRFGuard()
 	if err := guard.ValidateURL(rawURL); err != nil {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "URL 安全校验失败: "+err.Error())
@@ -251,6 +258,10 @@ func (h *Handler) bindOnboardingTestRequest(c *gin.Context) (inlineTestRequest, 
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "请求参数无效: "+err.Error())
+		return req, false
+	}
+	if err := apikey.ValidatePublicKey(req.APIKey); err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, err.Error())
 		return req, false
 	}
 	if !h.validateProbeTargetURL(c, req.BaseURL) {
@@ -295,6 +306,10 @@ func (h *Handler) bindInlineTestRequest(c *gin.Context) (inlineTestRequest, bool
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, "请求参数无效: "+err.Error())
+		return req, false
+	}
+	if err := apikey.ValidatePublicKey(req.APIKey); err != nil {
+		apiError(c, http.StatusBadRequest, ErrCodeInvalidParam, err.Error())
 		return req, false
 	}
 	if !h.validateProbeTargetURL(c, req.BaseURL) {

@@ -1862,3 +1862,39 @@ func TestService_Submit_ProofBindsVariantAndTarget(t *testing.T) {
 		}
 	})
 }
+
+// TestService_Submit_RejectsBadBaseShapeAndShortNewKey 锁住变更提交侧与公开测试端点同口径的
+// 两条约束：新 base_url 不许带查询串/fragment（理由见 urlutil.ValidatePublicBaseShape），
+// 新 key 不许短于 10 个字符（过短会让测试端点的回显检测失效）。
+func TestService_Submit_RejectsBadBaseShapeAndShortNewKey(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("base_url 带 fragment", func(t *testing.T) {
+		svc, store := newTestService(t)
+		_, err := svc.Submit(ctx, &SubmitRequest{
+			APIKey:            "sk-test-key-12345",
+			TargetKey:         "testprov--cc--vip",
+			ProposedChanges:   map[string]string{"base_url": "https://api.test.com#x"},
+			AgreementAccepted: true,
+		}, "127.0.0.1")
+		if err == nil || !strings.Contains(err.Error(), "base_url 不能带") {
+			t.Fatalf("带 fragment 的 base_url 应被拒，实际: %v", err)
+		}
+		if _, total, _ := store.List(ctx, "all", 10, 0); total != 0 {
+			t.Fatalf("被拒请求不应落库，实际 total=%d", total)
+		}
+	})
+
+	t.Run("新 key 过短", func(t *testing.T) {
+		svc, _ := newTestService(t)
+		_, err := svc.Submit(ctx, &SubmitRequest{
+			APIKey:            "sk-test-key-12345",
+			TargetKey:         "testprov--cc--vip",
+			NewAPIKey:         "short",
+			AgreementAccepted: true,
+		}, "127.0.0.1")
+		if err == nil || !strings.Contains(err.Error(), "过短") {
+			t.Fatalf("过短的新 key 应被拒，实际: %v", err)
+		}
+	})
+}

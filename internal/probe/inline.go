@@ -129,10 +129,15 @@ func (p *internalProber) probe(ctx context.Context, cfg *config.ServiceConfig, c
 	result.Status = status
 	result.SubStatus = sub
 
+	// 先脱敏再截断：响应里若带着 key（回显服务就是如此），截断点可能正好切在 key 中间，
+	// 事后再替换会留下半截。展示用的两种摘要都从这份脱敏副本生成；内容校验仍读原始 body。
+	keyForms := echoedKeyForms(cfg.APIKey)
+	displayBody := []byte(redactSecrets(string(body), keyForms))
+
 	if len(body) > 0 {
 		// 展示用语义：抽不到正文时退回响应体原文，否则管理后台点一次探测
 		// 就看不到上游错误（内容校验那侧刻意相反，见 monitor.ResponseSnippetText）。
-		snippet := monitor.ResponseSnippetText(body)
+		snippet := monitor.ResponseSnippetText(displayBody)
 		const maxSnippetLen = 512
 		if len(snippet) > maxSnippetLen {
 			snippet = snippet[:maxSnippetLen] + "... (truncated)"
@@ -140,15 +145,28 @@ func (p *internalProber) probe(ctx context.Context, cfg *config.ServiceConfig, c
 		result.ResponseSnippet = snippet
 	}
 
+	// 回显检测：2xx 响应里出现了本次请求的 API Key，作为「请求内容被原样吐回」的判据，
+	// 拒绝本次探测（针对 httpbin / postman-echo 一类会回传请求头的回显服务）。不做这道检查时，
+	// ping 模板的 `pong` 本就写在请求里，回显即判绿。只认 key、不认题面：真模型的思考可能逐字
+	// 引用题目，按题面判会冤枉正常通道。代价：key 恰好是普通单词（如 `completion`）的自建网关
+	// 会被误判——这是本准入规则接受的兼容性代价。只回显 body 的服务不在本检查范围内。
+	if result.Status != 0 && containsAny(body, keyForms) {
+		result.Status = 0
+		result.SubStatus = "content_mismatch"
+		result.Err = fmt.Errorf("响应里出现了请求所用的 API Key，检测到请求内容回显，未通过探测校验")
+		return result
+	}
+
 	if result.Status != 0 && strings.TrimSpace(probeSuccessContains) != "" {
 		text := monitor.AggregateResponseText(body)
 		if text == "" || !strings.Contains(text, probeSuccessContains) {
 			result.Status = 0
 			result.SubStatus = "content_mismatch"
-			// 与 scheduler 侧逐字同口径：内容校验失败时给结构化诊断，而不是响应体头部片段。
+			// 与 scheduler 侧同口径（摘要格式与诊断一致；这里喂的是脱敏后的 body，key 处不逐字）：
+			// 内容校验失败时给结构化诊断，而不是响应体头部片段。
 			// 两边说法必须一致——同一次失败，管理员从「点探测」和从「探测历史」看到的
 			// 若是两种解释，排障时无从判断该信哪个。
-			result.ResponseSnippet = monitor.BuildContentMismatchSummary(body, probeSuccessContains)
+			result.ResponseSnippet = monitor.BuildContentMismatchSummary(displayBody, probeSuccessContains)
 			result.Err = fmt.Errorf("响应内容未包含预期关键字")
 			return result
 		}

@@ -86,3 +86,33 @@ func TestSameEndpoint(t *testing.T) {
 		t.Error("nil 输入不应判为同一接入点")
 	}
 }
+
+// TestValidatePublicBaseShape 锁住公开流程 base_url 的形状约束：查询串、fragment（含空 `?`/`#`）
+// 与 userinfo 一律拒。查询串是 2026-11 回显服务作弊的实际手法（把全部答案塞进去）；
+// 空 `?` / `#x` 是评审发现的绕过（提交时追加，SameEndpoint 比对放行、却把模板拼出的路径挤歪）。
+func TestValidatePublicBaseShape(t *testing.T) {
+	ok := []string{
+		"https://api.example.com",
+		"https://api.example.com/",
+		"https://api.example.com/openai",
+		"https://api.example.com:8443/v1",
+	}
+	for _, raw := range ok {
+		if err := ValidatePublicBaseShape(raw); err != nil {
+			t.Errorf("%q 应通过，实际: %v", raw, err)
+		}
+	}
+	bad := []string{
+		"https://httpbin.org/anything?RP_ANSWER=20&RP_ANSWER=21",
+		"https://httpbin.org/response-headers?pong=1",
+		"https://api.example.com/base?",
+		"https://api.example.com/base#x",
+		"https://api.example.com/base#",
+		"https://user:pass@api.example.com",
+	}
+	for _, raw := range bad {
+		if err := ValidatePublicBaseShape(raw); err == nil {
+			t.Errorf("%q 应被拒", raw)
+		}
+	}
+}

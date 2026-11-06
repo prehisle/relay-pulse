@@ -191,3 +191,159 @@ func TestInlineProbe_ContentMismatchSnippetMatchesScheduler(t *testing.T) {
 		t.Errorf("摘要应指认终止事件，实际:\n%s", result.ResponseSnippet)
 	}
 }
+
+// TestInlineProbe_EchoedAPIKeyFailsContentCheck 锁住回显检测：2xx 响应里出现本次请求的 key
+// （原文或 JSON 转义后的样子）就判 content_mismatch，哪怕 success_contains 命中。这是 2026-11
+// 生产实际被用的手法——ping 模板的 `pong` 写在请求里，httpbin /anything 把整个请求连同
+// 认证头吐回来即判绿。返回给调用方的摘要里 key 必须已脱敏。
+func TestInlineProbe_EchoedAPIKeyFailsContentCheck(t *testing.T) {
+	const apiKey = "sk-echo/Test+Key<1234567890"
+	cases := []struct {
+		name   string
+		echo   func(r *http.Request, body []byte) []byte
+		wantOK bool
+	}{
+		{
+			name: "httpbin 式回显（请求头 JSON 化，含 key 原文）",
+			echo: func(r *http.Request, body []byte) []byte {
+				out, _ := json.Marshal(map[string]any{
+					"headers": map[string]string{"Authorization": r.Header.Get("Authorization")},
+					"data":    string(body),
+				})
+				return out
+			},
+		},
+		{
+			name: "斜杠被转义成 \\/ 的回显",
+			echo: func(r *http.Request, body []byte) []byte {
+				out, _ := json.Marshal(map[string]any{
+					"headers": map[string]string{"Authorization": r.Header.Get("Authorization")},
+					"data":    string(body),
+				})
+				return []byte(strings.ReplaceAll(string(out), "/", `\/`))
+			},
+		},
+		{
+			name:   "正常模型应答不受影响",
+			echo:   func(*http.Request, []byte) []byte { return []byte(`{"content":[{"type":"text","text":"pong"}]}`) },
+			wantOK: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(tc.echo(r, body))
+			}))
+			defer srv.Close()
+
+			cfg := &config.ServiceConfig{
+				Provider:        "probe",
+				Service:         "cc",
+				BaseURL:         srv.URL,
+				URLPattern:      "{{BASE_URL}}",
+				Method:          http.MethodPost,
+				Headers:         map[string]string{"Authorization": "Bearer {{API_KEY}}"},
+				Body:            `{"system":"Only reply pong.","messages":[{"role":"user","content":"ping"}]}`,
+				APIKey:          apiKey,
+				SuccessContains: "pong",
+				TimeoutDuration: 5 * time.Second,
+			}
+			p := &internalProber{
+				client:       srv.Client(),
+				maxBodyBytes: DefaultMaxResponseBytes,
+				uidMgr:       identity.NewUserIDManager(),
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			result := p.probe(ctx, cfg, false, "")
+			if tc.wantOK {
+				if result.Status != 1 {
+					t.Fatalf("正常应答应判绿，实际 (%d, %q) err=%v", result.Status, result.SubStatus, result.Err)
+				}
+				return
+			}
+			if result.Status != 0 || result.SubStatus != "content_mismatch" {
+				t.Fatalf("回显应判 (0, content_mismatch)，实际 (%d, %q)", result.Status, result.SubStatus)
+			}
+			if result.Err == nil || !strings.Contains(result.Err.Error(), "回显") {
+				t.Errorf("错误信息应说明是回显，实际: %v", result.Err)
+			}
+			for _, form := range echoedKeyForms(apiKey) {
+				if strings.Contains(result.ResponseSnippet, form) {
+					t.Errorf("摘要里不应出现 key（形态 %q）:\n%s", form, result.ResponseSnippet)
+				}
+			}
+			if strings.Contains(result.ResponseSnippet, "1234567890") {
+				t.Errorf("摘要里不应残留 key 片段:\n%s", result.ResponseSnippet)
+			}
+		})
+	}
+}
+
+// TestInlineProbe_EchoFormsAndRedactionEdges 补三种边界：
+//   - 手写的 JSON 回显，`/` 写成 `\/` 而 `<` 保留原样（多数语言序列化器关 HTML 转义时的样子），
+//     不能靠 Go json.Marshal 生成样本，否则只是在验证实现自己生成的组合；
+//   - 非 2xx 响应同样脱敏（这条路径不进回显判定，但摘要会返回给调用方）；
+//   - key 正好跨过 512 字节截断点时不能残留前半截（先脱敏再截断）。
+func TestInlineProbe_EchoFormsAndRedactionEdges(t *testing.T) {
+	const apiKey = "sk-edge/Key<abcdef123"
+	cases := []struct {
+		name       string
+		status     int
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "手写 JSON：斜杠转义、尖括号原样",
+			status:     http.StatusOK,
+			body:       `{"headers":{"Authorization":"Bearer sk-edge\/Key<abcdef123"},"data":"Only reply pong."}`,
+			wantStatus: 0,
+		},
+		{
+			name:       "非 2xx 回显也脱敏",
+			status:     http.StatusUnauthorized,
+			body:       `{"error":"invalid key: sk-edge/Key<abcdef123"}`,
+			wantStatus: 0,
+		},
+		{
+			name:       "key 跨过 512 字节截断点",
+			status:     http.StatusUnauthorized,
+			body:       strings.Repeat("x", 500) + apiKey + strings.Repeat("y", 100),
+			wantStatus: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			cfg := &config.ServiceConfig{
+				Provider: "probe", Service: "cc", BaseURL: srv.URL, URLPattern: "{{BASE_URL}}",
+				Method: http.MethodPost, Headers: map[string]string{"Authorization": "Bearer {{API_KEY}}"},
+				Body: `{}`, APIKey: apiKey, SuccessContains: "pong", TimeoutDuration: 5 * time.Second,
+			}
+			p := &internalProber{client: srv.Client(), maxBodyBytes: DefaultMaxResponseBytes, uidMgr: identity.NewUserIDManager()}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			result := p.probe(ctx, cfg, false, "")
+			if result.Status != tc.wantStatus {
+				t.Fatalf("status 期望 %d，实际 %d (%q)", tc.wantStatus, result.Status, result.SubStatus)
+			}
+			if tc.status == http.StatusOK && (result.Err == nil || !strings.Contains(result.Err.Error(), "回显")) {
+				t.Errorf("2xx 回显应按回显拒绝，实际 err=%v", result.Err)
+			}
+			for _, leak := range []string{"abcdef123", `sk-edge\/Key`, "sk-edge/Key"} {
+				if strings.Contains(result.ResponseSnippet, leak) {
+					t.Errorf("摘要残留 key 片段 %q:\n%s", leak, result.ResponseSnippet)
+				}
+			}
+		})
+	}
+}

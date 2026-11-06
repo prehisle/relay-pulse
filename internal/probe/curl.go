@@ -1,6 +1,8 @@
 package probe
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"sort"
@@ -46,6 +48,70 @@ func secretVariants(apiKey string) []string {
 	}
 	sort.Slice(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
 	return out
+}
+
+// echoedKeyForms 是 apiKey 在回显响应里可能呈现的形态：secretVariants 的原文/URL 编码，
+// 外加 JSON 字符串转义后的样子（回显服务多以 JSON 返回请求头，`/` 可能写成 `\/`，
+// `<>&` 会被 Go 一类序列化器写成 `\u003c` 等）。长度门槛沿用 secretVariants：
+// 太短的串在正常响应里也可能偶然出现，宁可不检。按长度降序，供 redactSecrets 先替换长的。
+func echoedKeyForms(apiKey string) []string {
+	base := secretVariants(apiKey)
+	if len(base) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(v string) {
+		if v == "" {
+			return
+		}
+		if _, ok := seen[v]; ok {
+			return
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	for _, v := range base {
+		add(v)
+		// 两种常见的 JSON 字符串写法：HTML 转义开（Go 默认，`<>&` 写成 `\u003c` 等）与关
+		// （多数语言的默认），各自再配一个 `/` 写成 `\/` 的版本。任意 `\uXXXX` 改写不在范围内。
+		for _, escapeHTML := range []bool{true, false} {
+			escaped, ok := jsonStringBody(v, escapeHTML)
+			if !ok {
+				continue
+			}
+			add(escaped)
+			add(strings.ReplaceAll(escaped, "/", `\/`))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
+	return out
+}
+
+// jsonStringBody 返回 v 序列化成 JSON 字符串后去掉外围那一对引号的内容。只剥首尾各一个
+// 字节——strings.Trim 会把 key 末尾转义引号的那个 `"` 也吃掉，留下悬空的反斜杠。
+func jsonStringBody(v string, escapeHTML bool) (string, bool) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(escapeHTML)
+	if err := enc.Encode(v); err != nil {
+		return "", false
+	}
+	quoted := bytes.TrimSuffix(buf.Bytes(), []byte("\n")) // Encode 末尾自带换行
+	if len(quoted) < 2 {
+		return "", false
+	}
+	return string(quoted[1 : len(quoted)-1]), true
+}
+
+// containsAny 报告 body 是否包含 needles 中任一非空串。
+func containsAny(body []byte, needles []string) bool {
+	for _, n := range needles {
+		if n != "" && bytes.Contains(body, []byte(n)) {
+			return true
+		}
+	}
+	return false
 }
 
 // redactSecrets 把 s 中所有密钥变体替换成中性占位符，用于错误文案/日志等非 shell 文本。

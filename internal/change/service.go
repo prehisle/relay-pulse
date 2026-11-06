@@ -222,6 +222,10 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 		if err != nil || parsedNew.Hostname() == "" || parsedNew.Scheme != "https" {
 			return nil, fmt.Errorf("base_url 必须使用 HTTPS 协议且包含有效 hostname")
 		}
+		// 与公开测试端点同一条形状约束（理由见 urlutil.ValidatePublicBaseShape）。
+		if err := urlutil.ValidatePublicBaseShape(newBaseURL); err != nil {
+			return nil, err
+		}
 	}
 
 	// 判断是否需要测试
@@ -235,6 +239,11 @@ func (s *Service) Submit(ctx context.Context, req *SubmitRequest, clientIP strin
 	// 新 API Key 也需要测试
 	if req.NewAPIKey != "" {
 		requiresTest = true
+
+		// 与公开测试端点同一规则（理由见 apikey.ValidatePublicKey）。
+		if err := apikey.ValidatePublicKey(req.NewAPIKey); err != nil {
+			return nil, fmt.Errorf("新 %w", err)
+		}
 
 		// 轮换目标不能又是一把已公开泄露的 key——否则"换 key"等于原地踏步，
 		// 且会把一把公开可用的凭据重新写回监测配置。
