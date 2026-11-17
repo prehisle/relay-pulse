@@ -347,3 +347,61 @@ func TestInlineProbe_EchoFormsAndRedactionEdges(t *testing.T) {
 		})
 	}
 }
+
+// TestInlineProbe_MultipleArithAnswersFail 锁住多答案检测：2026-11 生产上有人把
+// RP_ANSWER=0..N 全部列在静态页面里，或塞进 URL 路径让 httpbin 吐回来，子串匹配必然命中。
+func TestInlineProbe_MultipleArithAnswersFail(t *testing.T) {
+	cases := []struct {
+		name   string
+		reply  string
+		wantOK bool
+	}{
+		{name: "列出全部答案", reply: "RP_ANSWER=1,RP_ANSWER=2,RP_ANSWER=169,RP_ANSWER=170"},
+		{name: "更长的数字算另一个答案", reply: "RP_ANSWER=1690 RP_ANSWER=169"},
+		{name: "只回预期答案", reply: "RP_ANSWER=169", wantOK: true},
+		{name: "同一个答案重复两次", reply: "RP_ANSWER=169\nRP_ANSWER=169", wantOK: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				out, _ := json.Marshal(map[string]any{"content": []map[string]string{{"type": "text", "text": tc.reply}}})
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(out)
+			}))
+			defer srv.Close()
+
+			cfg := &config.ServiceConfig{
+				Provider:        "probe",
+				Service:         "cc",
+				BaseURL:         srv.URL,
+				URLPattern:      "{{BASE_URL}}",
+				Method:          http.MethodPost,
+				Headers:         map[string]string{},
+				Body:            `{}`,
+				SuccessContains: "RP_ANSWER=169",
+				TimeoutDuration: 5 * time.Second,
+			}
+			p := &internalProber{client: srv.Client(), maxBodyBytes: DefaultMaxResponseBytes, uidMgr: identity.NewUserIDManager()}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			result := p.probe(ctx, cfg, false, "")
+			if tc.wantOK {
+				if result.Status != 1 {
+					t.Fatalf("应判绿，实际 (%d, %q) err=%v", result.Status, result.SubStatus, result.Err)
+				}
+				return
+			}
+			if result.Status != 0 || result.SubStatus != "content_mismatch" {
+				t.Fatalf("应判 (0, content_mismatch)，实际 (%d, %q)", result.Status, result.SubStatus)
+			}
+		})
+	}
+}
+
+func TestHasConflictingArithAnswer_NonArithExpected(t *testing.T) {
+	if hasConflictingArithAnswer("pong RP_ANSWER=1 RP_ANSWER=2", "pong") {
+		t.Error("非算术题的预期值不应触发多答案检测")
+	}
+}

@@ -20,6 +20,13 @@ func ValidatePublicKey(key string) error {
 	if strings.TrimFunc(key, unicode.IsSpace) != key {
 		return fmt.Errorf("API Key 首尾不能有空格或换行，请检查是否多复制了空白")
 	}
+	// 只收可打印 ASCII：真实 API Key 不会有别的字符。非 ASCII 字节会被回显服务按 latin-1
+	// 解码后重新编码（é 回来变成 Ã©），回显检测就认不出这把 key 了——2026-11 有人这样绕过。
+	for _, r := range key {
+		if r < 0x21 || r > 0x7e {
+			return fmt.Errorf("API Key 只能包含英文字母、数字和常见符号，不能有空格、中文或其他特殊字符")
+		}
+	}
 	if utf8.RuneCountInString(key) < MinPublicKeyLen {
 		return fmt.Errorf("API Key 过短（至少 %d 个字符）", MinPublicKeyLen)
 	}

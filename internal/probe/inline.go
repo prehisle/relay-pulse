@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -170,9 +171,41 @@ func (p *internalProber) probe(ctx context.Context, cfg *config.ServiceConfig, c
 			result.Err = fmt.Errorf("响应内容未包含预期关键字")
 			return result
 		}
+		// 多答案检测：算术题的校验是子串匹配，把所有可能的和一并列出（静态页面、或把答案塞进
+		// URL 路径让回显服务吐回来）就必然命中其中一个。题面要求只回一个数，正文里出现与预期
+		// 不同的第二个 RP_ANSWER 即判失败。与子串匹配读同一份 text：当前自助可见的 cc/cx 模板都是
+		// 流式，标准 SSE 的思考字段不参与匹配；非流式响应则是整个 body，其中的思考或正文里「先答错
+		// 再改」都会被拒，这是本准入判据接受的代价（自助可见的非流式 arith 模板只有 gm——设了
+		// thinkingBudget 0——与 kiro，2026-11 核对）。只作用于内联探测，不改定时探测。
+		if hasConflictingArithAnswer(text, probeSuccessContains) {
+			result.Status = 0
+			result.SubStatus = "content_mismatch"
+			result.ResponseSnippet = monitor.BuildContentMismatchSummary(displayBody, probeSuccessContains)
+			result.Err = fmt.Errorf("响应里给出了多个不同的答案，未通过探测校验")
+			return result
+		}
 	}
 
 	return result
+}
+
+// arithAnswerPattern 匹配算术题答案的写法（RP_ANSWER=<和>，见 monitor.prompt.go）。
+var arithAnswerPattern = regexp.MustCompile(`RP_ANSWER=(\d+)`)
+
+// hasConflictingArithAnswer 报告 text 里是否有与 expected 不同的 RP_ANSWER 值。expected 不是
+// 算术题答案形态（如 ping 模板的 pong）时恒为 false。数字按整段比较：RP_ANSWER=1690 不算
+// 预期 RP_ANSWER=169 的「命中」，而算作另一个答案。
+func hasConflictingArithAnswer(text, expected string) bool {
+	m := arithAnswerPattern.FindStringSubmatch(strings.TrimSpace(expected))
+	if m == nil || m[0] != strings.TrimSpace(expected) {
+		return false
+	}
+	for _, got := range arithAnswerPattern.FindAllStringSubmatch(text, -1) {
+		if got[1] != m[1] {
+			return true
+		}
+	}
+	return false
 }
 
 // errResponseTooLarge 标记"响应体超过上限"这一**特定**失败，与读取过程中的 I/O
