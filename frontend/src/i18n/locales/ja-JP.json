@@ -233,7 +233,16 @@
       "candidateAlt": "このチャネルのイラスト（{{time}}）",
       "officialAlt": "同じグループの公式イラスト",
       "failed": "描画失敗",
-      "none": "イラストなし"
+      "none": "イラストなし",
+      "clickHint": "画像をクリックすると拡大表示とソースを確認できます。",
+      "openViewer": "拡大表示とソース",
+      "viewerTitle": "イラストの詳細",
+      "candidateTitle": "このチャネルのイラスト",
+      "showSource": "ソース",
+      "hideSource": "ソースを閉じる",
+      "copySource": "ソースをコピー",
+      "copied": "コピーしました",
+      "viewerNote": "1 枚のイラストは参考程度です。公式モデル自身も異なる画風で描くことがあります。"
     }
   },
   "card": {

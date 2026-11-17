@@ -233,7 +233,16 @@
       "candidateAlt": "Channel drawing ({{time}})",
       "officialAlt": "Official drawing from the same group",
       "failed": "Drawing failed",
-      "none": "No drawing"
+      "none": "No drawing",
+      "clickHint": "Click a drawing to enlarge it and view its source.",
+      "openViewer": "View larger with source",
+      "viewerTitle": "Drawing details",
+      "candidateTitle": "This channel",
+      "showSource": "Source",
+      "hideSource": "Hide source",
+      "copySource": "Copy source",
+      "copied": "Copied",
+      "viewerNote": "A single drawing is only a rough reference: official models also draw in varying styles."
     }
   },
   "card": {

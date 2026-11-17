@@ -233,7 +233,16 @@
       "candidateAlt": "该通道的画作（{{time}}）",
       "officialAlt": "同组官方的画作",
       "failed": "画图失败",
-      "none": "无画作"
+      "none": "无画作",
+      "clickHint": "点击图片看大图和源码。",
+      "openViewer": "查看大图和源码",
+      "viewerTitle": "画作详情",
+      "candidateTitle": "该通道的画作",
+      "showSource": "源码",
+      "hideSource": "收起源码",
+      "copySource": "复制源码",
+      "copied": "已复制",
+      "viewerNote": "单次画作仅供参考：官方模型自己也会画出不同风格。"
     }
   },
   "card": {

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HoverTooltip } from '../HoverTooltip';
+import { DrawingViewer } from './DrawingViewer';
 import { getDrawing, requestDrawings, subscribeDrawings } from '../../utils/drawingFetcher';
 import { pickRecentRuns, svgDataUri, type DrawingRun } from '../../utils/drawingRuns';
 import type { RpdiagDrawing, RpdiagScore } from '../../types/monitor';
@@ -23,6 +24,10 @@ export function DrawingCell({ score }: { score: RpdiagScore | undefined }) {
   const [, setVersion] = useState(0);
   // 7 天的门槛不需要逐秒精确，挂载时的时间足够
   const [mountedAt] = useState(() => Date.now());
+  // 大图弹窗当前打开的是第几幅（null＝未打开）
+  const [viewing, setViewing] = useState<number | null>(null);
+  const closeViewer = useCallback(() => setViewing(null), []);
+  const thumbButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => subscribeDrawings(() => setVersion((v) => v + 1)), []);
 
@@ -73,12 +78,18 @@ export function DrawingCell({ score }: { score: RpdiagScore | undefined }) {
   const content = (
     <span className="flex flex-col gap-2 p-1">
       <span className="flex gap-2">
-        {runs.map((run) => (
-          <DrawingCard key={run.taskId} run={run} drawing={getDrawing(run.taskId)} time={fmtTime(run.runAt)} />
+        {runs.map((run, i) => (
+          <DrawingCard
+            key={run.taskId}
+            run={run}
+            drawing={getDrawing(run.taskId)}
+            time={fmtTime(run.runAt)}
+            onOpen={() => setViewing(i)}
+          />
         ))}
       </span>
       <span className="text-muted text-[10px] leading-snug">
-        {t('table.drawing.tooltipNote')}
+        {t('table.drawing.clickHint')} {t('table.drawing.tooltipNote')}
         {score?.channel_url && (
           <>
             {' '}
@@ -96,27 +107,48 @@ export function DrawingCell({ score }: { score: RpdiagScore | undefined }) {
     </span>
   );
 
+  // 弹窗放在 HoverTooltip 外面：它是 portal，但 React 事件仍按组件树冒泡，放在触发器里
+  // 会让指针移进弹窗时被当成「悬停在格子上」，浮层一直开在弹窗背后。
   return (
     <span ref={ref} className="inline-flex">
       <HoverTooltip content={content} widthClass="w-auto max-w-[90vw]">
-        <span className={stale ? 'opacity-40' : undefined}>
+        <button
+          ref={thumbButtonRef}
+          type="button"
+          onClick={() => setViewing(0)}
+          className={`cursor-zoom-in ${stale ? 'opacity-40' : ''}`}
+          aria-label={t('table.drawing.openViewer')}
+        >
           <DrawingThumb
             drawing={latestDrawing}
             size={36}
             label={t(stale ? 'table.drawing.staleAlt' : 'table.drawing.latestAlt', { time: fmtTime(latest.runAt) })}
           />
-        </span>
+        </button>
       </HoverTooltip>
+      {viewing !== null && (
+        <DrawingViewer runs={runs} initialIndex={viewing} formatTime={fmtTime} onClose={closeViewer} fallbackFocus={thumbButtonRef} />
+      )}
     </span>
   );
 }
 
-function DrawingCard({ run, drawing, time }: { run: DrawingRun; drawing: RpdiagDrawing | null | undefined; time: string }) {
+function DrawingCard({
+  run,
+  drawing,
+  time,
+  onOpen,
+}: {
+  run: DrawingRun;
+  drawing: RpdiagDrawing | null | undefined;
+  time: string;
+  onOpen: () => void;
+}) {
   const { t } = useTranslation();
   const officialSvg = drawing?.official?.svg;
   return (
     <span className="flex flex-col items-center gap-1">
-      <span className="relative">
+      <button type="button" onClick={onOpen} className="relative cursor-zoom-in" aria-label={t('table.drawing.openViewer')}>
         <DrawingThumb drawing={drawing} size={132} label={t('table.drawing.candidateAlt', { time })} />
         {officialSvg && (
           <span className="absolute -right-1 -bottom-1 rounded border border-accent/60 bg-white shadow">
@@ -130,7 +162,7 @@ function DrawingCard({ run, drawing, time }: { run: DrawingRun; drawing: RpdiagD
             />
           </span>
         )}
-      </span>
+      </button>
       <span className="text-[10px] text-secondary">{time}</span>
       {run.model && <span className="max-w-[132px] truncate text-[10px] text-muted">{run.model}</span>}
     </span>
